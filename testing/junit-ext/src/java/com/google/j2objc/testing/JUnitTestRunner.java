@@ -16,6 +16,7 @@ package com.google.j2objc.testing;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.j2objc.annotations.AutoreleasePool;
 import com.google.j2objc.annotations.WeakOuter;
 
 import junit.framework.Test;
@@ -44,7 +45,6 @@ import java.util.Random;
 import java.util.Set;
 
 /*-[
-#include <vector>
 #include <objc/runtime.h>
 ]-*/
 
@@ -121,8 +121,12 @@ public class JUnitTestRunner {
   public static int run(Class[] classes, RunListener listener) {
     JUnitCore junitCore = new JUnitCore();
     junitCore.addListener(listener);
-    Result result = junitCore.run(classes);
-    return result.wasSuccessful() ? 0 : 1;
+    boolean hasError = false;
+    for (@AutoreleasePool Class c : classes) {
+      Result result = junitCore.run(c);
+      hasError = hasError || !result.wasSuccessful();
+    }
+    return hasError ? 1 : 0;
   }
 
   /**
@@ -209,19 +213,19 @@ public class JUnitTestRunner {
    */
   private native Set<Class> getAllTestClasses() /*-[
     int classCount = objc_getClassList(NULL, 0);
-    std::vector<Class> classVector;
-    classVector.resize(classCount);
-    objc_getClassList(&classVector.front(), classCount);
+    Class *classes = (Class *)malloc(classCount * sizeof(Class));
+    objc_getClassList(classes, classCount);
     id<JavaUtilSet> result = [ComGoogleCommonCollectSets newHashSet];
-    for (std::vector<Class>::iterator i = classVector.begin(); i != classVector.end(); i++) {
-      Class const& cls = *i;
+    for (int i = 0; i < classCount; i++) {
+      Class cls = classes[i];
       if (IsNSObjectClass(cls)) {
-        IOSClass *javaClass = [IOSClass classWithClass:cls];
+        IOSClass *javaClass = IOSClass_fromClass(cls);
         if ([self isJUnitTestClassWithIOSClass:javaClass]) {
           [result addWithId:javaClass];
         }
       }
     }
+    free(classes);
     return result;
   ]-*/;
 

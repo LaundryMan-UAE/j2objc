@@ -37,7 +37,7 @@
 
 - (instancetype)initWithClass:(Class)cls {
   if ((self = [super init])) {
-    class_ = RETAIN_(cls);
+    class_ = cls;
   }
   return self;
 }
@@ -54,7 +54,7 @@
 - (IOSClass *)getSuperclass {
   Class superclass = [class_ superclass];
   if (superclass != nil) {
-    return [IOSClass classWithClass:superclass];
+    return IOSClass_fromClass(superclass);
   }
   return nil;
 }
@@ -64,7 +64,7 @@
   if (!superclass) {
     return nil;
   }
-  IOSClass *rawType = [IOSClass classWithClass:superclass];
+  IOSClass *rawType = IOSClass_fromClass(superclass);
   IOSObjectArray *typeArgs = nil;
   JavaClassMetadata *metadata = [self getMetadata];
   if (metadata) {
@@ -113,7 +113,7 @@
   JavaClassMetadata *metadata = [self getMetadata];
   if (metadata) {
     return (metadata.modifiers & JavaLangReflectModifier_ENUM) > 0 &&
-        [self getSuperclass] == [JavaLangEnum getClass];
+        [self getSuperclass] == JavaLangEnum_class_();
   } else {
     return class_ != nil && [NSStringFromClass(class_) hasSuffix:@"Enum"];
   }
@@ -232,8 +232,8 @@ IOSObjectArray *getConstructorsImpl(IOSConcreteClass *clazz, BOOL publicOnly) {
     }
     return nil;
   });
-  return [IOSObjectArray arrayWithNSArray:[methodMap allValues] type:
-          [IOSClass classWithClass:[JavaLangReflectConstructor class]]];
+  return [IOSObjectArray arrayWithNSArray:[methodMap allValues]
+      type:JavaLangReflectConstructor_class_()];
 }
 
 - (IOSObjectArray *)getDeclaredConstructors {
@@ -244,7 +244,8 @@ IOSObjectArray *getConstructorsImpl(IOSConcreteClass *clazz, BOOL publicOnly) {
   return getConstructorsImpl(self, YES);
 }
 
-- (JavaLangReflectMethod *)findMethodWithTranslatedName:(NSString *)objcName {
+- (JavaLangReflectMethod *)findMethodWithTranslatedName:(NSString *)objcName
+                                        checkSupertypes:(BOOL)checkSupertypes {
   const char *name = [objcName UTF8String];
   BOOL isStatic = NO;
   Method method = JreFindInstanceMethod(class_, name);
@@ -268,8 +269,7 @@ IOSObjectArray *getConstructorsImpl(IOSConcreteClass *clazz, BOOL publicOnly) {
 }
 
 static JavaLangReflectConstructor *GetConstructorImpl(
-    IOSConcreteClass *iosClass, IOSObjectArray *paramTypes) {
-  NSString *name = IOSClass_GetTranslatedMethodName(nil, @"init", paramTypes);
+    IOSConcreteClass *iosClass, NSString *name) {
   Method method = JreFindInstanceMethod(iosClass->class_, [name UTF8String]);
   if (method) {
     NSMethodSignature *signature = JreSignatureOrNull(method_getDescription(method));
@@ -286,7 +286,8 @@ static JavaLangReflectConstructor *GetConstructorImpl(
 }
 
 - (JavaLangReflectConstructor *)getConstructor:(IOSObjectArray *)parameterTypes {
-  JavaLangReflectConstructor *c = GetConstructorImpl(self, parameterTypes);
+  JavaLangReflectConstructor *c =
+      GetConstructorImpl(self, IOSClass_GetTranslatedMethodName(nil, @"init", parameterTypes));
   if (([c getModifiers] & JavaLangReflectModifier_PUBLIC) > 0) {
     return c;
   }
@@ -294,29 +295,31 @@ static JavaLangReflectConstructor *GetConstructorImpl(
 }
 
 - (JavaLangReflectConstructor *)getDeclaredConstructor:(IOSObjectArray *)parameterTypes {
-  return GetConstructorImpl(self, parameterTypes);
+  return
+      GetConstructorImpl(self, IOSClass_GetTranslatedMethodName(nil, @"init", parameterTypes));
 }
 
-- (IOSObjectArray *)getInterfacesWithArrayType:(IOSClass *)arrayType {
-  NSMutableArray *allInterfaces = [NSMutableArray array];
-  Class cls = class_;
-  while (cls) {
-    unsigned int outCount;
-    Protocol * __unsafe_unretained *interfaces = class_copyProtocolList(class_, &outCount);
-    for (unsigned i = 0; i < outCount; i++) {
-      IOSClass *interface = [IOSClass classWithProtocol:interfaces[i]];
-      NSString *name = [interface getName];
-      // Don't include NSObject and JavaObject interfaces, since java.lang.Object is a class.
-      if (![allInterfaces containsObject:interface] && ![name isEqualToString:@"JavaObject"] &&
-          ![name isEqualToString:@"java.lang.Object"]) {
-        [allInterfaces addObject:interface];
+- (JavaLangReflectConstructor *)findConstructorWithTranslatedName:(NSString *)selector {
+  return GetConstructorImpl(self, selector);
+}
+
+- (IOSObjectArray *)getInterfacesInternal {
+  IOSObjectArray *result = interfaces_;
+  OSMemoryBarrier();
+  if (!result) {
+    @synchronized(self) {
+      result = interfaces_;
+      if (!result) {
+        unsigned int count;
+        Protocol **protocolList = class_copyProtocolList(class_, &count);
+        result = IOSClass_NewInterfacesFromProtocolList(protocolList, count);
+        free(protocolList);
+        OSMemoryBarrier();
+        interfaces_ = result;
       }
     }
-    free(interfaces);
-    cls = [cls superclass];
   }
-  return [IOSObjectArray arrayWithNSArray:allInterfaces
-                                     type:[IOSClass getClass]];
+  return result;
 }
 
 #if ! __has_feature(objc_arc)

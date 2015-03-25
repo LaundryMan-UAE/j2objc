@@ -20,7 +20,9 @@ package java.lang;
 import com.google.j2objc.annotations.Weak;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /*-[
 #import "java/lang/IllegalThreadStateException.h"
@@ -318,9 +320,7 @@ public class Thread implements Runnable {
     NSThread *currentThread = [NSThread currentThread];
     NSMutableDictionary *currentThreadData = [currentThread threadDictionary];
     if (!group) {
-      JavaLangThread *currentJavaThread =
-          [currentThreadData objectForKey:JavaLangThread_JAVA_THREAD_];
-      group = [currentJavaThread getThreadGroup];
+      group = [[JavaLangThread currentThread] getThreadGroup];
     }
     assert(group != nil);
     self->threadGroup_ = RETAIN_(group);
@@ -1085,5 +1085,13 @@ public class Thread implements Runnable {
                       "Expected " + interruptAction + " but was " + removed);
           }
       }
+  }
+
+  /**
+   * Returns a map of stack traces for all live threads.
+   */
+  // TODO(user): Can we update this to return something useful?
+  public static Map<Thread,StackTraceElement[]> getAllStackTraces() {
+    return Collections.<Thread, StackTraceElement[]>emptyMap();
   }
 }

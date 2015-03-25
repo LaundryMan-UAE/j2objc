@@ -16,8 +16,6 @@ package com.google.devtools.j2objc.util;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.google.j2objc.annotations.Weak;
-import com.google.j2objc.annotations.WeakOuter;
 
 import org.eclipse.jdt.core.dom.IAnnotationBinding;
 import org.eclipse.jdt.core.dom.IBinding;
@@ -48,6 +46,9 @@ public final class BindingUtil {
   public static final int ACC_SYNTHETIC = 0x1000;
   public static final int ACC_ANNOTATION = 0x2000;
   public static final int ACC_ENUM = 0x4000;
+
+  // Not defined in JVM spec, but used by reflection support.
+  public static final int ACC_ANONYMOUS = 0x8000;
 
   public static boolean isStatic(IBinding binding) {
     return Modifier.isStatic(binding.getModifiers());
@@ -125,28 +126,17 @@ public final class BindingUtil {
   }
 
   /**
-   * If this method overrides another method, return the binding for the
-   * original declaration.
-   */
-  public static IMethodBinding getOriginalMethodBinding(IMethodBinding method) {
-    if (!method.isConstructor()) {
-      for (ITypeBinding inheritedType : getAllInheritedTypes(method.getDeclaringClass())) {
-        for (IMethodBinding interfaceMethod : inheritedType.getDeclaredMethods()) {
-          if (method.overrides(interfaceMethod)) {
-            method = interfaceMethod;
-          }
-        }
-      }
-    }
-    return method.getMethodDeclaration();
-  }
-
-  /**
    * Returns a set containing the bindings of all classes and interfaces that
    * are inherited by the given type.
    */
   public static Set<ITypeBinding> getAllInheritedTypes(ITypeBinding type) {
-    Set<ITypeBinding> inheritedTypes = getAllInterfaces(type);
+    Set<ITypeBinding> inheritedTypes = Sets.newHashSet();
+    collectAllInheritedTypes(type, inheritedTypes);
+    return inheritedTypes;
+  }
+
+  public static void collectAllInheritedTypes(ITypeBinding type, Set<ITypeBinding> inheritedTypes) {
+    collectAllInterfaces(type, inheritedTypes);
     while (true) {
       type = type.getSuperclass();
       if (type == null) {
@@ -154,7 +144,6 @@ public final class BindingUtil {
       }
       inheritedTypes.add(type);
     }
-    return inheritedTypes;
   }
 
   /**
@@ -162,7 +151,12 @@ public final class BindingUtil {
    * given class, and all super-interfaces of those.
    */
   public static Set<ITypeBinding> getAllInterfaces(ITypeBinding type) {
-    Set<ITypeBinding> allInterfaces = Sets.newHashSet();
+    Set<ITypeBinding> interfaces = Sets.newHashSet();
+    collectAllInterfaces(type, interfaces);
+    return interfaces;
+  }
+
+  public static void collectAllInterfaces(ITypeBinding type, Set<ITypeBinding> interfaces) {
     Deque<ITypeBinding> typeQueue = Lists.newLinkedList();
 
     while (type != null) {
@@ -173,11 +167,9 @@ public final class BindingUtil {
     while (!typeQueue.isEmpty()) {
       ITypeBinding nextType = typeQueue.poll();
       List<ITypeBinding> newInterfaces = Arrays.asList(nextType.getInterfaces());
-      allInterfaces.addAll(newInterfaces);
+      interfaces.addAll(newInterfaces);
       typeQueue.addAll(newInterfaces);
     }
-
-    return allInterfaces;
   }
 
   /**
@@ -229,21 +221,12 @@ public final class BindingUtil {
     return null;
   }
 
-  /**
-   * Returns the signature of an element, defined in the Java Language
-   * Specification 3rd edition, section 13.1.
-   */
-  public static String getSignature(IBinding binding) {
-    if (binding instanceof ITypeBinding) {
-      return ((ITypeBinding) binding).getBinaryName();
-    }
-    if (binding instanceof IMethodBinding) {
-      return getSignature((IMethodBinding) binding);
-    }
-    return binding.getName();
+  public static String getMethodKey(IMethodBinding binding) {
+    return binding.getDeclaringClass().getBinaryName() + '.' + binding.getName()
+        + getSignature(binding);
   }
 
-  private static String getSignature(IMethodBinding binding) {
+  public static String getSignature(IMethodBinding binding) {
     StringBuilder sb = new StringBuilder("(");
     for (ITypeBinding parameter : binding.getParameterTypes()) {
       appendParameterSignature(parameter.getErasure(), sb);
@@ -269,6 +252,18 @@ public final class BindingUtil {
     return getAnnotation(binding, annotationClass) != null;
   }
 
+  /**
+   * Less strict version of the above where we don't care about the annotation's package.
+   */
+  public static boolean hasNamedAnnotation(IBinding binding, String annotationName) {
+    for (IAnnotationBinding annotation : binding.getAnnotations()) {
+      if (annotation.getName().equals(annotationName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public static IAnnotationBinding getAnnotation(IBinding binding, Class<?> annotationClass) {
     for (IAnnotationBinding annotation : binding.getAnnotations()) {
       if (typeEqualsClass(annotation.getAnnotationType(), annotationClass)) {
@@ -292,9 +287,9 @@ public final class BindingUtil {
   }
 
   public static boolean isWeakReference(IVariableBinding var) {
-    return hasAnnotation(var, Weak.class)
+    return hasNamedAnnotation(var, "Weak")
         || var.getName().startsWith("this$")
-        && hasAnnotation(var.getDeclaringClass(), WeakOuter.class);
+        && hasNamedAnnotation(var.getDeclaringClass(), "WeakOuter");
   }
 
   /**
@@ -317,6 +312,9 @@ public final class BindingUtil {
               (IVariableBinding) ann.getDeclaredMemberValuePairs()[0].getValue();
           return retentionBinding.getName().equals(RetentionPolicy.RUNTIME.name());
         }
+      }
+      if (binding.isNested()) {
+        return BindingUtil.isRuntimeAnnotation(binding.getDeclaringClass());
       }
     }
     return false;
@@ -361,8 +359,9 @@ public final class BindingUtil {
    * Returns true if method is an Objective-C dealloc method.
    */
   public static boolean isDestructor(IMethodBinding m) {
-    String methodName = NameTable.getName(m);
-    return methodName.equals(NameTable.FINALIZE_METHOD)
-        || methodName.equals(NameTable.DEALLOC_METHOD);
+    String methodName = m.getName();
+    return !m.isConstructor() && !isStatic(m) && m.getParameterTypes().length == 0
+        && (methodName.equals(NameTable.FINALIZE_METHOD)
+            || methodName.equals(NameTable.DEALLOC_METHOD));
   }
 }

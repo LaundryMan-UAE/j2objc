@@ -109,6 +109,7 @@ JAVA_SOURCES = \
 	ast/MethodInvocation.java \
 	ast/Name.java \
 	ast/NativeDeclaration.java \
+	ast/NativeExpression.java \
 	ast/NativeStatement.java \
 	ast/NormalAnnotation.java \
 	ast/NullLiteral.java \
@@ -153,22 +154,27 @@ JAVA_SOURCES = \
 	ast/VariableDeclarationFragment.java \
 	ast/VariableDeclarationStatement.java \
 	ast/WhileStatement.java \
+	gen/AbstractSourceGenerator.java \
+	gen/JavadocGenerator.java \
 	gen/LiteralGenerator.java \
 	gen/MetadataGenerator.java \
 	gen/ObjectiveCHeaderGenerator.java \
 	gen/ObjectiveCImplementationGenerator.java \
 	gen/ObjectiveCSegmentedHeaderGenerator.java \
 	gen/ObjectiveCSourceFileGenerator.java \
+	gen/RuntimeAnnotationGenerator.java \
 	gen/SourceBuilder.java \
-	gen/SourceFileGenerator.java \
 	gen/StatementGenerator.java \
+	gen/TypeDeclarationGenerator.java \
+	gen/TypeGenerator.java \
+	gen/TypeImplementationGenerator.java \
+	gen/TypePrivateDeclarationGenerator.java \
 	translate/AbstractMethodRewriter.java \
 	translate/AnonymousClassConverter.java \
 	translate/ArrayRewriter.java \
 	translate/Autoboxer.java \
 	translate/CastResolver.java \
 	translate/ComplexExpressionExtractor.java \
-	translate/CopyAllFieldsWriter.java \
 	translate/DeadCodeEliminator.java \
 	translate/DestructorGenerator.java \
 	translate/EnhancedForRewriter.java \
@@ -177,6 +183,7 @@ JAVA_SOURCES = \
 	translate/GwtConverter.java \
 	translate/InitializationNormalizer.java \
 	translate/InnerClassExtractor.java \
+	translate/JavaCloneWriter.java \
 	translate/JavaToIOSMethodTranslator.java \
 	translate/NilCheckResolver.java \
 	translate/OcniExtractor.java \
@@ -185,6 +192,7 @@ JAVA_SOURCES = \
 	translate/OuterReferenceResolver.java \
 	translate/Rewriter.java \
 	translate/StaticVarRewriter.java \
+	translate/SuperMethodInvocationRewriter.java \
 	translate/TypeSorter.java \
 	translate/UnsequencedExpressionRewriter.java \
 	translate/VarargsRewriter.java \
@@ -198,16 +206,12 @@ JAVA_SOURCES = \
 	types/HeaderImportCollector.java \
 	types/ImplementationImportCollector.java \
 	types/Import.java \
-	types/IOSMethod.java \
 	types/IOSMethodBinding.java \
-	types/IOSParameter.java \
 	types/IOSTypeBinding.java \
-	types/JavaMethod.java \
 	types/NullTypeBinding.java \
 	types/PointerTypeBinding.java \
 	types/RenamedTypeBinding.java \
 	types/Types.java \
-	util/ASTUtil.java \
 	util/BindingUtil.java \
 	util/DeadCodeMap.java \
 	util/ErrorUtil.java \
@@ -227,7 +231,13 @@ JAVA_SOURCES_FULL = $(JAVA_SOURCES:%=$(JAVA_SOURCE_DIR)/$(BASE_PACKAGE)/%)
 RESOURCE_FILES = $(RESOURCES:%=$(CLASS_DIR)/$(BASE_PACKAGE)/%)
 
 TEST_RESOURCES = \
-  com/google/devtools/j2objc/util/example.jar
+  com/google/devtools/j2objc/mappings.j2objc \
+  com/google/devtools/j2objc/testMappings.j2objc \
+  com/google/devtools/j2objc/annotations/Example.java \
+  com/google/devtools/j2objc/annotations/Processor.jar \
+  com/google/devtools/j2objc/util/example.jar \
+  com/google/devtools/j2objc/util/Example.java \
+  com/google/devtools/j2objc/util/package-info.java
 TEST_RESOURCE_FILES = $(TEST_RESOURCES:%=$(TEST_DIR)/%)
 
 default: $(J2OBJC_JAR)
@@ -276,7 +286,6 @@ test: compile-tests copy-test-resources
 	java -classpath $(TEST_CLASSPATH) -ea junit.textui.TestRunner com.google.devtools.j2objc.SmallTests
 
 compile-tests: $(J2OBJC_JAR)
-	@rm -rf $(TEST_DIR)
 	@mkdir -p $(TEST_DIR)
 	@javac -Xlint:unchecked -sourcepath src/test/java -classpath $(TEST_CLASSPATH) \
 	    -d $(TEST_DIR) `find src/test/java -name '*.java'`

@@ -165,14 +165,14 @@ public class RewriterTest extends GenerationTest {
     assertTranslation(translation,
         "[IOSObjectArray newArrayWithObjects:(id[]){"
         + " [IOSIntArray arrayWithInts:(jint[]){ 1, 2, 3 } count:3] } count:1"
-        + " type:[IOSIntArray iosClass]]");
+        + " type:IOSClass_intArray(1)]");
   }
 
   public void testArrayCreationInConstructorInvocation() throws IOException {
     String translation = translateSourceFile(
         "class Test { Test(int[] i) {} Test() { this(new int[] {}); } }", "Test", "Test.m");
     assertTranslation(translation,
-        "[self initTestWithIntArray:[IOSIntArray arrayWithInts:(jint[]){  } count:0]]");
+        "Test_initWithIntArray_(self, [IOSIntArray arrayWithInts:(jint[]){  } count:0]);");
   }
 
   public void testInterfaceFieldsAreStaticFinal() throws IOException {
@@ -361,7 +361,7 @@ public class RewriterTest extends GenerationTest {
         "Test", "Test.m");
     assertTranslation(translation, "return a & b;");
     assertTranslation(translation, "return c | d;");
-    assertTranslatedLines(translation, "return ((e & f) | (g & h)) | i;");
+    assertTranslatedLines(translation, "return (e & f) | (g & h) | i;");
     assertTranslatedLines(translation, "return j | k | (l & m & n);");
   }
 

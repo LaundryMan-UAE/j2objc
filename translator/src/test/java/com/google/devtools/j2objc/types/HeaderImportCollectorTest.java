@@ -14,7 +14,9 @@
 
 package com.google.devtools.j2objc.types;
 
+import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.GenerationTest;
+import com.google.devtools.j2objc.Options;
 
 import java.io.IOException;
 
@@ -25,6 +27,12 @@ import java.io.IOException;
  */
 public class HeaderImportCollectorTest extends GenerationTest {
 
+  @Override
+  protected void tearDown() throws Exception {
+    Options.resetRemoveClassMethods();
+    super.tearDown();
+  }
+
   public void testVarargsDeclarations() throws IOException {
     String translation = translateSourceFile(
         "class Test { void test1(double... values) {} void test2(Runnable... values) {} }",
@@ -32,5 +40,33 @@ public class HeaderImportCollectorTest extends GenerationTest {
     assertTranslation(translation, "@class IOSDoubleArray");
     assertTranslation(translation, "@class IOSObjectArray");
     assertNotInTranslation(translation, "@protocol JavaLangRunnable");
+  }
+
+  // Same as above but with static methods and class methods removed.
+  public void testVarargsDeclarationsNoClassMethods() throws IOException {
+    Options.setRemoveClassMethods(true);
+    String translation = translateSourceFile(
+        "class Test { static void test1(double... values) {}"
+        + " static void test2(Runnable... values) {} }",
+        "Test", "Test.h");
+    assertTranslation(translation, "@class IOSDoubleArray");
+    assertTranslation(translation, "@class IOSObjectArray");
+    assertNotInTranslation(translation, "@protocol JavaLangRunnable");
+  }
+
+  public void testNoSelfImports() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { } class Test2 extends Test { }",
+        "Test", "Test.h");
+    assertNotInTranslation(translation, "#include \"Test.h\"");
+
+    addSourceFile("package unit; public class Test2 extends Test { }",
+        "unit/Test2.java");
+    addSourceFile("package unit; public class Test { }",
+        "unit/Test.java");
+
+    // Tests that there is no self import when the subclass comes first.
+    translation = translateCombinedFiles("unit/Test", ".h", "unit/Test2.java", "unit/Test.java");
+    assertNotInTranslation(translation, "#include \"unit/Test.h\"");
   }
 }

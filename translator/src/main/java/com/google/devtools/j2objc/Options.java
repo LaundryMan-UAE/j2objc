@@ -23,19 +23,25 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Resources;
 import com.google.devtools.j2objc.util.ErrorUtil;
+import com.google.devtools.j2objc.util.FileUtil;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.UnsupportedCharsetException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.annotation.Nullable;
 
 /**
  * The set of tool properties, initialized by the command-line arguments.
@@ -54,32 +60,35 @@ public class Options {
   private static File outputDirectory = new File(".");
   private static OutputStyleOption outputStyle = OutputStyleOption.PACKAGE;
   private static String implementationSuffix = ".m";
-  private static boolean ignoreMissingImports = false;
   private static MemoryManagementOption memoryManagementOption = null;
   private static boolean emitLineDirectives = false;
   private static boolean warningsAsErrors = false;
   private static boolean deprecatedDeclarations = false;
+  // Keys are class names, values are header paths (with a .h).
+  private static Map<String, String> headerMappings = Maps.newLinkedHashMap();
+  private static File outputHeaderMappingFile = null;
   private static Map<String, String> classMappings = Maps.newLinkedHashMap();
   private static Map<String, String> methodMappings = Maps.newLinkedHashMap();
-  private static boolean memoryDebug = false;
   private static boolean stripGwtIncompatible = false;
   private static boolean segmentedHeaders = false;
   private static String fileEncoding = System.getProperty("file.encoding", "UTF-8");
   private static boolean jsniWarnings = true;
   private static boolean buildClosure = false;
   private static boolean stripReflection = false;
-  private static boolean extractUnsequencedModifications = false;
+  private static boolean extractUnsequencedModifications = true;
   private static boolean docCommentsEnabled = false;
   private static boolean finalMethodsAsFunctions = true;
   private static boolean removeClassMethods = false;
-  // TODO(tball): set true again when native code accessing private Java methods is fixed.
-  private static boolean hidePrivateMembers = false;
+  private static boolean hidePrivateMembers = true;
   private static int batchTranslateMaximum = 0;
 
   private static File proGuardUsageFile = null;
 
+  static final String DEFAULT_HEADER_MAPPING_FILE = "mappings.j2objc";
+  // Null if not set (means we use the default). Can be empty also (means we use no mapping files).
+  private static List<String> headerMappingFiles = null;
+
   private static final String JRE_MAPPINGS_FILE = "JRE.mappings";
-  private static final List<String> mappingFiles = Lists.newArrayList(JRE_MAPPINGS_FILE);
 
   private static String fileHeader;
   private static final String FILE_HEADER_KEY = "file-header";
@@ -129,6 +138,9 @@ public class Options {
     /** Use the relative directory of the input file. */
     SOURCE,
 
+    /** Use the relative directory of the input file, even (especially) if it is a jar. */
+    SOURCE_COMBINED,
+
     /** Don't use a relative directory. */
     NONE
   }
@@ -142,6 +154,10 @@ public class Options {
     Logger.getLogger("com.google.devtools.j2objc").setLevel(level);
   }
 
+  public static boolean isVerbose() {
+    return Logger.getLogger("com.google.devtools.j2objc").getLevel() == Level.FINEST;
+  }
+
   /**
    * Load the options from a command-line, returning the arguments that were
    * not option-related (usually files).  If help is requested or an error is
@@ -150,6 +166,8 @@ public class Options {
    */
   public static String[] load(String[] args) throws IOException {
     setLogLevel(Level.INFO);
+
+    addJreMappings();
 
     // Create a temporary directory as the sourcepath's first entry, so that
     // modified sources will take precedence over regular files.
@@ -192,7 +210,22 @@ public class Options {
         if (++nArg == args.length) {
           usage("--mapping requires an argument");
         }
-        mappingFiles.add(args[nArg]);
+        addMappingsFiles(args[nArg].split(","));
+      } else if (arg.equals("--header-mapping")) {
+        if (++nArg == args.length) {
+          usage("--header-mapping requires an argument");
+        }
+        if (args[nArg].isEmpty()) {
+          // For when user supplies an empty mapping files list. Otherwise the default will be used.
+          headerMappingFiles = Collections.<String>emptyList();
+        } else {
+          headerMappingFiles = Lists.newArrayList(args[nArg].split(","));
+        }
+      } else if (arg.equals("--output-header-mapping")) {
+        if (++nArg == args.length) {
+          usage("--output-header-mapping requires an argument");
+        }
+        outputHeaderMappingFile = new File(args[nArg]);
       } else if (arg.equals("--dead-code-report")) {
         if (++nArg == args.length) {
           usage("--dead-code-report requires an argument");
@@ -221,13 +254,15 @@ public class Options {
           usage("unsupported language: " + s);
         }
       } else if (arg.equals("--ignore-missing-imports")) {
-        ignoreMissingImports = true;
+        ErrorUtil.error("--ignore-missing-imports is no longer supported");
       } else if (arg.equals("-use-reference-counting")) {
         checkMemoryManagementOption(MemoryManagementOption.REFERENCE_COUNTING);
       } else if (arg.equals("--no-package-directories")) {
         outputStyle = OutputStyleOption.NONE;
       } else if (arg.equals("--preserve-full-paths")) {
         outputStyle = OutputStyleOption.SOURCE;
+      } else if (arg.equals("-XcombineJars")) {
+        outputStyle = OutputStyleOption.SOURCE_COMBINED;
       } else if (arg.equals("-use-arc")) {
         checkMemoryManagementOption(MemoryManagementOption.ARC);
       } else if (arg.equals("-g")) {
@@ -246,8 +281,6 @@ public class Options {
         bootclasspath = arg.substring(XBOOTCLASSPATH.length());
       } else if (arg.equals("-Xno-jsni-delimiters")) {
         // TODO(tball): remove flag when all client builds stop using it.
-      } else if (arg.equals("--mem-debug")) {
-        memoryDebug = true;
       } else if (arg.equals("-Xno-jsni-warnings")) {
         jsniWarnings = false;
       } else if (arg.equals("-encoding")) {
@@ -271,6 +304,8 @@ public class Options {
         buildClosure = true;
       } else if (arg.equals("--extract-unsequenced")) {
         extractUnsequencedModifications = true;
+      } else if (arg.equals("--no-extract-unsequenced")) {
+        extractUnsequencedModifications = false;
       } else if (arg.equals("--doc-comments")) {
         docCommentsEnabled = true;
       } else if (arg.startsWith(BATCH_PROCESSING_MAX_FLAG)) {
@@ -296,6 +331,16 @@ public class Options {
         break;
       }
       ++nArg;
+    }
+
+    if (shouldPreProcess() && buildClosure) {
+      ErrorUtil.error("--build-closure is not supported with "
+          + "--use-header-mappings, -XcombineJars or --preserve-full-paths");
+    }
+
+    if (outputStyle == OutputStyleOption.SOURCE_COMBINED && segmentedHeaders) {
+      // TODO(mthvedt): Implement -XcombineJars support for segmented headers.
+      ErrorUtil.error("--segmented-headers not yet supported with -XcombineJars");
     }
 
     if (memoryManagementOption == null) {
@@ -345,6 +390,34 @@ public class Options {
   static void addPrefixProperties(Properties props) {
     for (String pkg : props.stringPropertyNames()) {
       addPackagePrefix(pkg, props.getProperty(pkg).trim());
+    }
+  }
+
+  private static void addMappingsFiles(String[] filenames) throws IOException {
+    for (String filename : filenames) {
+      if (!filename.isEmpty()) {
+        addMappingsProperties(FileUtil.loadProperties(filename));
+      }
+    }
+  }
+
+  private static void addJreMappings() throws IOException {
+    InputStream stream = J2ObjC.class.getResourceAsStream(JRE_MAPPINGS_FILE);
+    addMappingsProperties(FileUtil.loadProperties(stream));
+  }
+
+  private static void addMappingsProperties(Properties mappings) {
+    Enumeration<?> keyIterator = mappings.propertyNames();
+    while (keyIterator.hasMoreElements()) {
+      String key = (String) keyIterator.nextElement();
+      if (key.indexOf('(') > 0) {
+        // All method mappings have parentheses characters, classes don't.
+        String iosMethod = mappings.getProperty(key);
+        methodMappings.put(key, iosMethod);
+      } else {
+        String iosClass = mappings.getProperty(key);
+        classMappings.put(key, iosClass);
+      }
     }
   }
 
@@ -434,14 +507,6 @@ public class Options {
     return outputDirectory;
   }
 
-  public static boolean memoryDebug() {
-    return memoryDebug;
-  }
-
-  public static void setMemoryDebug(boolean value) {
-    memoryDebug = value;
-  }
-
   /**
    * If true, put output files in sub-directories defined by
    * package declaration (like javac does).
@@ -455,19 +520,20 @@ public class Options {
    * which the input files were read.
    */
   public static boolean useSourceDirectories() {
-    return outputStyle == OutputStyleOption.SOURCE;
+    return outputStyle == OutputStyleOption.SOURCE
+        || outputStyle == OutputStyleOption.SOURCE_COMBINED;
   }
 
-  public static void setPackageDirectories(OutputStyleOption style) {
+  public static boolean combineSourceJars() {
+    return outputStyle == OutputStyleOption.SOURCE_COMBINED;
+  }
+
+  public static void setOutputStyle(OutputStyleOption style) {
     outputStyle = style;
   }
 
   public static String getImplementationFileSuffix() {
     return implementationSuffix;
-  }
-
-  public static boolean ignoreMissingImports() {
-    return ignoreMissingImports;
   }
 
   public static boolean useReferenceCounting() {
@@ -525,8 +591,17 @@ public class Options {
     return methodMappings;
   }
 
-  public static List<String> getMappingFiles() {
-    return mappingFiles;
+  public static Map<String, String> getHeaderMappings() {
+    return headerMappings;
+  }
+
+  @Nullable
+  public static List<String> getHeaderMappingFiles() {
+    return headerMappingFiles;
+  }
+
+  public static void setHeaderMappingFiles(List<String> headerMappingFiles) {
+    Options.headerMappingFiles = headerMappingFiles;
   }
 
   public static String getUsageMessage() {
@@ -545,6 +620,15 @@ public class Options {
     return proGuardUsageFile;
   }
 
+  public static File getOutputHeaderMappingFile() {
+    return outputHeaderMappingFile;
+  }
+
+  @VisibleForTesting
+  public static void setOutputHeaderMappingFile(File outputHeaderMappingFile) {
+    Options.outputHeaderMappingFile = outputHeaderMappingFile;
+  }
+
   public static List<String> getBootClasspath() {
     return getPathArgument(bootclasspath);
   }
@@ -553,8 +637,8 @@ public class Options {
     return packagePrefixes;
   }
 
-  public static void addPackagePrefix(String pkg, String prefix) {
-    packagePrefixes.put(pkg, prefix);
+  public static String addPackagePrefix(String pkg, String prefix) {
+    return packagePrefixes.put(pkg, prefix);
   }
 
   @VisibleForTesting
@@ -587,13 +671,15 @@ public class Options {
     }
   }
 
-  private static void deleteDir(File dir) {
+  static void deleteDir(File dir) {
     for (File f : dir.listFiles()) {
       if (f.isDirectory()) {
         deleteDir(f);
       } else if (f.getName().endsWith(".java")) {
         // Only delete Java files, as other temporary files (like hsperfdata)
         // may also be in tmpdir.
+        // TODO(kstanger): It doesn't make sense that hsperfdata would show up in our tempdir.
+        // Consider deleting this method and using FileUtil#deleteTempDir() instead.
         f.delete();
       }
     }
@@ -643,6 +729,16 @@ public class Options {
     return buildClosure;
   }
 
+  @VisibleForTesting
+  public static void setBuildClosure(boolean b) {
+    buildClosure = b;
+  }
+
+  @VisibleForTesting
+  public static void resetBuildClosure() {
+    buildClosure = false;
+  }
+
   public static boolean stripReflection() {
     return stripReflection;
   }
@@ -670,6 +766,16 @@ public class Options {
     return batchTranslateMaximum;
   }
 
+  @VisibleForTesting
+  public static void setBatchTranslateMaximum(int max) {
+    batchTranslateMaximum = max;
+  }
+
+  @VisibleForTesting
+  public static void resetBatchTranslateMaximum() {
+    batchTranslateMaximum = 0;
+  }
+
   public static boolean finalMethodsAsFunctions() {
     return finalMethodsAsFunctions;
   }
@@ -688,6 +794,16 @@ public class Options {
     return removeClassMethods;
   }
 
+  @VisibleForTesting
+  public static void setRemoveClassMethods(boolean b) {
+    removeClassMethods = b;
+  }
+
+  @VisibleForTesting
+  public static void resetRemoveClassMethods() {
+    removeClassMethods = false;
+  }
+
   public static boolean hidePrivateMembers() {
     return hidePrivateMembers;
   }
@@ -702,4 +818,7 @@ public class Options {
     hidePrivateMembers = false;
   }
 
+  public static boolean shouldPreProcess() {
+    return Options.useSourceDirectories() || Options.combineSourceJars();
+  }
 }

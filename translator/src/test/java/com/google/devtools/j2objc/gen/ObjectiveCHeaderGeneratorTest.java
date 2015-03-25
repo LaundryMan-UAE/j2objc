@@ -16,10 +16,14 @@
 
 package com.google.devtools.j2objc.gen;
 
+import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.GenerationTest;
 import com.google.devtools.j2objc.Options;
 
+import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Tests for {@link ObjectiveCHeaderGenerator}.
@@ -109,6 +113,170 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "MyException", "MyException.h");
     assertTranslation(translation, "@class JavaLangThrowable;");
     assertTranslation(translation, "#include \"java/lang/Exception.h\"");
+  }
+
+  public void testHeaderFileMapping() throws IOException {
+    Options.setHeaderMappingFiles(Lists.newArrayList("testMappings.j2objc"));
+    addSourceFile("package unit.mapping.custom; public class Test { }",
+        "unit/mapping/custom/Test.java");
+    loadHeaderMappings();
+    String translation = translateSourceFile(
+        "import unit.mapping.custom.Test; "
+            + "public class MyTest extends Test { MyTest() {}}",
+        "MyTest", "MyTest.h");
+    assertTranslation(translation, "#include \"my/mapping/custom/Test.h\"");
+  }
+
+  public void testHeaderDefaultFileMapping() throws IOException {
+    addSourceFile("package unit.mapping; public class Test { }", "unit/mapping/Test.java");
+    loadHeaderMappings();
+    String translation = translateSourceFile(
+        "import unit.mapping.Test; "
+            + "public class MyTest extends Test { MyTest() {}}",
+        "MyTest", "MyTest.h");
+    assertTranslation(translation, "#include \"my/mapping/Test.h\"");
+  }
+
+  public void testNoHeaderMapping() throws IOException {
+    // Should be able to turn off header mappings by passing empty collection
+    Options.setHeaderMappingFiles(Collections.<String>emptyList());
+    addSourceFile("package unit.mapping; public class Test { }", "unit/mapping/Test.java");
+    loadHeaderMappings();
+    String translation = translateSourceFile(
+        "import unit.mapping.Test; "
+            + "public class MyTest extends Test { MyTest() {}}",
+        "MyTest", "MyTest.h");
+    assertTranslation(translation, "#include \"unit/mapping/Test.h\"");
+  }
+
+  public void testOutputHeaderFileMapping() throws IOException {
+    Options.setHeaderMappingFiles(Lists.newArrayList("testMappings.j2objc"));
+    Options.setOutputStyle(Options.OutputStyleOption.SOURCE);
+    addSourceFile("package unit.test; public class Dummy {}", "unit/test/Dummy.java");
+    addSourceFile(
+        "package unit.test;"
+        + "public class AnotherDummy extends Dummy { "
+        + "    public AnotherDummy() {}"
+        + "}", "unit/test/AnotherDummy.java");
+
+    loadSourceFileHeaderMappings("unit/test/Dummy.java", "unit/test/AnotherDummy.java");
+    loadHeaderMappings();
+
+    String translation = translateSourceFile(getTranslatedFile("unit/test/AnotherDummy.java"),
+        "AnotherDummy", "AnotherDummy.h");
+    assertTranslation(translation, "#include \"unit/test/Dummy.h\"");
+
+    Map<String, String> outputMapping = writeAndReloadHeaderMappings();
+    assertEquals(outputMapping.get("unit.test.Dummy"), "unit/test/Dummy.h");
+    assertEquals(outputMapping.get("unit.test.AnotherDummy"), "unit/test/AnotherDummy.h");
+    assertEquals(outputMapping.get("unit.mapping.custom.Test"), "my/mapping/custom/Test.h");
+    assertEquals(outputMapping.get("unit.mapping.custom.AnotherTest"), "my/mapping/custom/Test.h");
+  }
+
+  public void testOutputHeaderFileMappingWithMultipleClassesInOneHeader() throws IOException {
+    Options.setHeaderMappingFiles(Lists.newArrayList("testMappings.j2objc"));
+    Options.setOutputStyle(Options.OutputStyleOption.SOURCE);
+    addSourceFile("package unit.mapping.custom; public class Test { }",
+        "unit/mapping/custom/Test.java");
+    addSourceFile("package unit.mapping.custom; public class AnotherTest { }",
+        "unit/mapping/custom/AnotherTest.java");
+    addSourceFile(
+        "package unit.test;"
+            + "import unit.mapping.custom.Test;"
+            + "public class Dummy extends Test { "
+            + "    public Dummy() {}"
+            + "}", "unit/test/Dummy.java");
+    addSourceFile(
+        "package unit.test;"
+            + "import unit.mapping.custom.AnotherTest;"
+            + "public class AnotherDummy extends AnotherTest { "
+            + "    public AnotherDummy() {}"
+            + "}", "unit/test/AnotherDummy.java");
+
+    loadSourceFileHeaderMappings("unit/test/Dummy.java", "unit/test/AnotherDummy.java");
+    loadHeaderMappings();
+
+    String translationForDummy = translateSourceFile(getTranslatedFile("unit/test/Dummy.java"),
+        "Dummy", "Dummy.h");
+    String translationForAnotherDummy = translateSourceFile(
+        getTranslatedFile("unit/test/AnotherDummy.java"), "AnotherDummy", "AnotherDummy.h");
+    assertTranslation(translationForDummy, "#include \"my/mapping/custom/Test.h\"");
+    assertTranslation(translationForAnotherDummy, "#include \"my/mapping/custom/Test.h\"");
+
+    Map<String, String> outputMapping = writeAndReloadHeaderMappings();
+    assertEquals(outputMapping.get("unit.test.Dummy"), "unit/test/Dummy.h");
+    assertEquals(outputMapping.get("unit.test.AnotherDummy"), "unit/test/AnotherDummy.h");
+    assertEquals(outputMapping.get("unit.mapping.custom.Test"), "my/mapping/custom/Test.h");
+    assertEquals(outputMapping.get("unit.mapping.custom.AnotherTest"), "my/mapping/custom/Test.h");
+  }
+
+  public void testCombinedGeneration() throws IOException {
+    addSourceFile("package unit; public class Test {"
+            + "    public void Dummy() {}"
+            + "}",
+        "unit/Test.java");
+    addSourceFile("package unit; public class AnotherTest extends Test {"
+            + "    public void AnotherDummy() {}"
+            + "}",
+        "unit/AnotherTest.java");
+
+    String header = translateCombinedFiles(
+        "unit/Foo", ".h", "unit/Test.java", "unit/AnotherTest.java");
+    assertTranslation(header, "#ifndef _UnitFoo_H_");
+    assertTranslation(header, "#define _UnitFoo_H_");
+    assertTranslation(header, "@interface UnitTest");
+    assertTranslation(header, "- (instancetype)init;");
+    assertTranslation(header, "- (void)Dummy;");
+    assertTranslation(header, "J2OBJC_EMPTY_STATIC_INIT(UnitTest)");
+    assertTranslation(header, "J2OBJC_TYPE_LITERAL_HEADER(UnitTest)");
+    assertTranslation(header, "@interface UnitAnotherTest : UnitTest");
+    assertTranslation(header, "- (void)AnotherDummy;");
+    assertTranslation(header, "J2OBJC_EMPTY_STATIC_INIT(UnitAnotherTest)");
+    assertTranslation(header, "J2OBJC_TYPE_LITERAL_HEADER(UnitAnotherTest)");
+  }
+
+  public void testCombinedGenerationOrdering() throws IOException {
+    addSourceFile("package unit; public class Test {"
+            + "    public void Dummy() {}"
+            + "}",
+        "unit/Test.java");
+    addSourceFile("package unit; public class AnotherTest extends Test {"
+            + "    public void AnotherDummy() {}"
+            + "}",
+        "unit/AnotherTest.java");
+
+    String header = translateCombinedFiles(
+        "unit/Foo", ".h", "unit/AnotherTest.java", "unit/Test.java");
+    assert header.indexOf("@interface UnitTest") < header.indexOf("@interface UnitAnotherTest");
+  }
+
+  public void testCombinedJarHeaderMapping() throws IOException {
+    File outputHeaderMappingFile = new File(tempDir, "mappings.j2objc");
+    Options.setOutputHeaderMappingFile(outputHeaderMappingFile);
+    Options.setOutputStyle(Options.OutputStyleOption.SOURCE);
+    addSourceFile("package unit; public class Test { }",
+        "unit/Test.java");
+    addSourceFile("package unit; public class AnotherTest extends Test { }",
+        "unit/AnotherTest.java");
+    addSourceFile("package unit2;"
+        + "import unit.Test;"
+        + "public class AnotherTest extends Test { }",
+        "unit2/AnotherTest.java");
+    addSourceFile("package unit2;"
+        + "import unit.AnotherTest;"
+        + "public class YetAnotherTest extends AnotherTest { }",
+        "unit2/YetAnotherTest.java");
+
+    translateCombinedFiles("unit/Foo", ".h", "unit/Test.java", "unit/AnotherTest.java");
+    String header2 = translateCombinedFiles(
+        "unit2/Foo", ".h", "unit2/AnotherTest.java", "unit2/YetAnotherTest.java");
+
+    Map<String, String> outputMapping = writeAndReloadHeaderMappings();
+    assertEquals("unit/Foo.h", outputMapping.get("unit.Test"));
+    assertEquals("unit/Foo.h", outputMapping.get("unit.AnotherTest"));
+    assertTranslation(header2, "#include \"unit/Foo.h\"");
+    assertEquals("unit2/Foo.h", outputMapping.get("unit2.AnotherTest"));
+    assertEquals("unit2/Foo.h", outputMapping.get("unit2.YetAnotherTest"));
   }
 
   public void testForwardDeclarationTranslation() throws IOException {
@@ -289,13 +457,13 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translation, "FOUNDATION_EXPORT ColorEnum *ColorEnum_values_[];");
     assertTranslatedLines(translation,
         "#define ColorEnum_RED ColorEnum_values_[Color_RED]",
-        "J2OBJC_STATIC_FIELD_GETTER(ColorEnum, RED, ColorEnum *)");
+        "J2OBJC_ENUM_CONSTANT_GETTER(ColorEnum, RED)");
     assertTranslatedLines(translation,
         "#define ColorEnum_WHITE ColorEnum_values_[Color_WHITE]",
-        "J2OBJC_STATIC_FIELD_GETTER(ColorEnum, WHITE, ColorEnum *)");
+        "J2OBJC_ENUM_CONSTANT_GETTER(ColorEnum, WHITE)");
     assertTranslatedLines(translation,
         "#define ColorEnum_BLUE ColorEnum_values_[Color_BLUE]",
-        "J2OBJC_STATIC_FIELD_GETTER(ColorEnum, BLUE, ColorEnum *)");
+        "J2OBJC_ENUM_CONSTANT_GETTER(ColorEnum, BLUE)");
   }
 
   public void testEnumWithParameters() throws IOException {
@@ -335,11 +503,15 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "withNSString:(NSString *)__name",
         "withInt:(jint)__ordinal;");
     assertTranslation(translation,
-        "[self initColorEnumWithInt:rgb withBoolean:YES withNSString:__name withInt:__ordinal]");
+        "ColorEnum_initWithInt_withBoolean_withNSString_withInt_("
+        + "self, rgb, YES, __name, __ordinal);");
     assertTranslatedLines(translation,
-        "if (self = [super initWithNSString:__name withInt:__ordinal]) {",
-        "self->rgb_ = rgb;",
-        "self->primary_ = primary;");
+        "void ColorEnum_initWithInt_withBoolean_withNSString_withInt_("
+          + "ColorEnum *self, jint rgb, jboolean primary, NSString *__name, jint __ordinal) {",
+        "  JavaLangEnum_initWithNSString_withInt_(self, __name, __ordinal);",
+        "  self->rgb_ = rgb;",
+        "  self->primary_ = primary;",
+        "}");
   }
 
   public void testArrayFieldDeclaration() throws IOException {
@@ -369,14 +541,14 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translation, "@interface FooCompatible : NSObject < FooCompatible >");
 
     // Verify that the value is defined as a property instead of a method.
-    assertTranslation(translation, "@private\n  jboolean fooable;");
+    assertTranslation(translation, "@private\n  jboolean fooable_;");
     assertTranslation(translation, "@property (readonly) jboolean fooable;");
 
     // Verify default value accessor is generated for property.
     assertTranslation(translation, "+ (jboolean)fooableDefault;");
 
     // Check that constructor was created with the property as parameter.
-    assertTranslation(translation, "- (instancetype)initWithFooable:(jboolean)fooable_;");
+    assertTranslation(translation, "- (instancetype)initWithFooable:(jboolean)fooable__;");
   }
 
   public void testCharacterEdgeValues() throws IOException {
@@ -578,5 +750,64 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "@brief Method javadoc.",
         "@param foo Unused.",
         "@return always false.");
+  }
+
+  public void testCustomWeakAnnotations() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { @interface Weak {} @interface WeakOuter {}"
+        + " void foo() {}"
+        + " @WeakOuter public class Inner { void bar() { foo(); } }"
+        + " @Weak public Object obj; }", "Test", "Test.h");
+    assertTranslation(translation, "__weak id obj_;");
+    translation = getTranslatedFile("Test.m");
+    assertTranslation(translation, "__weak Test *this$0_;");
+  }
+
+  public void testReservedWordAsAnnotationPropertyName() throws IOException {
+    String translation = translateSourceFile(
+        "package foo; import java.lang.annotation.*; @Retention(RetentionPolicy.RUNTIME) "
+        + "public @interface Bar { String namespace() default \"\"; }",
+        "Bar", "foo/Bar.h");
+    assertTranslation(translation, "@property (readonly) NSString *namespace__;");
+    assertTranslatedLines(translation,
+        "@interface FooBar : NSObject < FooBar > {", "@private", "NSString *namespace___;", "}");
+    assertTranslation(translation,
+        "- (instancetype)initWithNamespace__:(NSString *)namespace____;");
+    assertTranslation(translation, "+ (NSString *)namespace__Default;");
+  }
+
+  public void testMethodSorting() throws IOException {
+    String translation = translateSourceFile("class A {"
+        + "protected void gnu(String s, int i, Runnable r) {}"
+        + "public A(int i) {}"
+        + "private void zebra() {}"
+        + "void yak() {}"
+        + "A() {} }", "A", "A.h");
+    assertTranslatedLines(translation,
+        "#pragma mark Public",
+        "",
+        "- (instancetype)initWithInt:(jint)i;",
+        "",
+        "#pragma mark Protected",
+        "",
+        "- (void)gnuWithNSString:(NSString *)s",
+                        "withInt:(jint)i",
+           "withJavaLangRunnable:(id<JavaLangRunnable>)r;",
+        "",
+        "#pragma mark Package-Private",
+        "",
+        "- (instancetype)init;",
+        "",
+        "- (void)yak;");
+    assertNotInTranslation(translation, "zebra");  // No zebra() since it's private.
+  }
+
+  // Verify that when a class is referenced in the same source file, a header
+  // isn't included for it.
+  public void testPackagePrivateBaseClass() throws IOException {
+    String translation = translateSourceFile(
+        "package bar; public class Test extends Foo {} "
+        + "abstract class Foo {}", "Test", "bar/Test.h");
+    assertNotInTranslation(translation, "#include \"Foo.h\"");
   }
 }

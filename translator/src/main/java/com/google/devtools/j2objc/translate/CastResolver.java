@@ -30,7 +30,6 @@ import com.google.devtools.j2objc.ast.SuperMethodInvocation;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
-import com.google.devtools.j2objc.types.IOSMethod;
 import com.google.devtools.j2objc.types.IOSMethodBinding;
 import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
@@ -51,8 +50,6 @@ import java.util.List;
  * of the expression.
  */
 public class CastResolver extends TreeVisitor {
-
-  private static final IOSMethod CLASS_METHOD = IOSMethod.create("NSObject class");
 
   @Override
   public void endVisit(CastExpression node) {
@@ -86,6 +83,12 @@ public class CastResolver extends TreeVisitor {
       // else fall-through.
     }
 
+    // Lean on Java's type-checking.
+    if (!type.isPrimitive() && exprType.isAssignmentCompatible(type)) {
+      node.replaceWith(TreeUtil.remove(expr));
+      return;
+    }
+
     FunctionInvocation castCheck = createCastCheck(type, expr);
     if (castCheck != null) {
       node.setExpression(castCheck);
@@ -113,20 +116,23 @@ public class CastResolver extends TreeVisitor {
     } else if (type.isClass() || type.isArray() || type.isAnnotation() || type.isEnum()) {
       invocation = new FunctionInvocation("check_class_cast", idType, idType, null);
       invocation.getArguments().add(TreeUtil.remove(expr));
-      IOSMethodBinding binding = IOSMethodBinding.newMethod(
-          CLASS_METHOD, Modifier.STATIC, idType, type);
+      IOSMethodBinding binding = IOSMethodBinding.newMethod("class", Modifier.STATIC, idType, type);
       MethodInvocation classInvocation = new MethodInvocation(binding, new SimpleName(type));
       invocation.getArguments().add(classInvocation);
     }
     return invocation;
   }
 
+  private void addCast(Expression expr) {
+    ITypeBinding exprType = Types.mapType(expr.getTypeBinding().getTypeDeclaration());
+    CastExpression castExpr = new CastExpression(exprType, null);
+    expr.replaceWith(ParenthesizedExpression.parenthesize(castExpr));
+    castExpr.setExpression(expr);
+  }
+
   private void maybeAddCast(Expression expr, boolean shouldCastFromId) {
     if (needsCast(expr, shouldCastFromId)) {
-      ITypeBinding exprType = Types.mapType(expr.getTypeBinding().getTypeDeclaration());
-      CastExpression castExpr = new CastExpression(exprType, null);
-      expr.replaceWith(ParenthesizedExpression.parenthesize(castExpr));
-      castExpr.setExpression(expr);
+      addCast(expr);
     }
   }
 
@@ -248,6 +254,27 @@ public class CastResolver extends TreeVisitor {
     return sb.toString();
   }
 
+  // Some native objective-c methods are declared to return NSUInteger.
+  private boolean returnValueNeedsIntCast(Expression arg) {
+    IMethodBinding methodBinding = TreeUtil.getMethodBinding(arg);
+    assert methodBinding != null;
+
+    if (arg.getParent() instanceof ExpressionStatement) {
+      // Avoid "unused return value" warning.
+      return false;
+    }
+
+    String methodName = NameTable.getMethodSelector(methodBinding);
+    if (methodName.equals("hash")
+        && methodBinding.getReturnType().isEqualTo(Types.resolveJavaType("int"))) {
+      return true;
+    }
+    if (Types.isStringType(methodBinding.getDeclaringClass()) && methodName.equals("length")) {
+      return true;
+    }
+    return false;
+  }
+
   @Override
   public void endVisit(FieldAccess node) {
     maybeAddCast(node.getExpression(), true);
@@ -258,6 +285,9 @@ public class CastResolver extends TreeVisitor {
     Expression receiver = node.getExpression();
     if (receiver != null && !BindingUtil.isStatic(node.getMethodBinding())) {
       maybeAddCast(receiver, true);
+    }
+    if (returnValueNeedsIntCast(node)) {
+      addCast(node);
     }
   }
 
@@ -273,6 +303,13 @@ public class CastResolver extends TreeVisitor {
     Expression expr = node.getExpression();
     if (expr != null) {
       maybeAddCast(expr, false);
+    }
+  }
+
+  @Override
+  public void endVisit(SuperMethodInvocation node) {
+    if (returnValueNeedsIntCast(node)) {
+      addCast(node);
     }
   }
 
