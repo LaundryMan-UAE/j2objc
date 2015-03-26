@@ -40,7 +40,7 @@ install-man-pages: $(MAN_PAGES)
 	@install -C -m 0644 $? $(DIST_DIR)/man/man1
 
 dist: print_environment translator_dist jre_emul_dist junit_dist jsr305_dist \
-	  javax_inject_dist guava_dist mockito_dist cycle_finder_dist install-man-pages
+	  javax_inject_dist guava_dist joda_convert_dist joda_time_dist mockito_dist cycle_finder_dist install-man-pages
 
 
 clean:
@@ -53,6 +53,8 @@ clean:
 	@cd jsr305 && $(MAKE) clean
 	@cd inject/javax_inject && $(MAKE) clean
 	@cd guava && $(MAKE) clean
+	@cd joda_convert && $(MAKE) clean
+	@cd joda_time && $(MAKE) clean
 	@cd testing/mockito && $(MAKE) clean
 	@cd cycle_finder && $(MAKE) clean
 
@@ -70,6 +72,12 @@ test_junit_cycles: cycle_finder_dist
 
 test_guava_cycles: cycle_finder_dist jre_emul_java_manifest
 	@cd guava && $(MAKE) find_cycles
+
+test_joda_convert_cycles: cycle_finder_dist
+	@cd joda_convert && $(MAKE) find_cycles
+
+test_joda_time_cycles: cycle_finder_dist
+	@cd joda_time && $(MAKE) find_cycles
 
 test_cycle_finder: cycle_finder_dist
 	@cd cycle_finder && $(MAKE) test

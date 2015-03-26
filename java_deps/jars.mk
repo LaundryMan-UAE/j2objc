@@ -29,7 +29,8 @@ ECLIPSE_JARS = \
     org.eclipse.text-3.5.101.jar
 
 GUAVA_JAR = guava-14.0.1.jar
-
+JODA_CONVERT_JAR=joda-convert-1.7.jar
+JODA_TIME_JAR = joda-time-b9fe534c7f.jar
 JSR305_JAR = jsr305-3.0.0.jar
 JSR305_SOURCE_JAR = jsr305-3.0.0.jar
 

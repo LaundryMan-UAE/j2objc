@@ -6,6 +6,41 @@
 **J2ObjC blog:** <http://j2objc.blogspot.com><br>
 **Questions and discussion:** <http://groups.google.com/group/j2objc-discuss>
 
+### Enhancements - 25/03/15 ###
+This copy of J2ObjC includes jode-time (commit b9fe534c7f) and joda-convert (v1.7).
+In order to use this on the command line or via gradle to compile ObjC translated classes
+please see the example gradle below.Additionally joda-time has some resources that are
+not packaged up within the .a library, so these will need to be copied to the distination
+directory of the compile. These can be found in <j2objc_clone_path>dist/resources.
+
+task compileTestObjC(type:Exec) {
+
+        inputs.files fileTree(dir: buildDir, includes: ['**/*.h', '**/*.m']) +
+                fileTree(dir: file('src/gen/objc'), includes: ['**/*.h', '**/*.m']) +
+                fileTree(dir: file('src/gen/test'), includes: ['**/*.h', '**/*.m']) +
+                fileTree(dir: projectDir.path + '/../hambroperks-sdk/core/src/gen/objc', includes: ['**/*.h', '**/*.m'])
+
+        outputs.files file("$buildDir/testrunner")
+        executable "${J2OBJC_HOME}/j2objcc"
+        workingDir buildDir
+        args "-I$buildDir"
+        args "-I${file('src/gen/objc').path}"
+        args "-I${file('src/gen/test').path}"
+        args "-I${file(projectDir.path + '/../hambroperks-sdk/core/src/gen/objc').path}"
+        args "-ObjC", "-ljunit", "-ljoda_time", "-lguava", "-ljoda_convert", "-ljsr305"
+        args "-o", "testrunner"
+        def srcFiles = fileTree(dir: file('src/gen/objc'), includes: ['**/*.h', '**/*.m']) +
+                fileTree(dir: file('src/gen/test'), includes: ['**/*.h', '**/*.m']) +
+                fileTree(dir: file(projectDir.path + '/../hambroperks-sdk/core/src/gen/objc'), includes: ['**/*.h', '**/*.m'])
+
+        srcFiles.each { file ->
+            args file.path
+        }
+}
+
+The example above shows how to compile the test classes that have been translated.
+
+
 ### What J2ObjC Is ###
 J2ObjC is an open-source command-line tool from Google that translates
 Java source code to Objective-C for the iOS (iPhone/iPad) platform. This tool
