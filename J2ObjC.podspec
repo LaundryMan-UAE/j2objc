@@ -53,6 +53,7 @@ Pod::Spec.new do |s|
     lib.subspec 'joda_time' do |joda_time|
       joda_time.dependency 'J2ObjC/lib/jre'
       joda_time.libraries = 'joda_time'
+      joda_time.resources = 'lib/resources/joda_time/*'
     end
   end
 end
