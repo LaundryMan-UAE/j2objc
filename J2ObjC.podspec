@@ -46,12 +46,12 @@ Pod::Spec.new do |s|
     end
 
     lib.subspec 'joda_convert' do |joda_convert|
-      joda_convert.dpendency 'J2ObjC/lib/jre'
+      joda_convert.dependency 'J2ObjC/lib/jre'
       joda_convert.libraries = 'joda_convert'
     end
 
     lib.subspec 'joda_time' do |joda_time|
-      joda_time.dependency 'J2ObjC/lib/jre'
+      joda_time.dependency 'J2ObjC/lib/joda_convert'
       joda_time.libraries = 'joda_time'
       joda_time.resources = 'lib/resources/joda_time/*'
     end
