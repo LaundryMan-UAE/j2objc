@@ -15,13 +15,15 @@ set -ev
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-j2objc_version=0.9.6.3
+j2objc_version=0.9.7
 
 if [[ -d dist ]]; then
   exit
 fi
 
 echo "fetching j2objc"
-curl -OL https://github.com/hambroperks/j2objc/releases/download/v${j2objc_version}-lib/j2objc-${j2objc_version}.zip
+#curl -OL https://github.com/hambroperks/j2objc/releases/download/v${j2objc_version}-lib/j2objc-${j2objc_version}.zip
+# Use vanilla version
+curl -OL https://github.com/google/j2objc/releases/download/0.9.7/j2objc-{j2objc_version}.zip
 unzip -o -q j2objc-${j2objc_version}.zip
 mv j2objc-${j2objc_version} dist
