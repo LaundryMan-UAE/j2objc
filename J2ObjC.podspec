@@ -26,8 +26,8 @@ Pod::Spec.new do |s|
 
     lib.subspec 'jre' do |jre|
       jre.preserve_paths = 'dist'
-      jre.libraries = 'jre_emul', 'z'
-      # jre.xcconfig = { 'OTHER_LDFLAGS' => '-force_load ${PODS_ROOT}/J2ObjC/dist/lib/libjre_emul.a' }
+      jre.libraries = 'jre_emul', 'icucore', 'z'
+      #jre.xcconfig = { 'OTHER_LDFLAGS' => '-force_load ${PODS_ROOT}/J2ObjC/dist/lib/libjre_emul.a' }
     end
 
     lib.subspec 'jsr305' do |jsr305|
