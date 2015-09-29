@@ -15,13 +15,13 @@ set -ev
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-j2objc_version=0.9.7
+j2objc_version=0.9.8.2
 
 if [[ -d dist ]]; then
   exit
 fi
 
 echo "fetching j2objc"
-curl -OL https://github.com/google/j2objc/releases/download/0.9.7/j2objc-0.9.7.zip
+curl -OL https://github.com/google/j2objc/releases/download/${j2objc_version}/j2objc-${j2objc_version}.zip
 unzip -o -q j2objc-${j2objc_version}.zip
 mv j2objc-${j2objc_version} dist

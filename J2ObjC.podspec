@@ -17,7 +17,7 @@ Pod::Spec.new do |s|
   s.prepare_command = <<-CMD
     scripts/download_distribution.sh
   CMD
-  
+
   s.subspec 'lib' do |lib|
     lib.frameworks = 'Security'
     lib.osx.frameworks = 'ExceptionHandling'
@@ -39,7 +39,7 @@ Pod::Spec.new do |s|
       junit.dependency 'J2ObjC/lib/jre'
       junit.libraries = 'j2objc_main', 'junit', 'mockito'
     end
-    
+
     lib.subspec 'guava' do |guava|
       guava.dependency 'J2ObjC/lib/jre'
       guava.libraries = 'guava'
