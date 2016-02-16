@@ -34,6 +34,7 @@ TEST_DIR = $(BUILD_DIR)/test
 SOURCEPATH = $(CWD):$(JAVA_SOURCE_DIR)
 BASE_PACKAGE = com/google/devtools/j2objc
 
+JAR_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(JSR305_JAR) j2objc_joda_time.jar j2objc_joda_convert.jar j2objc_annotations.jar
 DIST_DEPS = $(JSR305_JAR) j2objc_annotations.jar
 INTERNAL_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(ASM_JAR) $(JSR305_JAR)
 JAR_DEPS_DIST = $(DIST_DEPS:%=$(DIST_JAR_DIR)/%) $(INTERNAL_DEPS:%=$(JAVA_DEPS_JAR_DIR)/%)

@@ -39,12 +39,27 @@ install-man-pages: $(MAN_PAGES)
 	@mkdir -p $(DIST_DIR)/man/man1
 	@install -C -m 0644 $? $(DIST_DIR)/man/man1
 
+frameworks: dist
+	@cd jre_emul && $(MAKE) framework
+	@cd junit && $(MAKE) framework
+	@cd jsr305 && $(MAKE) framework
+	@cd inject/javax_inject && $(MAKE) framework
+	@cd guava && $(MAKE) framework
+	@cd testing/mockito && $(MAKE) framework
+	@cd xalan && $(MAKE) framework
+	@cd joda_convert && $(MAKE) framework
+	@cd joda_time && $(MAKE) framework
+
+all_frameworks: frameworks protobuf_dist
+	@cd protobuf/runtime && $(MAKE) framework
+
 dist: print_environment translator_dist jre_emul_dist junit_dist jsr305_dist \
 	  javax_inject_dist guava_dist joda_convert_dist joda_time_dist mockito_dist cycle_finder_dist install-man-pages
 
 
 clean:
-	@rm -rf $(DIST_DIR)
+
+	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@cd annotations && $(MAKE) clean
 	@cd java_deps && $(MAKE) clean
 	@cd translator && $(MAKE) clean
@@ -53,10 +68,15 @@ clean:
 	@cd jsr305 && $(MAKE) clean
 	@cd inject/javax_inject && $(MAKE) clean
 	@cd guava && $(MAKE) clean
-	@cd joda_convert && $(MAKE) clean
-	@cd joda_time && $(MAKE) clean
 	@cd testing/mockito && $(MAKE) clean
 	@cd cycle_finder && $(MAKE) clean
+	@cd protobuf/runtime && $(MAKE) clean
+	@cd protobuf/compiler && $(MAKE) clean
+	@cd protobuf/tests && $(MAKE) clean
+	@cd xalan && $(MAKE) clean
+	@cd joda_convert && $(MAKE) clean
+	@cd joda_time && $(MAKE) clean
+
 
 test_translator: annotations_dist java_deps_dist
 	@cd translator && $(MAKE) test

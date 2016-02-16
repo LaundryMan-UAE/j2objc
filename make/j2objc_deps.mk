@@ -67,8 +67,32 @@ guava_dist: translator_dist jre_emul_dist jsr305_dist
 guava_java: java_deps_dist jre_emul_jar_dist
 	@$(MAKE) -C $(J2OBJC_ROOT)/guava java
 
-guava_manifest:
-	@$(MAKE) -C $(J2OBJC_ROOT)/guava java_sources_manifest
+cycle_finder_dist: annotations_dist java_deps_dist translator_dist
+	@$(MAKE) -C $(J2OBJC_ROOT)/cycle_finder dist
+
+mockito_dist: translator_dist jre_emul_dist junit_dist
+	@$(MAKE) -C $(J2OBJC_ROOT)/testing/mockito dist
+
+mockito_java: java_deps_dist junit_java
+	@$(MAKE) -C $(J2OBJC_ROOT)/testing/mockito java
+
+mockito_manifest:
+	@$(MAKE) -C $(J2OBJC_ROOT)/testing/mockito java_sources_manifest
+
+protobuf_compiler_dist:
+	@$(MAKE) -C $(J2OBJC_ROOT)/protobuf/compiler dist
+
+protobuf_runtime_java: protobuf_compiler_dist
+	@$(MAKE) -C $(J2OBJC_ROOT)/protobuf/runtime java
+
+protobuf_runtime_dist: jre_emul_dist protobuf_compiler_dist
+	@$(MAKE) -C $(J2OBJC_ROOT)/protobuf/runtime dist
+
+xalan_dist: translator_dist jre_emul_dist
+	@$(MAKE) -C $(J2OBJC_ROOT)/xalan dist
+
+xalan_java: java_deps_dist jre_emul_jar_dist
+	@$(MAKE) -C $(J2OBJC_ROOT)/xalan java
 
 joda_convert_dist: translator_dist jre_emul_dist guava_dist
 	@$(MAKE) -C $(J2OBJC_ROOT)/joda_convert dist
@@ -88,18 +112,6 @@ joda_time_java: java_deps_dist jre_emul_jar_dist
 joda_time_manifest:
 	@$(MAKE) -C $(J2OBJC_ROOT)/joda_time java_sources_manifest
 
-cycle_finder_dist: annotations_dist java_deps_dist translator_dist
-	@$(MAKE) -C $(J2OBJC_ROOT)/cycle_finder dist
-
-mockito_dist: translator_dist jre_emul_dist junit_dist
-	@$(MAKE) -C $(J2OBJC_ROOT)/testing/mockito dist
-
-mockito_java: java_deps_dist junit_java
-	@$(MAKE) -C $(J2OBJC_ROOT)/testing/mockito java
-
-mockito_manifest:
-	@$(MAKE) -C $(J2OBJC_ROOT)/testing/mockito java_sources_manifest
-
 
 else
 
@@ -117,16 +129,20 @@ jsr305_dist:
 javax_inject dist:
 guava_dist:
 guava_java:
-guava_manifest:
+cycle_finder_dist:
+mockito_dist:
+mockito_java:
+mockito_manifest:
+protobuf_compiler_dist:
+protobuf_runtime_java:
+protobuf_runtime_dist:
+xalan_dist:
+xalan_java:
 joda_convert_dist:
 joda_convert_java:
 joda_convert_manifest:
 joda_time_dist:
 joda_time_java:
 joda_time_manifest:
-cycle_finder_dist:
-mockito_dist:
-mockito_java:
-mockito_manifest:
 
 endif

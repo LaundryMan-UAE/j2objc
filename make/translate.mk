@@ -24,62 +24,40 @@
 # This variable is intended for use only by the jre_emul library.
 #   TRANSLATE_USE_SYSTEM_BOOT_PATH
 #
+# This variable is intended for global translation flags, and so should not
+# be set in Makefiles. Flags are separated by semi-colons, to avoid complex
+# argument escaping in scripts.
+#   TRANSLATE_GLOBAL_FLAGS
+#
 # The including makefile may also add dependent order-only targets by adding
 # requirements to the "translate_dependencies" target.
 #
 # Author: Keith Stanger
 
+include $(J2OBJC_ROOT)/make/translate_macros.mk
+
+ifndef TRANSLATE_NAME
+TRANSLATE_NAME = default
+endif
+
 TRANSLATE_HEADERS = $(TRANSLATE_JAVA_RELATIVE:%.java=$(GEN_OBJC_DIR)/%.h)
 TRANSLATE_SOURCES = $(TRANSLATE_HEADERS:.h=.m)
 TRANSLATE_OBJC = $(TRANSLATE_SOURCES) $(TRANSLATE_HEADERS)
-TRANSLATE_TARGET = $(GEN_OBJC_DIR)/.translate_mark
-TRANSLATE_LIST = $(GEN_OBJC_DIR)/.translate_list
-TRANSLATE_EXE = $(DIST_DIR)/j2objc
-TRANSLATE_CMD = $(TRANSLATE_EXE) -d $(GEN_OBJC_DIR) $(TRANSLATE_ARGS)
-TRANSLATE_EXE_DEP = translator_dist
-
-ifdef TRANSLATE_USE_SYSTEM_BOOT_PATH
-TRANSLATE_CMD := USE_SYSTEM_BOOT_PATH=TRUE $(TRANSLATE_CMD)
-TRANSLATE_EXE_DEP = translator
-endif
 
 ifdef TRANSLATE_OBJCPP
 TRANSLATE_SOURCES = $(TRANSLATE_HEADERS:.h=.mm)
-TRANSLATE_CMD += -x objective-c++
+TRANSLATE_ARGS += -x objective-c++
 endif
 
-$(TRANSLATE_EXE): | $(TRANSLATE_EXE_DEP)
+TRANSLATE_ARTIFACT := $(call emit_translate_rule,\
+  $(TRANSLATE_NAME),\
+  $(GEN_OBJC_DIR),\
+  $(TRANSLATE_JAVA_FULL),\
+  $(TRANSLATE_DEPENDENCIES),\
+  $(TRANSLATE_ARGS))
+
+translate: $(TRANSLATE_ARTIFACT)
 	@:
 
-translate: $(TRANSLATE_TARGET)
-	@:
-
-translate_dependencies:
-	@:
-
-TRANSLATE_NON_JAVA_PREREQ = $(TRANSLATE_EXE) $(TRANSLATE_DEPENDENCIES) translate_force
-
-# Resolved sources within the translate target.
-TRANSLATE_JAVA_PREREQ = $(filter-out $(TRANSLATE_NON_JAVA_PREREQ) translate_force,$^)
-
-# Find any files that may have been added to the list since the last translation
-TRANSLATE_LAST_FILES := $(shell if [ -e $(TRANSLATE_TARGET) ]; then cat $(TRANSLATE_TARGET); fi)
-TRANSLATE_NEW_FILES = $(filter-out $(TRANSLATE_LAST_FILES),$(TRANSLATE_JAVA_PREREQ))
-
-TRANSLATE_MAKE_LIST = $(if $(filter $(TRANSLATE_NON_JAVA_PREREQ),$?),\
-    $(TRANSLATE_JAVA_PREREQ),$(filter $? $(TRANSLATE_NEW_FILES),$(TRANSLATE_JAVA_PREREQ)))
-
-$(TRANSLATE_TARGET): $(TRANSLATE_JAVA_FULL) $(TRANSLATE_NON_JAVA_PREREQ) | translate_dependencies
-	@mkdir -p $(GEN_OBJC_DIR)
-	$(call long_list_to_file,$(TRANSLATE_LIST),$(TRANSLATE_MAKE_LIST))
-	@if [ -s $(TRANSLATE_LIST) ]; then \
-	  echo translating $(TRANSLATE_NAME) sources; \
-	  $(TRANSLATE_CMD) @$(TRANSLATE_LIST); \
-	fi
-	$(call long_list_to_file,$@,$(TRANSLATE_JAVA_PREREQ))
-
-translate_force:
-	@:
-
-$(TRANSLATE_OBJC): $(TRANSLATE_TARGET)
+$(TRANSLATE_OBJC): $(TRANSLATE_ARTIFACT)
 	@:

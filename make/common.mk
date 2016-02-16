@@ -8,6 +8,14 @@ DIST_DIR = $(J2OBJC_ROOT)/dist
 DIST_INCLUDE_DIR = $(DIST_DIR)/include
 DIST_LIB_DIR = $(DIST_DIR)/lib
 DIST_JAR_DIR = $(DIST_LIB_DIR)
+DIST_LICENSE_DIR = $(DIST_DIR)/license
+DIST_FRAMEWORK_DIR = $(DIST_DIR)/frameworks
+
+# Release version string used by j2objc and cycle_finder's -version flag.
+ifndef J2OBJC_VERSION
+CURR_DATE = $(shell date "+%Y/%m/%d")
+J2OBJC_VERSION = $(USER)-$(CURR_DATE)
+endif
 
 ifdef CONFIGURATION_BUILD_DIR
 XCODE_INCLUDE_DIR = $(CONFIGURATION_BUILD_DIR)/Headers
@@ -25,8 +33,14 @@ else
 ARCH_BUILD_DIR = $(BUILD_DIR)
 ARCH_BIN_DIR = $(DIST_DIR)
 ARCH_LIB_DIR = $(DIST_LIB_DIR)
+ARCH_LIB_MACOSX_DIR = $(DIST_LIB_MACOSX_DIR)
 ARCH_INCLUDE_DIR = $(DIST_INCLUDE_DIR)
 endif
+
+# Macosx library dirs.
+ARCH_BUILD_MACOSX_DIR = $(ARCH_BUILD_DIR)/macosx
+ARCH_LIB_MACOSX_DIR = $(ARCH_LIB_DIR)/macosx
+DIST_LIB_MACOSX_DIR = $(DIST_LIB_DIR)/macosx
 
 ifndef GEN_OBJC_DIR
 GEN_OBJC_DIR = $(BUILD_DIR)/objc
@@ -36,7 +50,7 @@ GEN_JAVA_DIR = $(BUILD_DIR)/java
 endif
 
 ifndef J2OBJC_ARCHS
-J2OBJC_ARCHS = macosx iphone iphone64 iphonev7s simulator
+J2OBJC_ARCHS = macosx iphone iphone64 iphonev7s simulator simulator64
 endif
 
 # xcrun finds a specified tool in the current SDK /usr/bin directory.
@@ -60,14 +74,6 @@ SYSROOT_SCRIPT := $(J2OBJC_ROOT)/scripts/sysroot_path.sh
 SDKROOT := $(shell bash ${SYSROOT_SCRIPT})
 endif
 
-# Xcode seems to set ARCHS incorrectly in command-line builds when the only
-# active architecture setting is on. Use NATIVE_ARCH instead.
-ifeq ($(ONLY_ACTIVE_ARCH), YES)
-ifdef NATIVE_ARCH
-ARCHS = $(NATIVE_ARCH)
-endif
-endif
-ARCH_FLAGS = $(ARCHS:%=-arch %)
 SDK_FLAGS = -isysroot $(SDKROOT)
 
 ifeq ($(DEBUGGING_SYMBOLS), YES)
@@ -87,6 +93,9 @@ OPTIMIZATION_LEVEL = s  # Fastest, smallest
 endif
 endif
 DEBUGFLAGS := $(DEBUGFLAGS) -O$(OPTIMIZATION_LEVEL)
+
+CC_WARNINGS = -Wall -Werror -Wshorten-64-to-32 \
+  -Wmissing-field-initializers -Wno-unused-variable
 
 ifdef GCC_PREPROCESSOR_DEFINITIONS
 DEBUGFLAGS += $(GCC_PREPROCESSOR_DEFINITIONS:%=-D%)
@@ -146,3 +155,9 @@ define long_list_to_file
 @files='$(wordlist 9500,9999,$(2))' && for i in $$files; do echo $$i >> $(1); done
 @if [ ! -e $(1) ]; then touch $(1); fi
 endef
+
+# Specify flag if clang version 7 or greater. This is necessary to support
+# iOS 9 apps that have the 'Enable bitcode' option set, which is the default for
+# new apps in Xcode 7.
+XCODE_7_MINIMUM := $(shell $(CLANG) --version | \
+    awk '/^Apple/ { split($$4, arr, "."); print (arr[1] >= 7) ? "YES" : "NO"; }')
