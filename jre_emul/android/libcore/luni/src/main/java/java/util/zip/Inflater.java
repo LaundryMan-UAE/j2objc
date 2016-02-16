@@ -20,6 +20,7 @@ package java.util.zip;
 /*-[
 #import "zlib.h"
 #import "java/io/FileInputStream.h"
+#import "java/io/IOException.h"
 #import "java/lang/IllegalArgumentException.h"
 #import "java/lang/OutOfMemoryError.h"
 
@@ -298,10 +299,10 @@ public class Inflater {
         case Z_OK:
           break;
         case Z_NEED_DICT:
-          self->needsDictionary__ = YES;
+          self->needsDictionary_ = YES;
           break;
         case Z_STREAM_END:
-          self->finished__ = YES;
+          self->finished_ = YES;
           break;
         case Z_STREAM_ERROR:
           return 0;
@@ -432,9 +433,12 @@ public class Inflater {
         long handle) /*-[
       JavaIoFileInputStream *fileIn =
           [[JavaIoFileInputStream alloc] initWithJavaIoFileDescriptor:fd];
-      [fileIn skipWithLong:offset];
+      lseek([fd getInt$], offset, SEEK_SET);
       IOSByteArray *in = [IOSByteArray arrayWithLength:byteCount];
-      [fileIn readWithByteArray:in withInt:0 withInt:byteCount];
+      jint bytesRead = [fileIn readWithByteArray:in withInt:0 withInt:byteCount];
+      if (bytesRead < 0) {
+        @throw AUTORELEASE([[JavaIoIOException alloc] init]);
+      }
       [self setInputImplWithByteArray:in withInt:0 withInt:byteCount withLong:handle];
       [fileIn close];
       RELEASE_(fileIn);

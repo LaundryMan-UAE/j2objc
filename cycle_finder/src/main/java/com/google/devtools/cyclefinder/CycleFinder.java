@@ -15,12 +15,12 @@
 package com.google.devtools.cyclefinder;
 
 import com.google.common.base.Strings;
+import com.google.common.io.Files;
 import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.TreeConverter;
-import com.google.devtools.j2objc.file.InputFile;
 import com.google.devtools.j2objc.file.RegularInputFile;
+import com.google.devtools.j2objc.pipeline.J2ObjCIncompatibleStripper;
 import com.google.devtools.j2objc.translate.OuterReferenceResolver;
-import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
 import com.google.devtools.j2objc.util.JdtParser;
@@ -28,7 +28,7 @@ import com.google.devtools.j2objc.util.JdtParser;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.ArrayList;
+import java.nio.charset.Charset;
 import java.util.Collection;
 import java.util.List;
 
@@ -49,8 +49,9 @@ public class CycleFinder {
     }
   }
 
-  public CycleFinder(Options options) {
+  public CycleFinder(Options options) throws IOException {
     this.options = options;
+    com.google.devtools.j2objc.Options.load(new String[] { "-encoding", options.fileEncoding() });
   }
 
   private static JdtParser createParser(Options options) {
@@ -90,31 +91,59 @@ public class CycleFinder {
     return NameList.createFromFiles(blackListFiles);
   }
 
+  private File stripIncompatible(
+      List<String> sourceFileNames, JdtParser parser) throws IOException {
+    File strippedDir = null;
+    for (int i = 0; i < sourceFileNames.size(); i++) {
+      String fileName = sourceFileNames.get(i);
+      RegularInputFile file = new RegularInputFile(fileName);
+      String source = FileUtil.readFile(file);
+      if (!source.contains("J2ObjCIncompatible")) {
+        continue;
+      }
+      if (strippedDir == null) {
+        strippedDir = Files.createTempDir();
+        parser.prependSourcepathEntry(strippedDir.getPath());
+      }
+      org.eclipse.jdt.core.dom.CompilationUnit unit = parser.parseWithoutBindings(fileName, source);
+      String qualifiedName = FileUtil.getQualifiedMainTypeName(file, unit);
+      String newSource = J2ObjCIncompatibleStripper.strip(source, unit);
+      String relativePath = qualifiedName.replace('.', File.separatorChar) + ".java";
+      File strippedFile = new File(strippedDir, relativePath);
+      Files.createParentDirs(strippedFile);
+      Files.write(newSource, strippedFile, Charset.forName(options.fileEncoding()));
+      sourceFileNames.set(i, strippedFile.getPath());
+    }
+    return strippedDir;
+  }
+
   public List<List<Edge>> findCycles() throws IOException {
     final TypeCollector typeCollector = new TypeCollector();
-
     JdtParser parser = createParser(options);
+    final OuterReferenceResolver outerResolver = new OuterReferenceResolver();
+
+    List<String> sourceFiles = options.getSourceFiles();
+    File strippedDir = stripIncompatible(sourceFiles, parser);
+
     JdtParser.Handler handler = new JdtParser.Handler() {
       @Override
-      public void handleParsedUnit(
-          InputFile file, org.eclipse.jdt.core.dom.CompilationUnit jdtUnit) {
+      public void handleParsedUnit(String path, org.eclipse.jdt.core.dom.CompilationUnit jdtUnit) {
         String source = "";
+        RegularInputFile file = new RegularInputFile(path);
         try {
           source = FileUtil.readFile(file);
         } catch (IOException e) {
-          ErrorUtil.error("Error reading file " + file.getPath() + ": " + e.getMessage());
+          ErrorUtil.error("Error reading file " + path + ": " + e.getMessage());
         }
-        Types.initialize(jdtUnit);
-        CompilationUnit unit = TreeConverter.convertCompilationUnit(jdtUnit, file, source);
+        CompilationUnit unit = TreeConverter.convertCompilationUnit(
+            jdtUnit, path, FileUtil.getMainTypeName(file), source, null);
         typeCollector.visitAST(unit);
-        OuterReferenceResolver.resolve(unit);
+        outerResolver.run(unit);
       }
     };
-    List<InputFile> inputFiles = new ArrayList<InputFile>();
-    for (String f: options.getSourceFiles()) {
-      inputFiles.add(new RegularInputFile(f));
-    }
-    parser.parseFiles(inputFiles, handler);
+    parser.parseFiles(sourceFiles, handler);
+
+    FileUtil.deleteTempDir(strippedDir);
 
     if (ErrorUtil.errorCount() > 0) {
       return null;
@@ -122,7 +151,7 @@ public class CycleFinder {
 
     // Construct the graph and find cycles.
     ReferenceGraph graph = new ReferenceGraph(
-        typeCollector, NameList.createFromFiles(options.getWhitelistFiles()),
+        typeCollector, outerResolver, NameList.createFromFiles(options.getWhitelistFiles()),
         getBlacklist());
     return graph.findCycles();
   }

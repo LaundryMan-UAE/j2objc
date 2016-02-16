@@ -35,25 +35,19 @@
 
 void JavaLangReflectAccessibleObject_init(JavaLangReflectAccessibleObject *self) {
   NSObject_init(self);
-  self->accessible_ = NO;
+  self->accessible_ = false;
 }
 
-JavaLangReflectAccessibleObject *new_JavaLangReflectAccessibleObject_init() {
-  JavaLangReflectAccessibleObject *self = [JavaLangReflectAccessibleObject alloc];
-  JavaLangReflectAccessibleObject_init(self);
-  return self;
-}
-
-- (BOOL)isAccessible {
+- (jboolean)isAccessible {
   return accessible_;
 }
 
-- (void)setAccessibleWithBoolean:(BOOL)b {
+- (void)setAccessibleWithBoolean:(jboolean)b {
   accessible_ = b;
 }
 
 + (void)setAccessibleWithJavaLangReflectAccessibleObjectArray:(IOSObjectArray *)objects
-                                                  withBoolean:(BOOL)b {
+                                                  withBoolean:(jboolean)b {
   JavaLangReflectAccessibleObject_setAccessibleWithJavaLangReflectAccessibleObjectArray_withBoolean_(
     objects, b);
 }
@@ -82,7 +76,7 @@ JavaLangReflectAccessibleObject *new_JavaLangReflectAccessibleObject_init() {
   return [self getDeclaredAnnotations];
 }
 
-- (BOOL)isAnnotationPresentWithIOSClass:(IOSClass *)annotationType {
+- (jboolean)isAnnotationPresentWithIOSClass:(IOSClass *)annotationType {
   return [self getAnnotationWithIOSClass:annotationType] != nil;
 }
 
@@ -103,17 +97,21 @@ JavaLangReflectAccessibleObject *new_JavaLangReflectAccessibleObject_init() {
 
 + (const J2ObjcClassInfo *)__metadata {
   static const J2ObjcMethodInfo methods[] = {
-    { "isAccessible", NULL, "Z", 0x1, NULL },
-    { "setAccessibleWithBoolean:", "setAccessible", "V", 0x1, NULL },
-    { "setAccessibleWithJavaLangReflectAccessibleObjectArray:withBoolean:", "setAccessible", "V", 0x9, NULL },
-    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL },
-    { "isAnnotationPresentWithIOSClass:", "isAnnotationPresent", "Z", 0x1, NULL },
-    { "getAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL },
-    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL },
-    { "init", NULL, NULL, 0x1, NULL },
+    { "isAccessible", NULL, "Z", 0x1, NULL, NULL },
+    { "setAccessibleWithBoolean:", "setAccessible", "V", 0x1, NULL, NULL },
+    { "setAccessibleWithJavaLangReflectAccessibleObjectArray:withBoolean:",
+      "setAccessible", "V", 0x9, NULL, NULL },
+    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL,
+      "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" },
+    { "isAnnotationPresentWithIOSClass:", "isAnnotationPresent", "Z", 0x1, NULL,
+      "(Ljava/lang/Class<+Ljava/lang/annotation/Annotation;>;)Z" },
+    { "getAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
+    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
+    { "init", NULL, NULL, 0x1, NULL, NULL },
   };
   static const J2ObjcClassInfo _JavaLangReflectAccessibleObject = {
-    1, "AccessibleObject", "java.lang.reflect", NULL, 0x1, 8, methods, 0, NULL, 0, NULL
+    2, "AccessibleObject", "java.lang.reflect", NULL, 0x1, 8, methods, 0, NULL, 0, NULL,
+    0, NULL, NULL, NULL
   };
   return &_JavaLangReflectAccessibleObject;
 }
@@ -121,13 +119,13 @@ JavaLangReflectAccessibleObject *new_JavaLangReflectAccessibleObject_init() {
 @end
 
 void JavaLangReflectAccessibleObject_setAccessibleWithJavaLangReflectAccessibleObjectArray_withBoolean_(
-    IOSObjectArray *objects, BOOL b) {
+    IOSObjectArray *objects, jboolean b) {
   for (JavaLangReflectAccessibleObject *o in objects) {
     [o setAccessibleWithBoolean:b];
   }
 }
 
-BOOL validTypeEncoding(const char *type) {
+jboolean validTypeEncoding(const char *type) {
   return strlen(type) == 1 && strchr("@#cSsilLqQZfdBv", *type);
 }
 
@@ -172,7 +170,7 @@ IOSClass *decodeTypeEncoding(const char *type) {
   }
   NSString *errorMsg =
   [NSString stringWithFormat:@"unknown Java type encoding: '%s'", type];
-  @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithNSString:errorMsg]);
+  @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithId:errorMsg]);
 }
 
 // Return a description of an Obj-C type encoding.
@@ -202,7 +200,7 @@ NSString *describeTypeEncoding(NSString *type) {
       case 'd':
         return @"double";
       case 'B':
-        return @"boolean";
+        return @"jbooleanean";
       case 'v':
         return @"void";
     }

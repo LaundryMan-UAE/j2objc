@@ -17,7 +17,6 @@
 
 package com.google.j2objc.security;
 
-import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyPair;
 import java.security.KeyPairGeneratorSpi;
@@ -40,14 +39,14 @@ public class IosRSAKeyPairGenerator extends KeyPairGeneratorSpi {
   public native KeyPair generateKeyPair() /*-[
     // Requested keypair attributes.
     NSMutableDictionary * privateKeyAttr = [[NSMutableDictionary alloc] init];
-    [privateKeyAttr setObject:[NSNumber numberWithBool:YES] forKey:(id)kSecAttrIsPermanent];
-    NSData *privateTag = [ComGoogleJ2objcSecurityIosRSAKey_PRIVATE_KEY_TAG_
+    [privateKeyAttr setObject:[NSNumber numberWithBool:true] forKey:(id)kSecAttrIsPermanent];
+    NSData *privateTag = [ComGoogleJ2objcSecurityIosRSAKey_get_PRIVATE_KEY_TAG()
                           dataUsingEncoding:NSUTF8StringEncoding];
     [privateKeyAttr setObject:privateTag forKey:(id)kSecAttrApplicationTag];
 
     NSMutableDictionary * publicKeyAttr = [[NSMutableDictionary alloc] init];
-    [publicKeyAttr setObject:[NSNumber numberWithBool:YES] forKey:(id)kSecAttrIsPermanent];
-    NSData *publicTag = [ComGoogleJ2objcSecurityIosRSAKey_PUBLIC_KEY_TAG_
+    [publicKeyAttr setObject:[NSNumber numberWithBool:true] forKey:(id)kSecAttrIsPermanent];
+    NSData *publicTag = [ComGoogleJ2objcSecurityIosRSAKey_get_PUBLIC_KEY_TAG()
                          dataUsingEncoding:NSUTF8StringEncoding];
     [publicKeyAttr setObject:publicTag forKey:(id)kSecAttrApplicationTag];
 

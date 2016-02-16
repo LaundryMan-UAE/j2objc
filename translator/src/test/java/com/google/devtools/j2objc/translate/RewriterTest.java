@@ -38,7 +38,6 @@ import java.util.List;
  *
  * @author Tom Ball
  */
-@SuppressWarnings("unchecked")
 public class RewriterTest extends GenerationTest {
 
   public void testContinueAndBreakUsingSameLabel() throws IOException {
@@ -153,9 +152,9 @@ public class RewriterTest extends GenerationTest {
     assertTranslatedLines(translation,
         "+ (void)initialize {",
         "if (self == [Test class]) {",
-        "JreStrongAssignAndConsume(&Test_a_, nil, "
+        "JreStrongAssignAndConsume(&Test_a, "
             + "[IOSIntArray newArrayWithInts:(jint[]){ 1, 2, 3 } count:3]);",
-        "JreStrongAssignAndConsume(&Test_b_, nil, "
+        "JreStrongAssignAndConsume(&Test_b, "
             + "[IOSCharArray newArrayWithChars:(jchar[]){ '4', '5' } count:2]);");
   }
 
@@ -178,8 +177,7 @@ public class RewriterTest extends GenerationTest {
   public void testInterfaceFieldsAreStaticFinal() throws IOException {
     String source = "interface Test { String foo = \"bar\"; }";
     String translation = translateSourceFile(source, "Test", "Test.h");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(Test, foo_, NSString *)");
-    assertFalse(translation.contains("J2OBJC_STATIC_FIELD_SETTER"));
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_OBJ_FINAL(Test, foo, NSString *)");
   }
 
   // Regression test: the wrong method name used for "f.group()" translation.
@@ -210,7 +208,7 @@ public class RewriterTest extends GenerationTest {
         + "  public int compareTo(Test t) { return i - t.i; } }", "Test", "Test.m");
     assertTranslatedLines(translation,
         "- (jint)compareToWithId:(Test *)t {",
-        "check_class_cast(t, [Test class]);");
+        "cast_chk(t, [Test class]);");
   }
 
   public void testAdditionWithinStringConcatenation() throws IOException {
@@ -343,7 +341,7 @@ public class RewriterTest extends GenerationTest {
         "Test", "Test.m");
     assertTranslatedLines(translation, "(object == self) || "
         + "(([object isKindOfClass:[Test class]]) && (i_ == ((Test *) nil_chk(((Test *) "
-        + "check_class_cast(object, [Test class]))))->i_));");
+        + "cast_chk(object, [Test class]))))->i_));");
   }
 
   // Objective-C requires that bit-wise and tests be surrounded by parens when mixed with or tests.
@@ -397,14 +395,14 @@ public class RewriterTest extends GenerationTest {
         "Test", "Test.m");
     assertNotInTranslation(translation, "RetainedLocalRef");
     assertTranslation(translation, "ComGoogleJ2objcUtilScopedLocalRef *c = "
-        + "[[[ComGoogleJ2objcUtilScopedLocalRef alloc] "
-        + "initWithId:NSString_get_CASE_INSENSITIVE_ORDER_()] autorelease];");
+        + "[new_ComGoogleJ2objcUtilScopedLocalRef_initWithId_("
+        + "JreLoadStatic(NSString, CASE_INSENSITIVE_ORDER)) autorelease];");
     assertTranslation(translation,
         "return [((id<JavaUtilComparator>) nil_chk(((id<JavaUtilComparator>) "
-        + "check_protocol_cast(c->var_, @protocol(JavaUtilComparator))))) "
+        + "cast_check(c->var_, JavaUtilComparator_class_())))) "
         + "compareWithId:s1 withId:s2] == 0;");
     assertTranslation(translation, "ComGoogleJ2objcUtilScopedLocalRef *thing = "
-        + "[[[ComGoogleJ2objcUtilScopedLocalRef alloc] initWithId:t] autorelease];");
+        + "[new_ComGoogleJ2objcUtilScopedLocalRef_initWithId_(t) autorelease];");
     assertTranslation(translation,
         "return [((id<JavaUtilComparator>) nil_chk(((Test_Thing *) nil_chk(t))->comp_)) "
         + "compareWithId:s1 withId:s2] == 0;");

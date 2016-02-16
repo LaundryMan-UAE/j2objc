@@ -24,7 +24,7 @@
 
 @class IOSClass;
 
-// A protocol that defines Java Object-compatible methods.
+/// A protocol that defines Java Object-compatible methods.
 @protocol JavaObject
 
 // Returns a copy of the object, if it implements java.lang.Cloneable.
@@ -43,6 +43,9 @@
 - (void)wait;
 - (void)waitWithLong:(long long)timeout;
 - (void)waitWithLong:(long long)timeout withInt:(int)nanos;
+
+// Called upon deallocation of the object.
+- (void)javaFinalize;
 
 @end
 

@@ -14,22 +14,22 @@
 
 package com.google.devtools.j2objc.translate;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.devtools.j2objc.ast.AnnotationTypeDeclaration;
 import com.google.devtools.j2objc.ast.AnonymousClassDeclaration;
 import com.google.devtools.j2objc.ast.EnumDeclaration;
+import com.google.devtools.j2objc.ast.LambdaExpression;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.TypeDeclaration;
 import com.google.devtools.j2objc.util.BindingUtil;
-import com.google.devtools.j2objc.util.NameTable;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -40,8 +40,8 @@ import java.util.Set;
  */
 public class VariableRenamer extends TreeVisitor {
 
-  private List<Set<String>> fieldNameStack = Lists.newArrayList();
-  private Set<ITypeBinding> renamedTypes = Sets.newHashSet();
+  private List<Set<String>> fieldNameStack = new ArrayList<>();
+  private Set<ITypeBinding> renamedTypes = new HashSet<>();
 
   private void collectAndRenameFields(ITypeBinding type, Set<IVariableBinding> fields) {
     if (type == null) {
@@ -51,23 +51,29 @@ public class VariableRenamer extends TreeVisitor {
     collectAndRenameFields(type.getSuperclass(), fields);
     if (!renamedTypes.contains(type)) {
       renamedTypes.add(type);
-      Set<String> superFieldNames = Sets.newHashSet();
+      Set<String> superFieldNames = new HashSet<>();
       for (IVariableBinding superField : fields) {
         superFieldNames.add(superField.getName());
       }
+      // Look for static methods that might conflict with a static variable when functionized.
+      Set<String> staticMethodNames = new HashSet<>();
+      for (IMethodBinding method : type.getDeclaredMethods()) {
+        if (BindingUtil.isStatic(method) && method.getParameterTypes().length == 0) {
+          staticMethodNames.add(nameTable.getFunctionName(method));
+        }
+      }
       for (IVariableBinding field : type.getDeclaredFields()) {
         String fieldName = field.getName();
-        if (!BindingUtil.isStatic(field) && superFieldNames.contains(fieldName)) {
-          fieldName += "_" + type.getName();
-          NameTable.rename(field, fieldName);
-        }
-        // Note: this check is no longer needed since we don't generate
-        // properties from fields anymore.
-        for (IMethodBinding method : type.getDeclaredMethods()) {
-          if (method.getName().equals(fieldName)) {
-            NameTable.rename(field, fieldName + "_");
-            break;
+        if (BindingUtil.isGlobalVar(field)) {
+          if (staticMethodNames.contains(fieldName)) {
+            while (staticMethodNames.contains(fieldName)) {
+              fieldName += "_";
+            }
+            nameTable.setVariableName(field, fieldName);
           }
+        } else if (!BindingUtil.isStatic(field) && superFieldNames.contains(fieldName)) {
+          fieldName += "_" + type.getName();
+          nameTable.setVariableName(field, fieldName);
         }
       }
     }
@@ -79,11 +85,11 @@ public class VariableRenamer extends TreeVisitor {
   }
 
   private void pushType(ITypeBinding type) {
-    Set<IVariableBinding> fields = Sets.newHashSet();
+    Set<IVariableBinding> fields = new HashSet<>();
     collectAndRenameFields(type, fields);
-    Set<String> fullFieldNames = Sets.newHashSet();
+    Set<String> fullFieldNames = new HashSet<>();
     for (IVariableBinding field : fields) {
-      fullFieldNames.add(NameTable.javaFieldToObjC(NameTable.getName(field)));
+      fullFieldNames.add(nameTable.getVariableShortName(field));
     }
     fieldNameStack.add(fullFieldNames);
   }
@@ -101,14 +107,14 @@ public class VariableRenamer extends TreeVisitor {
     var = var.getVariableDeclaration();
     if (var.isField()) {
       // Make sure fields for the declaring type are renamed.
-      collectAndRenameFields(var.getDeclaringClass(), Sets.<IVariableBinding>newHashSet());
+      collectAndRenameFields(var.getDeclaringClass(), new HashSet<IVariableBinding>());
     } else {
       // Local variable or parameter. Rename if it shares a name with a field.
       String varName = var.getName();
       assert fieldNameStack.size() > 0;
       Set<String> fieldNames = fieldNameStack.get(fieldNameStack.size() - 1);
       if (fieldNames.contains(varName)) {
-        NameTable.rename(var, varName + "Arg");
+        nameTable.setVariableName(var, varName + "Arg");
       }
     }
   }
@@ -154,6 +160,17 @@ public class VariableRenamer extends TreeVisitor {
 
   @Override
   public void endVisit(AnonymousClassDeclaration node) {
+    popType();
+  }
+
+  @Override
+  public boolean visit(LambdaExpression node) {
+    pushType(node.getTypeBinding());
+    return true;
+  }
+
+  @Override
+  public void endVisit(LambdaExpression node) {
     popType();
   }
 }

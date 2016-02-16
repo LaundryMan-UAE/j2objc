@@ -44,6 +44,27 @@ public class ConstantBranchPrunerTest extends GenerationTest {
     assertTranslatedLines(translation, "do {", "[self tick];", "}", "while (b);");
   }
 
+  // Do statements should not be replaced with their body because they might contain break
+  // statements.
+  public void testFalseDoExpression() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { int test() { foo: do { return 1; } while (false); }}",
+        "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "- (jint)test {", "foo: do {", "return 1;", "}", "while (false);", "}");
+    translation = translateSourceFile(
+        "class Test { static final boolean debug = false;"
+            + "  int test() { foo: do { return 1; } while (debug); }}",
+        "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "- (jint)test {", "foo: do {", "return 1;", "}", "while (Test_debug);", "}");
+    // Can't remove loop construct while it contains a break statement.
+    translation = translateSourceFile(
+        "class Test { void test(int i) { do { if (i == 5) break; } while (false); } }",
+        "Test", "Test.m");
+    assertTranslatedLines(translation, "do {", "if (i == 5) break;", "}", "while (false);");
+  }
+
   // Verify then block replaces if statement when true.
   public void testTrueIfExpression() throws IOException {
     String translation = translateSourceFile(
@@ -127,20 +148,80 @@ public class ConstantBranchPrunerTest extends GenerationTest {
         "{", "result = 8;", "}");
   }
 
-  // Verify method invocation paired with constant is pruned.
+  // Verify method invocation paired with constant is not pruned because methods
+  // may have side effects.
   public void testMethodAnd() throws IOException {
     String translation = translateSourceFile(
         "class Test { "
         + "static final boolean DEBUG = true; "
         + "static final boolean NDEBUG = false;"
+        + "boolean b;"
         + "boolean enabled() { return true; }"
         + "int test() { int result; "
-        + "  if (enabled() && NDEBUG) { result = 1; } else { result = 2; }"
+        // The "b" operand should be pruned since it has no side effect.
+        + "  if (enabled() && b && NDEBUG) { result = 1; } else { result = 2; }"
         + "  if (enabled() || DEBUG) { result = 3; } else { result = 4; }"
         + "  return result; }}",
         "Test", "Test.m");
     assertTranslatedLines(translation,
-        "{", "result = 2;", "}",
-        "{", "result = 3;", "}");
+        "(void) ([self enabled]);",
+        "{",
+        "  result = 2;",
+        "}",
+        "(void) ([self enabled]);",
+        "{",
+        "  result = 3;",
+        "}");
+  }
+
+  public void testWhileStatementPrunedWithSideEffects() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { boolean getB() { return true; } int test(boolean b) { "
+        + "while (b && (getB() && false)) { return 1; } return 0; } }", "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "- (jint)testWithBoolean:(jboolean)b {",
+        "  (void) (b && ([self getB]));",
+        "  return 0;",
+        "}");
+  }
+
+  public void testExpressionPruning() throws IOException {
+    String translation = translateSourceFile(
+        "class A { "
+        + "static final boolean DEBUG = true; "
+        + "static final boolean TEST = true; "
+        + "private static boolean nonConstant = false; "
+        + "boolean test() { "
+
+        // DEBUG and TEST constants should be pruned.
+        + "  if (DEBUG && TEST && nonConstant) return false; "
+        + "  return true; }}", "A", "A.m");
+    assertTranslatedLines(translation,
+        "- (jboolean)test {", "if (A_nonConstant) return false;", "return true;", "}");
+  }
+
+  // Verify that volatile loads aren't pruned because they provide a memory
+  // barrier.
+  public void testVolatileLoad() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { volatile int i; boolean test() { return i == 1 && false; } }",
+        "Test", "Test.m");
+    assertTranslation(translation, "return JreLoadVolatileInt(&i_) == 1 && false;");
+  }
+
+  // The JDT parser provides limited type information for local types declared
+  // in unreachable code, resulting in NPEs. ConstantBranchPruner should remove
+  // this unreachable code.
+  public void testUnreachableLocalClass() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { int test() { if (true) { return 5; } "
+        + "class Foo {}; return new Foo().hashCode(); } }", "Test", "Test.m");
+    assertNotInTranslation(translation, "Foo");
+    assertTranslatedLines(translation,
+        "- (jint)test {",
+        "  {",
+        "    return 5;",
+        "  }",
+        "}");
   }
 }

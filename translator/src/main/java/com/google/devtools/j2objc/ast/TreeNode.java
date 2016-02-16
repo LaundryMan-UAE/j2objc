@@ -95,11 +95,22 @@ public abstract class TreeNode {
     return lineNumber;
   }
 
+  public void setLineNumber(int lineNumber) {
+    this.lineNumber = lineNumber;
+  }
+
   public final void accept(TreeVisitor visitor) {
-    if (visitor.preVisit(this)) {
-      acceptInner(visitor);
+    try {
+      if (visitor.preVisit(this)) {
+        acceptInner(visitor);
+      }
+      visitor.postVisit(this);
+    } catch (TreeVisitorAssertionError e) {
+      // Avoid re-wrapping.
+      throw e;
+    } catch (AssertionError e) {
+      throw new TreeVisitorAssertionError(e, this);
     }
-    visitor.postVisit(this);
   }
 
   protected abstract void acceptInner(TreeVisitor visitor);
@@ -163,15 +174,19 @@ public abstract class TreeNode {
     CATCH_CLAUSE,
     CHARACTER_LITERAL,
     CLASS_INSTANCE_CREATION,
+    COMMA_EXPRESSION,
     COMPILATION_UNIT,
     CONDITIONAL_EXPRESSION,
     CONSTRUCTOR_INVOCATION,
     CONTINUE_STATEMENT,
+    CREATION_REFERENCE,
+    DIMENSION,
     DO_STATEMENT,
     EMPTY_STATEMENT,
     ENHANCED_FOR_STATEMENT,
     ENUM_CONSTANT_DECLARATION,
     ENUM_DECLARATION,
+    EXPRESSION_METHOD_REFERENCE,
     EXPRESSION_STATEMENT,
     FIELD_ACCESS,
     FIELD_DECLARATION,
@@ -182,13 +197,16 @@ public abstract class TreeNode {
     INFIX_EXPRESSION,
     INITIALIZER,
     INSTANCEOF_EXPRESSION,
+    INTERSECTION_TYPE,
     JAVADOC,
     LABELED_STATEMENT,
+    LAMBDA_EXPRESSION,
     LINE_COMMENT,
     MARKER_ANNOTATION,
     MEMBER_VALUE_PAIR,
     METHOD_DECLARATION,
     METHOD_INVOCATION,
+    NAME_QUALIFIED_TYPE,
     NATIVE_DECLARATION,
     NATIVE_EXPRESSION,
     NATIVE_STATEMENT,
@@ -201,6 +219,7 @@ public abstract class TreeNode {
     POSTFIX_EXPRESSION,
     PREFIX_EXPRESSION,
     PRIMITIVE_TYPE,
+    PROPERTY_ANNOTATION,
     QUALIFIED_NAME,
     QUALIFIED_TYPE,
     RETURN_STATEMENT,
@@ -211,6 +230,7 @@ public abstract class TreeNode {
     STRING_LITERAL,
     SUPER_CONSTRUCTOR_INVOCATION,
     SUPER_METHOD_INVOCATION,
+    SUPER_METHOD_REFERENCE,
     SUPER_FIELD_ACCESS,
     SWITCH_CASE,
     SWITCH_STATEMENT,
@@ -223,6 +243,7 @@ public abstract class TreeNode {
     TYPE_DECLARATION,
     TYPE_DECLARATION_STATEMENT,
     TYPE_LITERAL,
+    TYPE_METHOD_REFERENCE,
     UNION_TYPE,
     VARIABLE_DECLARATION_EXPRESSION,
     VARIABLE_DECLARATION_FRAGMENT,

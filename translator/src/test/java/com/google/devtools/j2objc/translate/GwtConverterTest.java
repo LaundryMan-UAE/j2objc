@@ -45,12 +45,6 @@ public class GwtConverterTest extends GenerationTest {
         "com/google/common/annotations/GwtIncompatible.java");
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    Options.setStripGwtIncompatibleMethods(false);
-    super.tearDown();
-  }
-
   public void testGwtCreate() throws IOException {
     String translation = translateSourceFile(
         "import com.google.gwt.core.client.GWT;"
@@ -58,7 +52,8 @@ public class GwtConverterTest extends GenerationTest {
         + "  Test INSTANCE = GWT.create(Test.class);"
         + "  String FOO = foo();"  // Regression requires subsequent non-mapped method invocation.
         + "  static String foo() { return \"foo\"; } }", "Test", "Test.m");
-    assertTranslation(translation, "Test_set_INSTANCE_(self, [Test_class_() newInstance]);");
+    assertTranslation(translation,
+        "JreStrongAssign(&self->INSTANCE_, [Test_class_() newInstance]);");
   }
 
   public void testGwtIsScript() throws IOException {
@@ -67,7 +62,7 @@ public class GwtConverterTest extends GenerationTest {
         + "class Test { boolean test() { "
         + "  if (GWT.isClient() || GWT.isScript()) { return true; } return false; }}",
         "Test", "Test.m");
-    assertTranslatedLines(translation, "- (jboolean)test {", "return NO;", "}");
+    assertTranslatedLines(translation, "- (jboolean)test {", "return false;", "}");
   }
 
   // Verify GwtIncompatible method is not stripped by default.
@@ -101,5 +96,18 @@ public class GwtConverterTest extends GenerationTest {
         + "  @GwtIncompatible(\"reflection\") boolean test() { return false; }}",
         "Test", "Test.h");
     assertTranslation(translation, "- (jboolean)test;");
+  }
+
+  // Regression test: GwtConverter.visit(IfStatement) threw an NPE.
+  public void testGwtIsScriptElseBlock() throws IOException {
+    String translation = translateSourceFile("import com.google.gwt.core.client.GWT;"
+        + "class Test { String test() { "
+        + "  if (GWT.isScript()) { "
+        + "    return \"one\"; "
+        + "  } else { "
+        + "    return \"two\"; "
+        + "  }}}",  "Test", "Test.m");
+    assertNotInTranslation(translation, "return @\"one\";");
+    assertTranslation(translation, "return @\"two\";");
   }
 }

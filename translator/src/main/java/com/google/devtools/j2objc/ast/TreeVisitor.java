@@ -14,19 +14,32 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.types.Types;
+import com.google.devtools.j2objc.util.NameTable;
+
 /**
  * Base visitor class for the J2ObjC tree.
  */
 public class TreeVisitor {
 
+  protected CompilationUnit unit = null;
+  protected Types typeEnv = null;
+  protected NameTable nameTable = null;
+
   /**
    * Executes this visitor on a specified node.  This entry point should
-   * be used instead of visit(), so exception can be caught and reported.
+   * be used instead of visit(), so that certain state can be initialized.
    *
    * @param node the top-level node to visit.
    */
   public void run(TreeNode node) {
+    unit = TreeUtil.getCompilationUnit(node);
+    typeEnv = unit.getTypeEnv();
+    nameTable = unit.getNameTable();
     node.accept(this);
+    unit = null;
+    typeEnv = null;
+    nameTable = null;
   }
 
   public boolean preVisit(TreeNode node) {
@@ -143,6 +156,12 @@ public class TreeVisitor {
 
   public void endVisit(ClassInstanceCreation node) {}
 
+  public boolean visit(CommaExpression node) {
+    return true;
+  }
+
+  public void endVisit(CommaExpression node) {}
+
   public boolean visit(CompilationUnit node) {
     return true;
   }
@@ -167,11 +186,23 @@ public class TreeVisitor {
 
   public void endVisit(ContinueStatement node) {}
 
+  public boolean visit(CreationReference node) {
+    return true;
+  }
+
+  public void endVisit(CreationReference node) {}
+
   public boolean visit(DoStatement node) {
     return true;
   }
 
   public void endVisit(DoStatement node) {}
+
+  public boolean visit(Dimension node) {
+    return true;
+  }
+
+  public void endVisit(Dimension node) {}
 
   public boolean visit(EmptyStatement node) {
     return true;
@@ -196,6 +227,12 @@ public class TreeVisitor {
   }
 
   public void endVisit(EnumDeclaration node) {}
+
+  public boolean visit(ExpressionMethodReference node) {
+    return true;
+  }
+
+  public void endVisit(ExpressionMethodReference node) {}
 
   public boolean visit(ExpressionStatement node) {
     return true;
@@ -257,6 +294,12 @@ public class TreeVisitor {
 
   public void endVisit(InstanceofExpression node) {}
 
+  public boolean visit(IntersectionType node) {
+    return true;
+  }
+
+  public void endVisit(IntersectionType node) {}
+
   public boolean visit(Javadoc node) {
     // By default don't visit javadoc nodes because they aren't code.
     // This is consistent with JDT's base visitor class.
@@ -270,6 +313,12 @@ public class TreeVisitor {
   }
 
   public void endVisit(LabeledStatement node) {}
+
+  public boolean visit(LambdaExpression node) {
+    return true;
+  }
+
+  public void endVisit(LambdaExpression node) {}
 
   public boolean visit(LineComment node) {
     return true;
@@ -300,6 +349,12 @@ public class TreeVisitor {
   }
 
   public void endVisit(MethodInvocation node) {}
+
+  public boolean visit(NameQualifiedType node) {
+    return true;
+  }
+
+  public void endVisit(NameQualifiedType node) {}
 
   public boolean visit(NativeDeclaration node) {
     return true;
@@ -373,6 +428,12 @@ public class TreeVisitor {
 
   public void endVisit(PrimitiveType node) {}
 
+  public boolean visit(PropertyAnnotation node) {
+    return true;
+  }
+
+  public void endVisit(PropertyAnnotation node) {}
+
   public boolean visit(QualifiedName node) {
     return true;
   }
@@ -432,6 +493,12 @@ public class TreeVisitor {
   }
 
   public void endVisit(SuperMethodInvocation node) {}
+
+  public boolean visit(SuperMethodReference node) {
+    return true;
+  }
+
+  public void endVisit(SuperMethodReference node) {}
 
   public boolean visit(SuperFieldAccess node) {
     return true;
@@ -504,6 +571,12 @@ public class TreeVisitor {
   }
 
   public void endVisit(TypeLiteral node) {}
+
+  public boolean visit(TypeMethodReference node) {
+    return true;
+  }
+
+  public void endVisit(TypeMethodReference node) {}
 
   public boolean visit(UnionType node) {
     return true;

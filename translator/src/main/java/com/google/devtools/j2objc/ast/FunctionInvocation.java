@@ -14,6 +14,8 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.types.FunctionBinding;
+
 import org.eclipse.jdt.core.dom.ITypeBinding;
 
 import java.util.List;
@@ -23,30 +25,21 @@ import java.util.List;
  */
 public class FunctionInvocation extends Expression {
 
-  private String name = null;
+  private FunctionBinding functionBinding = null;
   // The context-specific known type of this expression.
   private ITypeBinding typeBinding = null;
-  // The return type of the declared function.
-  private ITypeBinding declaredReturnType = null;
-  private ITypeBinding declaringType = null;
   private final ChildList<Expression> arguments = ChildList.create(Expression.class, this);
 
   public FunctionInvocation(FunctionInvocation other) {
     super(other);
-    name = other.getName();
+    functionBinding = other.getFunctionBinding();
     typeBinding = other.getTypeBinding();
-    declaredReturnType = other.getDeclaredReturnType();
-    declaringType = other.getDeclaringType();
     arguments.copyFrom(other.getArguments());
   }
 
-  public FunctionInvocation(
-      String name, ITypeBinding typeBinding, ITypeBinding declaredReturnType,
-      ITypeBinding declaringType) {
-    this.name = name;
+  public FunctionInvocation(FunctionBinding functionBinding, ITypeBinding typeBinding) {
+    this.functionBinding = functionBinding;
     this.typeBinding = typeBinding;
-    this.declaredReturnType = declaredReturnType;
-    this.declaringType = declaringType;
   }
 
   @Override
@@ -54,21 +47,17 @@ public class FunctionInvocation extends Expression {
     return Kind.FUNCTION_INVOCATION;
   }
 
+  public FunctionBinding getFunctionBinding() {
+    return functionBinding;
+  }
+
   public String getName() {
-    return name;
+    return functionBinding.getName();
   }
 
   @Override
   public ITypeBinding getTypeBinding() {
     return typeBinding;
-  }
-
-  public ITypeBinding getDeclaredReturnType() {
-    return declaredReturnType;
-  }
-
-  public ITypeBinding getDeclaringType() {
-    return declaringType;
   }
 
   public List<Expression> getArguments() {

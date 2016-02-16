@@ -19,37 +19,9 @@
 
 include environment.mk
 
-JAVA_SOURCES = \
-    javax/annotation/CheckForNull.java \
-    javax/annotation/CheckForSigned.java \
-    javax/annotation/CheckReturnValue.java \
-    javax/annotation/concurrent/GuardedBy.java \
-    javax/annotation/concurrent/Immutable.java \
-    javax/annotation/concurrent/NotThreadSafe.java \
-    javax/annotation/concurrent/ThreadSafe.java \
-    javax/annotation/Detainted.java \
-    javax/annotation/MatchesPattern.java \
-    javax/annotation/meta/Exclusive.java \
-    javax/annotation/meta/Exhaustive.java \
-    javax/annotation/meta/TypeQualifier.java \
-    javax/annotation/meta/TypeQualifierDefault.java \
-    javax/annotation/meta/TypeQualifierNickname.java \
-    javax/annotation/meta/TypeQualifierValidator.java \
-    javax/annotation/meta/When.java \
-    javax/annotation/Nonnegative.java \
-    javax/annotation/Nonnull.java \
-    javax/annotation/Nullable.java \
-    javax/annotation/OverridingMethodsMustInvokeSuper.java \
-    javax/annotation/ParametersAreNonnullByDefault.java \
-    javax/annotation/PropertyKey.java \
-    javax/annotation/RegEx.java \
-    javax/annotation/Signed.java \
-    javax/annotation/Syntax.java \
-    javax/annotation/Tainted.java \
-    javax/annotation/Untainted.java \
-    javax/annotation/WillClose.java \
-    javax/annotation/WillCloseWhenClosed.java \
-    javax/annotation/WillNotClose.java
+# Python command to convert sources list in constants.bzl
+BZL_CMD = 'execfile("constants.bzl"); print " ".join(CONSTANTS_JSR_305_PATHS)'
+JAVA_SOURCES = $(shell python -c $(BZL_CMD))
 
 EXTRACTED_JAVA = $(JAVA_SOURCES:%=$(JAVA_SRC_DIR)/%)
 JAVA_SOURCES_MANIFEST = $(BUILD_DIR)/java_sources.mf
@@ -61,7 +33,8 @@ include ../make/create_jar.mk
 
 TRANSLATE_JAVA_FULL = $(JAVA_SOURCES:%=$(JAVA_SRC_DIR)/%)
 TRANSLATE_JAVA_RELATIVE = $(JAVA_SOURCES)
-TRANSLATE_ARGS = -sourcepath $(JAVA_SRC_DIR) -q
+# Batch translate is turned off due to an open JDT bug.
+TRANSLATE_ARGS = -sourcepath $(JAVA_SRC_DIR) -q --batch-translate-max=0
 include ../make/translate.mk
 
 ARCH_HEADERS = $(TRANSLATE_HEADERS:$(GEN_OBJC_DIR)/%=$(ARCH_INCLUDE_DIR)/%)
@@ -71,6 +44,12 @@ FAT_LIB_SOURCES_RELATIVE = $(TRANSLATE_SOURCES:$(GEN_OBJC_DIR)/%=%)
 FAT_LIB_SOURCE_DIRS = $(GEN_OBJC_DIR)
 FAT_LIB_COMPILE = $(J2OBJCC) -fobjc-abi-version=2 -fobjc-legacy-dispatch
 include ../make/fat_lib.mk
+
+STATIC_FRAMEWORK_NAME = JSR305
+include ../make/static_framework.mk
+
+JSR305_LICENSE = LICENSE
+JSR305_LICENSE_DIST = $(DIST_LICENSE_DIR)/jsr305_license.txt
 
 default: lib
 
@@ -84,7 +63,7 @@ classes: $(JAVA_SOURCES_MANIFEST)
 	    -sourcepath $(SOURCE_PATH) -classpath $(CLASS_PATH) \
 	    $$(cat $(JAVA_SOURCES_MANIFEST))
 
-lib: $(FAT_LIB_LIBRARY)
+lib: $(FAT_LIBS)
 	@:
 
 $(JSR305_SRC_JAR): | java_deps_dist
@@ -98,13 +77,13 @@ $(BUILD_DIR)/.extracted: $(JSR305_SRC_JAR) | $(BUILD_DIR)
 $(EXTRACTED_JAVA): $(BUILD_DIR)/.extracted
 	@:
 
-$(JSR305_LIB_DIST): $(FAT_LIB_LIBRARY)
-	@mkdir -p $(@D)
-	install -m 0644 $< $@
-
 $(ARCH_INCLUDE_DIR)/%.h: $(GEN_OBJC_DIR)/%.h
 	@mkdir -p $(@D)
 	install -m 0644 $< $@
+
+$(JSR305_LICENSE_DIST): $(JSR305_LICENSE)
+	@mkdir -p $(@D)
+	@install -m 0644 $< $@
 
 $(JAVA_SOURCES_MANIFEST): $(EXTRACTED_JAVA) | $(BUILD_DIR)
 	@echo "Building $$(basename $@)"
@@ -128,7 +107,8 @@ $(BUILD_DIR):
 	@mkdir -p $@
 
 clean:
-	@rm -rf $(BUILD_DIR) $(JSR305_LIB_DIST)
-	@rm -rf $(ARCH_INCLUDE_DIR)/javax/annotation
+	@rm -rf $(BUILD_DIR) $(FAT_LIBS_DIST)
+	@rm -rf $(JSR305_LICENSE_DIST) $(ARCH_INCLUDE_DIR)/javax/annotation
+	@rm -rf $(STATIC_FRAMEWORK_DIR)
 
-dist: $(JSR305_LIB_DIST) $(ARCH_HEADERS)
+dist: $(FAT_LIBS_DIST) $(ARCH_HEADERS) $(JSR305_LICENSE_DIST)

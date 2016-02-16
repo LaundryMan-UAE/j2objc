@@ -24,7 +24,7 @@
 
 #import "IOSObjectArray.h"
 #import "IOSPrimitiveArray.h"
-#import "J2ObjC_common.h"
+#import "J2ObjC_header.h"
 #import "java/io/Serializable.h"
 #import "java/lang/CharSequence.h"
 #import "java/lang/Comparable.h"
@@ -45,7 +45,7 @@
 + (NSString *)valueOf:(id<NSObject>)obj;
 
 // String.valueOf(boolean)
-+ (NSString *)valueOfBool:(BOOL)value;
++ (NSString *)valueOfBool:(jboolean)value;
 
 // String.valueOf(char)
 + (NSString *)valueOfChar:(unichar)value;
@@ -162,7 +162,7 @@ destinationBegin:(int)dstBegin;
 - (int)indexOfString:(NSString *)s fromIndex:(int)index;
 
 // String.isEmpty()
-- (BOOL)isEmpty;
+- (jboolean)isEmpty;
 
 // String.lastIndexOf(int)
 - (int)lastIndexOf:(int)ch;
@@ -231,7 +231,7 @@ destinationBegin:(int)dstBegin;
                      withNSObjectArray:(IOSObjectArray *)args;
 
 // String.startsWith(String, int)
-- (BOOL)hasPrefix:(NSString *)aString offset:(int)offset;
+- (jboolean)hasPrefix:(NSString *)aString offset:(int)offset;
 
 // String.trim()
 - (NSString *)trim;
@@ -240,23 +240,23 @@ destinationBegin:(int)dstBegin;
 - (IOSObjectArray *)split:(NSString *)str;
 
 // String equalsIgnoreCase(String)
-- (BOOL)equalsIgnoreCase:(NSString *)aString;
+- (jboolean)equalsIgnoreCase:(NSString *)aString;
 
 // String.toLowerCase(Locale), toUpperCase(Locale)
 - (NSString *)lowercaseStringWithJRELocale:(JavaUtilLocale *)locale;
 - (NSString *)uppercaseStringWithJRELocale:(JavaUtilLocale *)locale;
 
 // String.regionMatches(...)
-- (BOOL)regionMatches:(int)thisOffset
-              aString:(NSString *)aString
-          otherOffset:(int)otherOffset
-                count:(int)count;
+- (jboolean)regionMatches:(int)thisOffset
+                  aString:(NSString *)aString
+              otherOffset:(int)otherOffset
+                    count:(int)count;
 
-- (BOOL)regionMatches:(BOOL)caseInsensitive
-           thisOffset:(int)thisOffset
-              aString:(NSString *)aString
-          otherOffset:(int)otherOffset
-                count:(int)count;
+- (jboolean)regionMatches:(jboolean)caseInsensitive
+               thisOffset:(int)thisOffset
+                  aString:(NSString *)aString
+              otherOffset:(int)otherOffset
+                    count:(int)count;
 
 // String.intern()
 - (NSString *)intern;
@@ -265,7 +265,7 @@ destinationBegin:(int)dstBegin;
 - (NSString *)concat:string;
 
 // String.contains(CharSequence)
-- (BOOL)contains:(id<JavaLangCharSequence>)sequence;
+- (jboolean)contains:(id<JavaLangCharSequence>)sequence;
 
 // String.codePointAt(int), codePointBefore(int), codePointCount(int, int)
 - (int)codePointAt:(int)index;
@@ -273,12 +273,12 @@ destinationBegin:(int)dstBegin;
 - (int)codePointCount:(int)beginIndex endIndex:(int)endIndex;
 
 // String.matches(), split(String, int)
-- (BOOL)matches:(NSString *)regex;
+- (jboolean)matches:(NSString *)regex;
 - (IOSObjectArray *)split:(NSString *)regex limit:(int)limit;
 
 // String.contentEquals(CharSequence), contentEquals(StringBuffer)
-- (BOOL)contentEqualsCharSequence:(id<JavaLangCharSequence>)seq;
-- (BOOL)contentEqualsStringBuffer:(JavaLangStringBuffer *)sb;
+- (jboolean)contentEqualsCharSequence:(id<JavaLangCharSequence>)seq;
+- (jboolean)contentEqualsStringBuffer:(JavaLangStringBuffer *)sb;
 
 // String.offsetByCodePoints(int, int)
 - (int)offsetByCodePoints:(int)index codePointOffset:(int)offset;
@@ -318,18 +318,22 @@ FOUNDATION_EXPORT NSString *NSString_valueOf_(id o);
 @end
 
 // Use the category dummy to initialize static variables for the String class.
-FOUNDATION_EXPORT _Atomic(BOOL) NSString_initialized;
+FOUNDATION_EXPORT _Atomic(jboolean) NSString__initialized;
 __attribute__((always_inline)) inline void NSString_initialize() {
-  if (!__builtin_expect(NSString_initialized, YES)) {
+  if (!__builtin_expect(NSString__initialized, true)) {
     [JreStringCategoryDummy class];
   }
 }
 
-FOUNDATION_EXPORT id<JavaUtilComparator> NSString_CASE_INSENSITIVE_ORDER_;
-J2OBJC_STATIC_FIELD_GETTER(NSString, CASE_INSENSITIVE_ORDER_, id<JavaUtilComparator>)
+inline id<JavaUtilComparator> NSString_get_CASE_INSENSITIVE_ORDER();
+/*! INTERNAL ONLY - Use accessor function from above. */
+FOUNDATION_EXPORT id<JavaUtilComparator> NSString_CASE_INSENSITIVE_ORDER;
+J2OBJC_STATIC_FIELD_OBJ_FINAL(NSString, CASE_INSENSITIVE_ORDER, id<JavaUtilComparator>)
 
-FOUNDATION_EXPORT IOSObjectArray *NSString_serialPersistentFields_;
-J2OBJC_STATIC_FIELD_GETTER(NSString, serialPersistentFields_, IOSObjectArray *)
+inline IOSObjectArray *NSString_get_serialPersistentFields();
+/*! INTERNAL ONLY - Use accessor function from above. */
+FOUNDATION_EXPORT IOSObjectArray *NSString_serialPersistentFields;
+J2OBJC_STATIC_FIELD_OBJ_FINAL(NSString, serialPersistentFields, IOSObjectArray *)
 
 J2OBJC_TYPE_LITERAL_HEADER(NSString)
 

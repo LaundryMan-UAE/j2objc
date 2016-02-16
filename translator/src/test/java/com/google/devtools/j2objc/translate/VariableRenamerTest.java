@@ -35,7 +35,7 @@ public class VariableRenamerTest extends GenerationTest {
     String translation = translateSourceFile(source, "Test", "Test.m");
     assertTranslation(translation,
         "- (instancetype)initWithJavaUtilCollection:(id<JavaUtilCollection>)c_Arg {");
-    assertTranslation(translation, "Test_CheckedCollection_set_c_(self, c_Arg);");
+    assertTranslation(translation, "JreStrongAssign(&self->c_, c_Arg);");
   }
 
   public void testOverriddenFieldTranslation() throws IOException {
@@ -49,15 +49,6 @@ public class VariableRenamerTest extends GenerationTest {
     assertTranslation(translation, "int size_Subsubclass_;");
   }
 
-  public void testOverriddenNameTranslation() throws IOException {
-    String translation = translateSourceFile(
-        "public class Example { int size; int size() { return size; }} "
-        + "class Subclass extends Example { int size; int size() { return size; }}",
-        "Example", "Example.h");
-    assertTranslation(translation, "int size__;");
-    assertTranslation(translation, "int size_Subclass_;");
-  }
-
   public void testOverriddenGenericClass() throws IOException {
     addSourceFile("class A { int foo; }", "A.java");
     addSourceFile("class C extends B<Object> { static int I; }", "C.java");
@@ -65,5 +56,15 @@ public class VariableRenamerTest extends GenerationTest {
         "class B<T> extends A { int foo; int test() { return C.I; } }", "B", "B.h");
     // Make sure that "C" does not cause "foo" to ge renamed to "foo_B<Object>_".
     assertTranslation(translation, "int foo_B_;");
+  }
+
+  public void testStaticFieldAndMethodCollision() throws IOException {
+    String translation = translateSourceFile(
+        "public class Test { static final int foo = 3; static void foo() {}}", "Test", "Test.h");
+    // The variable is renamed.
+    assertTranslation(translation, "#define Test_foo_ 3");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_CONSTANT(Test, foo_, jint)");
+    // The functionized static method is unchanged.
+    assertTranslation(translation, "void Test_foo();");
   }
 }

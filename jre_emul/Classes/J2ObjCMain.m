@@ -21,13 +21,13 @@
 #import "JreEmulation.h"
 #import "IOSClass.h"
 #include "IOSObjectArray.h"
+#include "NSException+JavaThrowable.h"
 #include "java/io/PrintStream.h"
 #include "java/lang/ClassNotFoundException.h"
 #include "java/lang/IllegalAccessException.h"
 #include "java/lang/NoSuchMethodException.h"
 #include "java/lang/System.h"
 #include "java/lang/Thread.h"
-#include "java/lang/Throwable.h"
 #include "java/lang/reflect/InvocationTargetException.h"
 #include "java/lang/reflect/Method.h"
 
@@ -51,6 +51,30 @@ void installSignalHandler() {
   signal(SIGFPE, signalHandler);
   signal(SIGBUS, signalHandler);
   signal(SIGPIPE, signalHandler);
+}
+
+void handleUncaughtException(NSException *e) {
+  JavaLangThread *currentThread = JavaLangThread_currentThread();
+  id uncaughtHandler = [currentThread getUncaughtExceptionHandler];
+  [uncaughtHandler uncaughtExceptionWithJavaLangThread:currentThread withNSException:e];
+}
+
+// Converts main() arguments into an IOSObjectArray of NSStrings.  The first
+// argument, the program name, is skipped so the returned array matches what
+// is passed to a Java main method.
+IOSObjectArray *JreEmulationMainArguments(int argc, const char *argv[]) {
+  IOSClass *stringType = NSString_class_();
+  if (argc <= 1) {
+    return [IOSObjectArray arrayWithLength:0 type:stringType];
+  }
+  IOSObjectArray *args = [IOSObjectArray arrayWithLength:argc - 1 type:stringType];
+  for (int i = 1; i < argc; i++) {
+    NSString *arg =
+    [NSString stringWithCString:argv[i]
+                       encoding:[NSString defaultCStringEncoding]];
+    IOSObjectArray_Set(args, i - 1, arg);
+  }
+  return args;
 }
 
 int main( int argc, const char *argv[] ) {
@@ -99,21 +123,15 @@ int main( int argc, const char *argv[] ) {
       (void) [mainMethod invokeWithId:nil withNSObjectArray:params];
     }
     @catch (JavaLangReflectInvocationTargetException *e) {
-      [JavaLangSystem_get_err_() printlnWithId:e];
+      handleUncaughtException([e getCause]);
       return 1;
     }
     @catch (JavaLangIllegalAccessException *e) {
-      [JavaLangSystem_get_err_() printlnWithId:e];
+      handleUncaughtException(e);
       return 1;
     }
-    @catch (JavaLangThrowable *e) {
-      JavaLangThread *current = JavaLangThread_currentThread();
-      id uncaughtHandler = [current getUncaughtExceptionHandler];
-      JavaLangThrowable *cause = [e getCause];
-      if (!cause) {
-        cause = e;
-      }
-      [uncaughtHandler uncaughtExceptionWithJavaLangThread:current withJavaLangThrowable:cause];
+    @catch (NSException *e) {
+      handleUncaughtException(e);
     }
   }
   return 0;

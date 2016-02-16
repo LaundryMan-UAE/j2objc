@@ -26,43 +26,53 @@ import com.google.devtools.j2objc.ast.BreakStatement;
 import com.google.devtools.j2objc.ast.CastExpression;
 import com.google.devtools.j2objc.ast.ClassInstanceCreation;
 import com.google.devtools.j2objc.ast.ContinueStatement;
+import com.google.devtools.j2objc.ast.CreationReference;
 import com.google.devtools.j2objc.ast.DoStatement;
 import com.google.devtools.j2objc.ast.EmptyStatement;
 import com.google.devtools.j2objc.ast.EnhancedForStatement;
 import com.google.devtools.j2objc.ast.Expression;
+import com.google.devtools.j2objc.ast.ExpressionMethodReference;
 import com.google.devtools.j2objc.ast.ExpressionStatement;
 import com.google.devtools.j2objc.ast.FieldAccess;
 import com.google.devtools.j2objc.ast.FieldDeclaration;
 import com.google.devtools.j2objc.ast.ForStatement;
 import com.google.devtools.j2objc.ast.InfixExpression;
 import com.google.devtools.j2objc.ast.LabeledStatement;
+import com.google.devtools.j2objc.ast.LambdaExpression;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
+import com.google.devtools.j2objc.ast.MethodInvocation;
+import com.google.devtools.j2objc.ast.MethodReference;
 import com.google.devtools.j2objc.ast.Name;
 import com.google.devtools.j2objc.ast.ParenthesizedExpression;
+import com.google.devtools.j2objc.ast.PropertyAnnotation;
 import com.google.devtools.j2objc.ast.QualifiedName;
+import com.google.devtools.j2objc.ast.ReturnStatement;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
 import com.google.devtools.j2objc.ast.Statement;
+import com.google.devtools.j2objc.ast.SuperMethodInvocation;
+import com.google.devtools.j2objc.ast.SuperMethodReference;
 import com.google.devtools.j2objc.ast.SwitchStatement;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.Type;
+import com.google.devtools.j2objc.ast.TypeMethodReference;
 import com.google.devtools.j2objc.ast.VariableDeclarationExpression;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.ast.VariableDeclarationStatement;
 import com.google.devtools.j2objc.ast.WhileStatement;
+import com.google.devtools.j2objc.types.GeneratedMethodBinding;
 import com.google.devtools.j2objc.types.GeneratedVariableBinding;
-import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.ErrorUtil;
-import com.google.devtools.j2objc.util.NameTable;
 import com.google.j2objc.annotations.AutoreleasePool;
 import com.google.j2objc.annotations.RetainedLocalRef;
+import com.google.j2objc.annotations.Weak;
 
-import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
+import org.eclipse.jdt.core.dom.Modifier;
 
 import java.util.Iterator;
 import java.util.List;
@@ -79,12 +89,11 @@ import java.util.Map;
 public class Rewriter extends TreeVisitor {
 
   private Map<IVariableBinding, IVariableBinding> localRefs = Maps.newHashMap();
+  private final OuterReferenceResolver outerResolver;
 
-  /**
-   * The list of Objective-C type qualifier keywords.
-   */
-  private static final List<String> typeQualifierKeywords = Lists.newArrayList("in", "out",
-      "inout", "oneway", "bycopy", "byref");
+  public Rewriter(OuterReferenceResolver outerResolver) {
+    this.outerResolver = outerResolver;
+  }
 
   @Override
   public boolean visit(MethodDeclaration node) {
@@ -96,17 +105,6 @@ public class Rewriter extends TreeVisitor {
             "Ignoring AutoreleasePool annotation on method with retainable return type");
       } else if (node.getBody() != null) {
         node.getBody().setHasAutoreleasePool(true);
-      }
-    }
-
-    List<SingleVariableDeclaration> params = node.getParameters();
-    for (int i = 0; i < params.size(); i++) {
-      // Change the names of any parameters that are type qualifier keywords.
-      SingleVariableDeclaration param = params.get(i);
-      String name = param.getName().getIdentifier();
-      if (typeQualifierKeywords.contains(name)) {
-        IVariableBinding varBinding = param.getVariableBinding();
-        NameTable.rename(varBinding, name + "Arg");
       }
     }
 
@@ -232,40 +230,8 @@ public class Rewriter extends TreeVisitor {
   public void endVisit(InfixExpression node) {
     InfixExpression.Operator op = node.getOperator();
     ITypeBinding type = node.getTypeBinding();
-    ITypeBinding lhsType = node.getLeftOperand().getTypeBinding();
-    ITypeBinding rhsType = node.getRightOperand().getTypeBinding();
-    if (Types.isJavaStringType(type) && op == InfixExpression.Operator.PLUS
-        && !Types.isJavaStringType(lhsType) && !Types.isJavaStringType(rhsType)) {
-      // String concatenation where the first two operands are not strings.
-      // We move all the preceding non-string operands into a sub-expression.
-      ITypeBinding nonStringExprType = getAdditionType(lhsType, rhsType);
-      InfixExpression nonStringExpr = new InfixExpression(
-          nonStringExprType, InfixExpression.Operator.PLUS, TreeUtil.remove(node.getLeftOperand()),
-          TreeUtil.remove(node.getRightOperand()));
-      InfixExpression stringExpr = new InfixExpression(
-          Types.resolveJavaType("java.lang.String"), InfixExpression.Operator.PLUS, nonStringExpr,
-          null);
-      List<Expression> extendedOperands = node.getExtendedOperands();
-      List<Expression> nonStringOperands = nonStringExpr.getExtendedOperands();
-      List<Expression> stringOperands = stringExpr.getExtendedOperands();
-      boolean foundStringType = false;
-      for (Expression expr : extendedOperands) {
-        Expression copiedExpr = expr.copy();
-        ITypeBinding exprType = expr.getTypeBinding();
-        if (foundStringType || Types.isJavaStringType(exprType)) {
-          if (foundStringType) {
-            stringOperands.add(copiedExpr);
-          } else {
-            stringExpr.setRightOperand(copiedExpr);
-          }
-          foundStringType = true;
-        } else {
-          nonStringOperands.add(copiedExpr);
-          nonStringExprType = getAdditionType(nonStringExprType, exprType);
-        }
-      }
-      nonStringExpr.setTypeBinding(nonStringExprType);
-      node.replaceWith(stringExpr);
+    if (typeEnv.isJavaStringType(type) && op == InfixExpression.Operator.PLUS) {
+      rewriteStringConcat(node);
     } else if (op == InfixExpression.Operator.CONDITIONAL_AND) {
       // Avoid logical-op-parentheses compiler warnings.
       if (node.getParent() instanceof InfixExpression) {
@@ -284,35 +250,60 @@ public class Rewriter extends TreeVisitor {
 
     // Avoid lower precedence compiler warnings.
     if (op == InfixExpression.Operator.AND || op == InfixExpression.Operator.OR) {
-      if (node.getLeftOperand() instanceof InfixExpression) {
-        ParenthesizedExpression.parenthesizeAndReplace(node.getLeftOperand());
-      }
-      if (node.getRightOperand() instanceof InfixExpression) {
-        ParenthesizedExpression.parenthesizeAndReplace(node.getRightOperand());
+      for (Expression operand : node.getOperands()) {
+        if (operand instanceof InfixExpression) {
+          ParenthesizedExpression.parenthesizeAndReplace(operand);
+        }
       }
     }
   }
 
+  private void rewriteStringConcat(InfixExpression node) {
+    // Collect all non-string operands that precede the first string operand.
+    // If there are multiple such operands, move them into a sub-expression.
+    List<Expression> nonStringOperands = Lists.newArrayList();
+    ITypeBinding nonStringExprType = null;
+    for (Expression operand : node.getOperands()) {
+      ITypeBinding operandType = operand.getTypeBinding();
+      if (typeEnv.isJavaStringType(operandType)) {
+        break;
+      }
+      nonStringOperands.add(operand);
+      nonStringExprType = getAdditionType(nonStringExprType, operandType);
+    }
+
+    if (nonStringOperands.size() < 2) {
+      return;
+    }
+
+    InfixExpression nonStringExpr =
+        new InfixExpression(nonStringExprType, InfixExpression.Operator.PLUS);
+    for (Expression operand : nonStringOperands) {
+      nonStringExpr.getOperands().add(TreeUtil.remove(operand));
+    }
+    node.getOperands().add(0, nonStringExpr);
+  }
+
   private ITypeBinding getAdditionType(ITypeBinding aType, ITypeBinding bType) {
-    ITypeBinding doubleType = Types.resolveJavaType("double");
-    ITypeBinding boxedDoubleType = Types.resolveJavaType("java.lang.Double");
+    ITypeBinding doubleType = typeEnv.resolveJavaType("double");
+    ITypeBinding boxedDoubleType = typeEnv.resolveJavaType("java.lang.Double");
     if (aType == doubleType || bType == doubleType
         || aType == boxedDoubleType || bType == boxedDoubleType) {
       return doubleType;
     }
-    ITypeBinding floatType = Types.resolveJavaType("float");
-    ITypeBinding boxedFloatType = Types.resolveJavaType("java.lang.Float");
+    ITypeBinding floatType = typeEnv.resolveJavaType("float");
+    ITypeBinding boxedFloatType = typeEnv.resolveJavaType("java.lang.Float");
     if (aType == floatType || bType == floatType
         || aType == boxedFloatType || bType == boxedFloatType) {
       return floatType;
     }
-    ITypeBinding longType = Types.resolveJavaType("long");
-    ITypeBinding boxedLongType = Types.resolveJavaType("java.lang.Long");
+    ITypeBinding longType = typeEnv.resolveJavaType("long");
+    ITypeBinding boxedLongType = typeEnv.resolveJavaType("java.lang.Long");
     if (aType == longType || bType == longType
         || aType == boxedLongType || bType == boxedLongType) {
       return longType;
     }
-    return Types.resolveJavaType("int");
+    return typeEnv.resolveJavaType("int");
   }
 
   /**
@@ -376,7 +367,7 @@ public class Rewriter extends TreeVisitor {
     }
     // Scan modifiers since variable declarations don't have variable bindings.
     if (TreeUtil.hasAnnotation(RetainedLocalRef.class, node.getAnnotations())) {
-      ITypeBinding localRefType = Types.getLocalRefType();
+      ITypeBinding localRefType = typeEnv.getLocalRefType();
       node.setType(Type.newType(localRefType));
 
       // Convert fragments to retained local refs.
@@ -430,22 +421,14 @@ public class Rewriter extends TreeVisitor {
 
   @Override
   public boolean visit(QualifiedName node) {
-    // Check for ScopedLocalRefs.
-    IBinding var = node.getBinding();
-    if (var instanceof IVariableBinding) {
-      IVariableBinding localRef = localRefs.get(node.getQualifier().getBinding());
-      if (localRef != null) {
-        IVariableBinding localRefFieldBinding = Types.getLocalRefType().getDeclaredFields()[0];
-        Name newQualifier = node.getQualifier().copy();
-        newQualifier.setBinding(localRef);
-        FieldAccess localRefAccess = new FieldAccess(localRefFieldBinding, newQualifier);
-        CastExpression newCast = new CastExpression(
-            node.getQualifier().getTypeBinding(), localRefAccess);
-        ParenthesizedExpression newParens = ParenthesizedExpression.parenthesize(newCast);
-        FieldAccess access = new FieldAccess((IVariableBinding) var, newParens);
-        node.replaceWith(access);
-        return false;
-      }
+    IVariableBinding var = TreeUtil.getVariableBinding(node);
+    Expression qualifier = node.getQualifier();
+    if (var != null && var.isField() && TreeUtil.getVariableBinding(qualifier) != null) {
+      // FieldAccess nodes are more easily mutated than QualifiedName.
+      FieldAccess fieldAccess = new FieldAccess(var, TreeUtil.remove(qualifier));
+      node.replaceWith(fieldAccess);
+      fieldAccess.accept(this);
+      return false;
     }
     return true;
   }
@@ -456,7 +439,7 @@ public class Rewriter extends TreeVisitor {
     IVariableBinding localRef = localRefs.get(node.getBinding());
     if (localRef != null) {
       FieldAccess access = new FieldAccess(
-          Types.getLocalRefType().getDeclaredFields()[0], new SimpleName(localRef));
+          typeEnv.getLocalRefType().getDeclaredFields()[0], new SimpleName(localRef));
       CastExpression newCast = new CastExpression(node.getTypeBinding(), access);
       ParenthesizedExpression newParens = ParenthesizedExpression.parenthesize(newCast);
       node.replaceWith(newParens);
@@ -496,16 +479,210 @@ public class Rewriter extends TreeVisitor {
   }
 
   @Override
-  public void endVisit(Assignment node) {
-    Assignment.Operator op = node.getOperator();
-    Expression lhs = node.getLeftHandSide();
-    Expression rhs = node.getRightHandSide();
-    ITypeBinding lhsType = lhs.getTypeBinding();
-    if (op == Assignment.Operator.PLUS_ASSIGN && Types.isJavaStringType(lhsType)) {
-      // Change "str1 += str2" to "str1 = str1 + str2".
-      node.setOperator(Assignment.Operator.ASSIGN);
-      node.setRightHandSide(new InfixExpression(
-          lhsType, InfixExpression.Operator.PLUS, lhs.copy(), rhs.copy()));
+  public boolean visit(LambdaExpression node) {
+    if (!(node.getBody() instanceof Block)) {
+      // Add explicit blocks for lambdas with expression bodies.
+      Block block = new Block();
+      Statement statement;
+      Expression expression = (Expression) TreeUtil.remove(node.getBody());
+      if (BindingUtil.isVoid(
+          node.getTypeBinding().getFunctionalInterfaceMethod().getReturnType())) {
+        statement = new ExpressionStatement(expression);
+      } else {
+        statement = new ReturnStatement(expression);
+      }
+      block.getStatements().add(statement);
+      node.setBody(block);
+    }
+    // Resolve whether a lambda captures variables from the enclosing scope.
+    node.setIsCapturing(!outerResolver.getCapturedVars(node.getTypeBinding()).isEmpty());
+    return true;
+  }
+
+  public boolean visit(CreationReference node) {
+    IMethodBinding methodBinding = node.getMethodBinding().getMethodDeclaration();
+    IMethodBinding functionalInterface = node.getTypeBinding().getFunctionalInterfaceMethod();
+    Type type = node.getType().copy();
+    ClassInstanceCreation invocation = new ClassInstanceCreation(methodBinding, type);
+    List<Expression> invocationArguments = invocation.getArguments();
+    buildMethodReferenceInvocationArguments(invocationArguments, node);
+    // The functional interface may return void, in which case the initialization is only being used
+    // for side effects, and we don't need a return.
+    if (BindingUtil.isVoid(functionalInterface.getReturnType())) {
+      node.setInvocation(new ExpressionStatement(invocation));
+    } else {
+      node.setInvocation(new ReturnStatement(invocation));
+    }
+    return true;
+  }
+
+  public boolean visit(ExpressionMethodReference node) {
+    IMethodBinding methodBinding = node.getMethodBinding().getMethodDeclaration();
+    Expression expression = node.getExpression().copy();
+    MethodInvocation invocation = new MethodInvocation(methodBinding, expression);
+    List<Expression> invocationArguments = invocation.getArguments();
+    buildMethodReferenceInvocationArguments(invocationArguments, node);
+    if (BindingUtil.isVoid(methodBinding.getReturnType())) {
+      node.setInvocation(new ExpressionStatement(invocation));
+    } else {
+      node.setInvocation(new ReturnStatement(invocation));
+    }
+    return true;
+  }
+
+  public boolean visit(SuperMethodReference node) {
+    IMethodBinding methodBinding = node.getMethodBinding().getMethodDeclaration();
+    Name qualifier = node.getQualifier() == null ? null : node.getQualifier().copy();
+    SuperMethodInvocation invocation = new SuperMethodInvocation(methodBinding);
+    invocation.setQualifier(qualifier);
+    List<Expression> invocationArguments = invocation.getArguments();
+    buildMethodReferenceInvocationArguments(invocationArguments, node);
+    if (BindingUtil.isVoid(methodBinding.getReturnType())) {
+      node.setInvocation(new ExpressionStatement(invocation));
+    } else {
+      node.setInvocation(new ReturnStatement(invocation));
+    }
+    return true;
+  }
+
+  /**
+   * The signatures of TypeMethodReferences include the object parameter, which will be passed in
+   * our case as the first argument. We need to create a method binding without that first argument
+   * for the MethodInvocation, so we are duplicating code from
+   * buildMethodReferenceInvocationArguments.
+   */
+  public boolean visit(TypeMethodReference node) {
+    IMethodBinding oldMethodBinding = node.getMethodBinding();
+    GeneratedMethodBinding methodBinding = GeneratedMethodBinding.newNamedMethod(
+        node.getName().toString(), oldMethodBinding);
+    methodBinding.addParameters(oldMethodBinding);
+    methodBinding.setModifiers(methodBinding.getModifiers() & ~Modifier.STATIC);
+    methodBinding.getParameters().remove(0);
+    IMethodBinding functionalInterface = node.getTypeBinding().getFunctionalInterfaceMethod();
+    ITypeBinding[] methodParams = methodBinding.getParameterTypes();
+    ITypeBinding[] functionalParams = functionalInterface.getParameterTypes();
+    char[] var = nameTable.incrementVariable(null);
+    ITypeBinding functionalParam = functionalParams[0];
+    IVariableBinding variableBinding = new GeneratedVariableBinding(new String(var), 0,
+        functionalParam, false, true, null, null);
+    SimpleName expression = new SimpleName(variableBinding);
+    MethodInvocation invocation = new MethodInvocation(methodBinding, expression);
+    List<Expression> invocationArguments = invocation.getArguments();
+    if (BindingUtil.isVoid(methodBinding.getReturnType())) {
+      node.setInvocation(new ExpressionStatement(invocation));
+    } else {
+      node.setInvocation(new ReturnStatement(invocation));
+    }
+    int methodParamStopIndex = methodBinding.isVarargs() ? methodParams.length
+        : methodParams.length + 1;
+    for (int i = 1; i < methodParamStopIndex; i++) {
+      functionalParam = functionalParams[i];
+      variableBinding = new GeneratedVariableBinding(new String(var), 0, functionalParam, false,
+          true, null, null);
+      invocationArguments.add(new SimpleName(variableBinding));
+      var = nameTable.incrementVariable(var);
+    }
+    if (methodBinding.isVarargs()) {
+      for (int i = methodParamStopIndex; i < functionalInterface.getParameterTypes().length; i++) {
+        functionalParam = functionalParams[i];
+        variableBinding = new GeneratedVariableBinding(new String(var), 0,
+            functionalParam, false, true, null, null);
+        invocationArguments.add(new SimpleName(variableBinding));
+        var = nameTable.incrementVariable(var);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Method references which reference varargs have two very different method signatures attached to
+   * their bindings. The method binding for the method reference is vararg, while the underlying
+   * functional interface matches the actual argument count of the call, and is enforced at runtime.
+   * We create a list of expressions for the method invocation, handling varargs by passing the
+   * remaining arguments from the functional interface binding as an array in the block invocation.
+   */
+  // TODO(kirbs): In the case that we have a referenced method with an int arg, a functional
+  // interface method with an Integer arg, and an invocation with an int arg, we will end up
+  // immediately boxing and unboxing the value. We should solve this by making the types of the
+  // referenced method and the functional interface method the same, but this requires a rewrite of
+  // the selectors that target the method reference on invocation.
+  public void buildMethodReferenceInvocationArguments(List<Expression> invocationArguments,
+      MethodReference node) {
+    IMethodBinding methodBinding = node.getMethodBinding();
+    IMethodBinding functionalInterface = node.getTypeBinding().getFunctionalInterfaceMethod();
+    ITypeBinding[] methodParams = methodBinding.getParameterTypes();
+    ITypeBinding[] functionalParams = functionalInterface.getParameterTypes();
+    char[] var = nameTable.incrementVariable(null);
+    int methodParamStopIndex = methodBinding.isVarargs() ? methodParams.length - 1
+        : methodParams.length;
+    for (int i = 0; i < methodParamStopIndex; i++) {
+      ITypeBinding functionalParam = functionalParams[i];
+      IVariableBinding variableBinding = new GeneratedVariableBinding(new String(var), 0,
+          functionalParam, false, true, null, null);
+      invocationArguments.add(new SimpleName(variableBinding));
+      var = nameTable.incrementVariable(var);
+    }
+    if (methodBinding.isVarargs()) {
+      for (int i = methodParamStopIndex; i < functionalInterface.getParameterTypes().length; i++) {
+        ITypeBinding functionalParam = functionalParams[i];
+        IVariableBinding variableBinding = new GeneratedVariableBinding(new String(var), 0,
+            functionalParam, false, true, null, null);
+        invocationArguments.add(new SimpleName(variableBinding));
+        var = nameTable.incrementVariable(var);
+      }
+    }
+  }
+
+  /**
+   * Verify, update property attributes. Accessor methods are not checked since a
+   * property annotation may apply to separate variables in a field declaration, so
+   * each variable needs to be checked separately during generation.
+   */
+  @Override
+  public void endVisit(PropertyAnnotation node) {
+    FieldDeclaration field = (FieldDeclaration) node.getParent();
+    VariableDeclarationFragment firstVarNode = field.getFragments().get(0);
+    if (field.getType().getTypeBinding().getName().equals("String")) {
+      node.addAttribute("copy");
+    } else if (BindingUtil.hasAnnotation(firstVarNode.getVariableBinding(), Weak.class)) {
+      if (node.hasAttribute("strong")) {
+        ErrorUtil.error(field, "Weak field annotation conflicts with strong Property attribute");
+        return;
+      }
+      node.addAttribute("weak");
+    }
+
+    node.removeAttribute("readwrite");
+    node.removeAttribute("strong");
+    node.removeAttribute("atomic");
+
+    // Make sure attempt isn't made to specify an accessor method for fields with multiple
+    // fragments, since each variable needs unique accessors.
+    String getter = node.getGetter();
+    String setter = node.getSetter();
+    if (field.getFragments().size() > 1) {
+      if (getter != null) {
+        ErrorUtil.error(field, "@Property getter declared for multiple fields");
+        return;
+      }
+      if (setter != null) {
+        ErrorUtil.error(field, "@Property setter declared for multiple fields");
+        return;
+      }
+    } else {
+      // Check that specified accessors exist.
+      IVariableBinding var = field.getFragments().get(0).getVariableBinding();
+      if (getter != null) {
+        if (BindingUtil.findDeclaredMethod(var.getType(), getter) == null) {
+          ErrorUtil.error(field, "Non-existent getter specified: " + getter);
+        }
+      }
+      if (setter != null) {
+        if (BindingUtil.findDeclaredMethod(var.getType(), setter,
+            var.getType().getQualifiedName()) == null) {
+          ErrorUtil.error(field, "Non-existent setter specified: " + setter);
+        }
+      }
     }
   }
 }

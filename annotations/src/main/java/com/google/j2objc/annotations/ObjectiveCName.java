@@ -30,11 +30,11 @@ import java.lang.annotation.Target;
  * @author Tom Ball
  */
 @Target({ ElementType.TYPE, ElementType.METHOD, ElementType.CONSTRUCTOR, ElementType.PACKAGE })
-@Retention(RetentionPolicy.RUNTIME)
+@Retention(RetentionPolicy.CLASS)
 public @interface ObjectiveCName {
 
   /**
    * The Objective-C name to use.
    */
-  public String value();
+  String value();
 }

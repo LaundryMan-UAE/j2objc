@@ -18,7 +18,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 
 /*-[
-#import "java/lang/Throwable.h"
+#import "NSException+JavaThrowable.h"
 #import <asl.h>
 
 // Simple value holder, so aslclient is closed when thread dictionary is deallocated.
@@ -124,12 +124,12 @@ class IOSLogHandler extends Handler {
 
     NSThread *currentThread = [NSThread currentThread];
     NSMutableDictionary *threadData = [currentThread threadDictionary];
-    ASLClientHolder *logClient = [threadData objectForKey:JavaUtilLoggingIOSLogHandler_ASLCLIENT_];
+    ASLClientHolder *logClient = [threadData objectForKey:JavaUtilLoggingIOSLogHandler_ASLCLIENT];
     if (!logClient) {
       aslclient aslClient = asl_open([[currentThread name] UTF8String],
           [[[NSBundle mainBundle] bundleIdentifier] UTF8String], ASL_OPT_NO_DELAY | ASL_OPT_STDERR);
       logClient = AUTORELEASE([[ASLClientHolder alloc] initWithClient:aslClient]);
-      [threadData setObject:logClient forKey:JavaUtilLoggingIOSLogHandler_ASLCLIENT_];
+      [threadData setObject:logClient forKey:JavaUtilLoggingIOSLogHandler_ASLCLIENT];
     }
     asl_log(logClient->_client, NULL, aslLevel, "%s", [logMessage UTF8String]);
   ]-*/;

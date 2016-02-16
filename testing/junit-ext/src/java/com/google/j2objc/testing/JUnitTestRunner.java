@@ -134,7 +134,8 @@ public class JUnitTestRunner {
    * @returns Zero if all tests pass, non-zero otherwise.
    */
   public int run() {
-    Class[] classes = (Class[]) getTestClasses().toArray();
+    Set<Class> classesSet = getTestClasses();
+    Class[] classes = classesSet.toArray(new Class[classesSet.size()]);
     sortClasses(classes, sortOrder);
     RunListener listener = newRunListener(outputFormat);
     return run(classes, listener);
@@ -217,12 +218,17 @@ public class JUnitTestRunner {
     objc_getClassList(classes, classCount);
     id<JavaUtilSet> result = [ComGoogleCommonCollectSets newHashSet];
     for (int i = 0; i < classCount; i++) {
-      Class cls = classes[i];
-      if (IsNSObjectClass(cls)) {
-        IOSClass *javaClass = IOSClass_fromClass(cls);
-        if ([self isJUnitTestClassWithIOSClass:javaClass]) {
-          [result addWithId:javaClass];
+      @try {
+        Class cls = classes[i];
+        if (IsNSObjectClass(cls)) {
+          IOSClass *javaClass = IOSClass_fromClass(cls);
+          if ([self isJUnitTestClassWithIOSClass:javaClass]) {
+            [result addWithId:javaClass];
+          }
         }
+      }
+      @catch (NSException *e) {
+        // Ignore any exceptions thrown by class initialization.
       }
     }
     free(classes);
@@ -233,7 +239,7 @@ public class JUnitTestRunner {
    * @return true if {@param cls} is either a JUnit 3 or JUnit 4 test.
    */
   protected boolean isJUnitTestClass(Class cls) {
-    return isJUnit3TestClass(cls) || isJUnit4TestSuite(cls) || isJUnit4TestClass(cls);
+    return isJUnit3TestClass(cls) || isJUnit4TestClass(cls);
   }
 
   /**
@@ -241,18 +247,11 @@ public class JUnitTestRunner {
    * {@link junit.framework} package.
    */
   protected boolean isJUnit3TestClass(Class cls) {
-    return Test.class.isAssignableFrom(cls)
-        && !getPackageName(cls).startsWith("junit.framework")
-        && !getPackageName(cls).startsWith("junit.extensions");
-  }
-
-  /**
-   * @return true if {@param cls} derives from {@link Suite} and is not part of the
-   * {@link org.junit} package.
-   */
-  protected boolean isJUnit4TestSuite(Class cls) {
-    // TODO: implement - check for the RunWith class annotation with a value of Suite.class:
-    // http://www.vogella.com/tutorials/JUnit/article.html#juniteclipse_testsuite
+    if (Test.class.isAssignableFrom(cls)) {
+      String packageName = getPackageName(cls);
+      return !packageName.startsWith("junit.framework")
+          && !packageName.startsWith("junit.extensions");
+    }
     return false;
   }
 
@@ -268,7 +267,8 @@ public class JUnitTestRunner {
     Annotation annotation = cls.getAnnotation(RunWith.class);
     if (annotation != null) {
       RunWith runWith = (RunWith) annotation;
-      if (runWith.value().equals(JUnit4.class)) {
+      Object value = runWith.value();
+      if (value.equals(JUnit4.class) || value.equals(Suite.class)) {
         return true;
       }
     }
@@ -337,9 +337,9 @@ public class JUnitTestRunner {
     for (String key : propertyNames) {
       String value = properties.getProperty(key);
       try {
-        if (key == "outputFormat") {
+        if (key.equals("outputFormat")) {
           outputFormat = OutputFormat.valueOf(value);
-        } else if (key == "sortOrder") {
+        } else if (key.equals("sortOrder")) {
           sortOrder = SortOrder.valueOf(value);
         } else if (value.equals(TestInclusion.INCLUDE.name())) {
           includePatterns.add(key);
@@ -376,13 +376,15 @@ public class JUnitTestRunner {
 
     private int numTests = 0;
     private int numFailures = 0;
+    private final int numUnexpected = 0; // Never changes, but required in output.
 
     private Failure testFailure;
     private double testStartTime;
 
     @Override
     public void testRunFinished(Result result) throws Exception {
-      out.printf("Executed %d tests, with %d failures\n", numTests, numFailures);
+      out.printf("Executed %d tests, with %d failures (%d unexpected)\n", numTests, numFailures,
+          numUnexpected);
     }
 
     @Override

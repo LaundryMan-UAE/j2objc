@@ -2,6 +2,8 @@ TYPE java.util.logging.LogManager  # Long lived.
 TYPE java.security.Provider        # Long lived.
 
 # Breaks several false cycles.
+FIELD java.lang.Throwable.suppressedExceptions
+
 FIELD java.io.ObjectOutputStream.currentPutField
 
 TYPE java.net.InetAddress.isReachable.$
@@ -17,6 +19,11 @@ FIELD java.util.concurrent.ThreadPoolExecutor.workers
 FIELD java.util.concurrent.ThreadPoolExecutor.workQueue
 
 FIELD java.util.logging.Logger.children
+
+FIELD android.os.AsyncTask.mFuture
+FIELD android.os.AsyncTask.mWorker
+FIELD android.os.AsyncTask.SerialExecutor.mActive
+FIELD android.os.AsyncTask.SerialExecutor.mTasks
 
 # This thread field is cleared when the thread finishes, regardless of any exceptions.
 FIELD java.lang.Thread.interruptActions
@@ -34,6 +41,8 @@ FIELD libcore.reflect.WildcardTypeImpl.superBound
 FIELD org.xml.sax.helpers.ParserAdapter.contentHandler org.xml.sax.helpers.XMLReaderAdapter
 FIELD org.xml.sax.helpers.ParserAdapter.parser org.xml.sax.helpers.XMLReaderAdapter
 FIELD org.xml.sax.helpers.XMLReaderAdapter.AttributesAdapter.attributes org.xml.sax.helpers.ParserAdapter.AttributeListAdapter
+
+FIELD org.apache.harmony.xml.dom.InnerNodeImpl.children
 
 # Types that aren't actually in jre_emul.
 TYPE sun.misc.URLClassPath

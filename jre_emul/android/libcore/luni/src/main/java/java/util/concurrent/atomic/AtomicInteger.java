@@ -6,10 +6,6 @@
 
 package java.util.concurrent.atomic;
 
-/*-[
-#include <libkern/OSAtomic.h>
-]-*/
-
 /**
  * An {@code int} value that may be updated atomically.  See the
  * {@link java.util.concurrent.atomic} package specification for
@@ -28,11 +24,6 @@ public class AtomicInteger extends Number implements java.io.Serializable {
 
     private volatile int value;
 
-/*-[
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wobjc-designated-initializers"
-]-*/
-
     /**
      * Creates a new AtomicInteger with the given initial value.
      *
@@ -41,10 +32,6 @@ public class AtomicInteger extends Number implements java.io.Serializable {
     public AtomicInteger(int initialValue) {
         value = initialValue;
     }
-
-/*-[
-#pragma clang diagnostic pop
-]-*/
 
     /**
      * Creates a new AtomicInteger with initial value {@code 0}.
@@ -58,7 +45,6 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the current value
      */
     public final int get() {
-        memoryBarrier();
         return value;
     }
 
@@ -68,7 +54,6 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param newValue the new value
      */
     public final void set(int newValue) {
-        memoryBarrier();
         value = newValue;
     }
 
@@ -78,10 +63,9 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param newValue the new value
      * @since 1.6
      */
-    public final void lazySet(int newValue) {
-        memoryBarrier();
-        value = newValue;
-    }
+    public final native void lazySet(int newValue) /*-[
+      __c11_atomic_store(&self->value_, newValue, __ATOMIC_RELEASE);
+    ]-*/;
 
     /**
      * Atomically sets to the given value and returns the old value.
@@ -89,13 +73,9 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param newValue the new value
      * @return the previous value
      */
-    public final int getAndSet(int newValue) {
-        for (;;) {
-            int current = get();
-            if (compareAndSet(current, newValue))
-                return current;
-        }
-    }
+    public final native int getAndSet(int newValue) /*-[
+      return __c11_atomic_exchange(&self->value_, newValue, __ATOMIC_SEQ_CST);
+    ]-*/;
 
     /**
      * Atomically sets the value to the given updated value
@@ -106,25 +86,27 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return true if successful. False return indicates that
      * the actual value was not equal to the expected value.
      */
-    public final boolean compareAndSet(int expect, int update) {
-        return compareAndSwapValue(expect, update);
-    }
+    public final native boolean compareAndSet(int expect, int update) /*-[
+      return __c11_atomic_compare_exchange_strong(
+          &self->value_, &expect, update, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    ]-*/;
 
     /**
      * Atomically sets the value to the given updated value
      * if the current value {@code ==} the expected value.
      *
-     * <p>May <a href="package-summary.html#Spurious">fail spuriously</a>
-     * and does not provide ordering guarantees, so is only rarely an
-     * appropriate alternative to {@code compareAndSet}.
+     * <p><a href="package-summary.html#weakCompareAndSet">May fail
+     * spuriously and does not provide ordering guarantees</a>, so is
+     * only rarely an appropriate alternative to {@code compareAndSet}.
      *
      * @param expect the expected value
      * @param update the new value
-     * @return true if successful.
+     * @return true if successful
      */
-    public final boolean weakCompareAndSet(int expect, int update) {
-        return compareAndSwapValue(expect, update);
-    }
+    public final native boolean weakCompareAndSet(int expect, int update) /*-[
+      return __c11_atomic_compare_exchange_weak(
+          &self->value_, &expect, update, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+    ]-*/;
 
     /**
      * Atomically increments by one the current value.
@@ -132,12 +114,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the previous value
      */
     public final int getAndIncrement() {
-        for (;;) {
-            int current = get();
-            int next = current + 1;
-            if (compareAndSet(current, next))
-                return current;
-        }
+      return getAndAdd(1);
     }
 
     /**
@@ -146,12 +123,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the previous value
      */
     public final int getAndDecrement() {
-        for (;;) {
-            int current = get();
-            int next = current - 1;
-            if (compareAndSet(current, next))
-                return current;
-        }
+      return getAndAdd(-1);
     }
 
     /**
@@ -160,14 +132,9 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param delta the value to add
      * @return the previous value
      */
-    public final int getAndAdd(int delta) {
-        for (;;) {
-            int current = get();
-            int next = current + delta;
-            if (compareAndSet(current, next))
-                return current;
-        }
-    }
+    public final native int getAndAdd(int delta) /*-[
+      return __c11_atomic_fetch_add(&self->value_, delta, __ATOMIC_SEQ_CST);
+    ]-*/;
 
     /**
      * Atomically increments by one the current value.
@@ -175,12 +142,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the updated value
      */
     public final int incrementAndGet() {
-        for (;;) {
-            int current = get();
-            int next = current + 1;
-            if (compareAndSet(current, next))
-                return next;
-        }
+      return addAndGet(1);
     }
 
     /**
@@ -189,12 +151,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the updated value
      */
     public final int decrementAndGet() {
-        for (;;) {
-            int current = get();
-            int next = current - 1;
-            if (compareAndSet(current, next))
-                return next;
-        }
+      return addAndGet(-1);
     }
 
     /**
@@ -203,23 +160,17 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param delta the value to add
      * @return the updated value
      */
-    public final int addAndGet(int delta) {
-        for (;;) {
-            int current = get();
-            int next = current + delta;
-            if (compareAndSet(current, next))
-                return next;
-        }
-    }
+    public final native int addAndGet(int delta) /*-[
+      return __c11_atomic_fetch_add(&self->value_, delta, __ATOMIC_SEQ_CST) + delta;
+    ]-*/;
 
     /**
      * Returns the String representation of the current value.
-     * @return the String representation of the current value.
+     * @return the String representation of the current value
      */
     public String toString() {
         return Integer.toString(get());
     }
-
 
     /**
      * Returns the value of this {@code AtomicInteger} as an {@code int}.
@@ -251,13 +202,5 @@ public class AtomicInteger extends Number implements java.io.Serializable {
     public double doubleValue() {
         return (double)get();
     }
-
-    private static native void memoryBarrier() /*-[
-      OSMemoryBarrier();
-    ]-*/;
-
-    private native boolean compareAndSwapValue(int oldValue, int newValue) /*-[
-      return OSAtomicCompareAndSwapIntBarrier(oldValue, newValue, &self->value_);
-    ]-*/;
 
 }

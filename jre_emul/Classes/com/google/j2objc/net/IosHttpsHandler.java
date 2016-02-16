@@ -17,12 +17,22 @@
 
 package com.google.j2objc.net;
 
+import java.io.IOException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
+
 /**
- * HTTPS handler that uses IosHttpURLConnection.
+ * HTTPS handler that uses IosHttpsURLConnection.
  *
  * @author Tom Ball
  */
-public final class IosHttpsHandler extends IosHttpHandler {
+public final class IosHttpsHandler extends URLStreamHandler {
+
+  @Override
+  protected URLConnection openConnection(URL url) throws IOException {
+    return new IosHttpsURLConnection(url);
+  }
 
   @Override
   protected int getDefaultPort() {

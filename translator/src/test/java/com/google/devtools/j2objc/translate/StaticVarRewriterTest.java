@@ -31,14 +31,51 @@ public class StaticVarRewriterTest extends GenerationTest {
         + "static class Other { void test() { test.obj.toString(); test.obj.toString(); } } }",
         "Test", "Test.m");
     assertTranslatedLines(translation,
-        "[nil_chk(((Test *) nil_chk(Test_get_test_()))->obj_) description];",
-        "[Test_get_test_()->obj_ description];");
+        "[nil_chk(((Test *) nil_chk(JreLoadStatic(Test, test)))->obj_) description];",
+        "[JreLoadStatic(Test, test)->obj_ description];");
   }
 
   public void testAssinmentToNewObject() throws IOException {
     addSourceFile("class A { static Object o; }", "A.java");
     String translation = translateSourceFile(
         "class Test { void test() { A.o = new Object(); } }", "Test", "Test.m");
-    assertTranslation(translation, "A_setAndConsume_o_([[NSObject alloc] init]);");
+    assertTranslation(translation,
+        "JreStrongAssignAndConsume(JreLoadStaticRef(A, o), new_NSObject_init());");
+  }
+
+  public void testFieldAccessRewriting() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { static int i = 5; static Test getTest() { return null; } "
+        + " static void test() { Test t = new Test(); int a = t.i; int b = getTest().i; "
+        + " int c = getTest().i++; int d = getTest().i = 6; } }", "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "jint a = Test_i;",
+        "jint b = (Test_getTest(), Test_i);",
+        "jint c = (*(Test_getTest(), &Test_i))++;",
+        "jint d = *(Test_getTest(), &Test_i) = 6;");
+  }
+
+  public void testFieldAccessRewritingWithStaticLoads() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { static int i = 5; static class Inner { "
+        + " static Test getTest() { return null; } "
+        + " static void test() { Test t = new Test(); int a = t.i; int b = getTest().i; "
+        + " int c = getTest().i++; int d = getTest().i = 6; } } }", "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "jint a = JreLoadStatic(Test, i);",
+        "jint b = (Test_Inner_getTest(), JreLoadStatic(Test, i));",
+        "jint c = (*(Test_Inner_getTest(), JreLoadStaticRef(Test, i)))++;",
+        "jint d = *(Test_Inner_getTest(), JreLoadStaticRef(Test, i)) = 6;");
+  }
+
+  public void testStaticLoadWithArrayAccess() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { static class Inner { static int[] ints; } "
+        + " int test() { Inner.ints[0] = 1; Inner.ints[0] += 2; return Inner.ints[0]; } }",
+        "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "*IOSIntArray_GetRef(nil_chk(JreLoadStatic(Test_Inner, ints)), 0) = 1;",
+        "*IOSIntArray_GetRef(JreLoadStatic(Test_Inner, ints), 0) += 2;",
+        "return IOSIntArray_Get(JreLoadStatic(Test_Inner, ints), 0);");
   }
 }

@@ -35,7 +35,9 @@ public final class Math {
      */
     public static final double PI = 3.141592653589793;
 
-    private static Random random;
+    private static class NoImagePreloadHolder {
+        private static final Random INSTANCE = new Random();
+    }
 
     /**
      * Prevents this class from being instantiated.
@@ -365,6 +367,10 @@ public final class Math {
      *         arguments.
      */
     public static native double hypot(double x, double y) /*-[
+      // ARM processors return hypot(x, NaN) as x, so test separately.
+      if (isnan(x) || isnan(y)) {
+        return (isinf(x) || isinf(y)) ? JavaLangDouble_POSITIVE_INFINITY : JavaLangDouble_NaN;
+      }
       return hypot(x, y);
     ]-*/;
 
@@ -924,10 +930,24 @@ public final class Math {
      * @return a pseudo-random number.
      */
     public static synchronized double random() {
-        if (random == null) {
-            random = new Random();
-        }
-        return random.nextDouble();
+        return NoImagePreloadHolder.INSTANCE.nextDouble();
+    }
+
+    /**
+     * Set the seed for the pseudo random generator used by {@link #random()}
+     * and {@link #randomIntInternal()}.
+     *
+     * @hide for internal use only.
+     */
+    public static void setRandomSeedInternal(long seed) {
+        NoImagePreloadHolder.INSTANCE.setSeed(seed);
+    }
+
+    /**
+     * @hide for internal use only.
+     */
+    public static int randomIntInternal() {
+        return NoImagePreloadHolder.INSTANCE.nextInt();
     }
 
     /**

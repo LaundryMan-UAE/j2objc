@@ -25,18 +25,20 @@ import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.Statement;
 import com.google.devtools.j2objc.ast.TreeConverter;
 import com.google.devtools.j2objc.ast.TreeVisitor;
-import com.google.devtools.j2objc.file.InputFile;
 import com.google.devtools.j2objc.file.RegularInputFile;
+import com.google.devtools.j2objc.gen.GenerationUnit;
 import com.google.devtools.j2objc.gen.SourceBuilder;
 import com.google.devtools.j2objc.gen.StatementGenerator;
+import com.google.devtools.j2objc.pipeline.GenerationBatch;
+import com.google.devtools.j2objc.pipeline.InputFilePreprocessor;
+import com.google.devtools.j2objc.pipeline.ProcessingContext;
+import com.google.devtools.j2objc.pipeline.TranslationProcessor;
 import com.google.devtools.j2objc.util.DeadCodeMap;
 import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
 import com.google.devtools.j2objc.util.JdtParser;
 import com.google.devtools.j2objc.util.NameTable;
 import com.google.devtools.j2objc.util.TimeTracker;
-
-import junit.framework.TestCase;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -49,11 +51,14 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.URLDecoder;
-import java.nio.charset.Charset;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import junit.framework.TestCase;
 
 /**
  * Tests code generation. A string containing the source code for a list of Java
@@ -62,10 +67,10 @@ import java.util.regex.Pattern;
  *
  * @author Tom Ball
  */
-public abstract class GenerationTest extends TestCase {
+public class GenerationTest extends TestCase {
 
   protected File tempDir;
-  private JdtParser parser;
+  protected JdtParser parser;
   private DeadCodeMap deadCodeMap = null;
 
   static {
@@ -78,23 +83,21 @@ public abstract class GenerationTest extends TestCase {
     tempDir = FileUtil.createTempDir("testout");
     Options.load(new String[]{
         "-d", tempDir.getAbsolutePath(),
+        "-sourcepath", tempDir.getAbsolutePath(),
         "-q", // Suppress console output.
-        "--hide-private-members" // Future default, run tests with it now.
+        "-encoding", "UTF-8" // Translate strings correctly when encodings are nonstandard.
     });
     parser = initializeParser(tempDir);
   }
 
   @Override
   protected void tearDown() throws Exception {
-    Options.setHeaderMappingFiles(null);
-    Options.getHeaderMappings().clear();
-    Options.setOutputStyle(Options.OutputStyleOption.PACKAGE);
-    Options.getSourcePathEntries().clear();
+    Options.reset();
     FileUtil.deleteTempDir(tempDir);
     ErrorUtil.reset();
   }
 
-  private static JdtParser initializeParser(File tempDir) {
+  protected static JdtParser initializeParser(File tempDir) {
     JdtParser parser = new JdtParser();
     parser.addClasspathEntries(getComGoogleDevtoolsJ2objcPath());
     parser.addSourcepathEntry(tempDir.getAbsolutePath());
@@ -140,12 +143,7 @@ public abstract class GenerationTest extends TestCase {
    * @return the translated compilation unit
    */
   protected CompilationUnit translateType(String typeName, String source) {
-    String typePath = typeName.replace('.', '/');
-    org.eclipse.jdt.core.dom.CompilationUnit unit = compileType(typePath + ".java", source);
-    String fullSourcePath = Options.useSourceDirectories() ? "" : tempDir.getPath() + '/';
-    fullSourcePath += typePath + ".java";
-    CompilationUnit newUnit = TreeConverter.convertCompilationUnit(
-        unit, new RegularInputFile(fullSourcePath, typePath + ".java"), source);
+    CompilationUnit newUnit = compileType(typeName, source);
     TranslationProcessor.applyMutations(newUnit, deadCodeMap, TimeTracker.noop());
     return newUnit;
   }
@@ -157,17 +155,20 @@ public abstract class GenerationTest extends TestCase {
    * @param source the source code
    * @return the parsed compilation unit
    */
-  protected org.eclipse.jdt.core.dom.CompilationUnit compileType(String name, String source) {
+  protected CompilationUnit compileType(String name, String source) {
+    String mainTypeName = name.substring(name.lastIndexOf('.') + 1);
+    String path = name.replace('.', '/') + ".java";
     int errors = ErrorUtil.errorCount();
     parser.setEnableDocComments(Options.docCommentsEnabled());
-    org.eclipse.jdt.core.dom.CompilationUnit unit = parser.parse(name, source);
+    org.eclipse.jdt.core.dom.CompilationUnit unit = parser.parseWithBindings(path, source);
     if (ErrorUtil.errorCount() > errors) {
       int newErrorCount = ErrorUtil.errorCount() - errors;
       String info = String.format(
           "%d test compilation error%s", newErrorCount, (newErrorCount == 1 ? "" : "s"));
       failWithMessages(info, ErrorUtil.getErrorMessages().subList(errors, ErrorUtil.errorCount()));
     }
-    return unit;
+    return TreeConverter.convertCompilationUnit(
+        unit, path, mainTypeName, source, NameTable.newFactory());
   }
 
   protected static List<String> getComGoogleDevtoolsJ2objcPath() {
@@ -189,7 +190,7 @@ public abstract class GenerationTest extends TestCase {
   }
 
   protected String generateStatement(Statement statement) {
-    return StatementGenerator.generate(statement, false, SourceBuilder.BEGINNING_OF_FILE).trim();
+    return StatementGenerator.generate(statement, SourceBuilder.BEGINNING_OF_FILE).trim();
   }
 
   /**
@@ -218,33 +219,72 @@ public abstract class GenerationTest extends TestCase {
       assertTranslation(translation, nLines == 1 ? expectedLines[0] : null);
       return;
     }
-    if (!hasRegion(translation, expectedLines)) {
-      fail("expected:\"" + Joiner.on('\n').join(expectedLines) + "\" in:\n" + translation);
+    int unmatchedLineIndex = unmatchedLineIndex(translation, expectedLines);
+    if (unmatchedLineIndex != -1) {
+      fail("unmatched:\n\"" + expectedLines[unmatchedLineIndex] + "\"\n" + "expected lines:\n\""
+          + Joiner.on('\n').join(expectedLines) + "\"\nin:\n" + translation);
     }
   }
 
-  private boolean hasRegion(String s, String[] lines) throws IOException {
+  private int unmatchedLineIndex(String s, String[] lines) throws IOException {
     int index = s.indexOf(lines[0]);
     if (index == -1) {
-      return false;
+      return 0;
     }
     BufferedReader in = new BufferedReader(new StringReader(s.substring(index)));
     try {
       for (int i = 0; i < lines.length; i++) {
         String nextLine = in.readLine();
         if (nextLine == null) {
-          return false;
+          return i;
         }
         index += nextLine.length() + 1;  // Also skip trailing newline.
         if (!nextLine.trim().equals(lines[i].trim())) {
           // Check if there is a subsequent match.
-          return hasRegion(s.substring(index), lines);
+          int subsequentMatch = unmatchedLineIndex(s.substring(index), lines);
+          if (subsequentMatch == -1) {
+            return -1;
+          }
+          return Math.max(i, subsequentMatch);
         }
       }
-      return true;
+      return -1;
     } finally {
       in.close();
     }
+  }
+
+  /**
+   * Asserts that translated source contains a list of strings in order, but not necessarily
+   * consecutive. Differs from assertTranslatedLines in that it doesn't match entire lines, and that
+   * matches may occur anywhere forward in the string from the last match, not solely in the next
+   * line.
+   */
+  protected void assertTranslatedSegments(String translation, String... expectedLines)
+      throws IOException {
+    int nLines = expectedLines.length;
+    if (nLines < 2) {
+      assertTranslation(translation, nLines == 1 ? expectedLines[0] : null);
+      return;
+    }
+    String incorrectSegment = firstIncorrectSegment(translation, expectedLines);
+    if (incorrectSegment != null) {
+      fail("unmatched:\n\"" + incorrectSegment + "\"\n" + "expected segments:\n\""
+          + Joiner.on('\n').join(expectedLines) + "\"\nin:\n" + translation);
+    }
+  }
+
+  private String firstIncorrectSegment(String s, String[] lines) {
+    int index = 0;
+    for (int i = 0; i < lines.length; i++) {
+      index = s.indexOf(lines[i], index);
+      if (index == -1) {
+        return lines[i];
+      } else {
+        index += lines[i].length();
+      }
+    }
+    return null;
   }
 
   protected void assertOccurrences(String translation, String expected, int times) {
@@ -283,13 +323,6 @@ public abstract class GenerationTest extends TestCase {
     return result[0];
   }
 
-  protected void loadPackageInfo(String relativePath) throws IOException {
-    PackageInfoPreProcessor packageInfoPreProcessor = new PackageInfoPreProcessor(parser);
-    InputFile file = new RegularInputFile(tempDir.getCanonicalPath()
-        + File.separatorChar + relativePath);
-    packageInfoPreProcessor.processBatch(GenerationBatch.fromFile(file));
-  }
-
   /**
    * Translate a Java source file contents, returning the contents of either
    * the generated header or implementation file.
@@ -299,7 +332,7 @@ public abstract class GenerationTest extends TestCase {
    *                 which is either the Obj-C header or implementation file
    */
   protected String translateSourceFile(String typeName, String fileName) throws IOException {
-    String source = getTranslatedFile(typeName + ".java");
+    String source = getTranslatedFile(typeName.replace('.', '/') + ".java");
     return translateSourceFile(source, typeName, fileName);
   }
 
@@ -314,54 +347,55 @@ public abstract class GenerationTest extends TestCase {
    */
   protected String translateSourceFile(String source, String typeName, String fileName)
       throws IOException {
-    CompilationUnit unit = translateType(typeName, source);
-    TranslationProcessor.generateObjectiveCSource(
-        GenerationBatch.fromUnit(unit, typeName + ".java"), TimeTracker.noop());
-    return getTranslatedFile(fileName);
+    return generateFromUnit(translateType(typeName, source), fileName);
+  }
+
+  protected String generateFromUnit(CompilationUnit unit, String filename) throws IOException {
+    GenerationUnit genUnit = new GenerationUnit(unit.getSourceFilePath(), 1);
+    genUnit.addCompilationUnit(unit);
+    TranslationProcessor.generateObjectiveCSource(genUnit);
+    return getTranslatedFile(filename);
   }
 
   protected String translateCombinedFiles(String outputPath, String extension, String... sources)
       throws IOException {
-    GenerationBatch batch = new GenerationBatch();
-    for (String sourceFile: sources) {
-      batch.addSource(new RegularInputFile(tempDir + "/" + sourceFile, sourceFile), outputPath);
+    List<RegularInputFile> inputFiles = Lists.newArrayList();
+    for (String sourceFile : sources) {
+      inputFiles.add(new RegularInputFile(tempDir + "/" + sourceFile, sourceFile));
     }
+    GenerationBatch batch = new GenerationBatch();
+    batch.addCombinedJar(outputPath + ".testfile", inputFiles);
+    List<ProcessingContext> inputs = batch.getInputs();
     parser.setEnableDocComments(Options.docCommentsEnabled());
-    new HeaderMappingPreProcessor(parser).processBatch(batch);
-    new TranslationProcessor(parser, DeadCodeMap.builder().build()).processBatch(batch);
+    new InputFilePreprocessor(parser).processInputs(inputs);
+    new TranslationProcessor(parser, DeadCodeMap.builder().build()).processInputs(inputs);
     return getTranslatedFile(outputPath + extension);
   }
 
+  protected void runPipeline(String... files) {
+    J2ObjC.run(Arrays.asList(files));
+    assertErrorCount(0);
+    assertWarningCount(0);
+  }
+
   protected void loadHeaderMappings() {
-    TranslationProcessor.loadHeaderMappings();
+    Options.getHeaderMap().loadMappings();
   }
 
-  protected void loadSourceFileHeaderMappings(String... fileNames) {
-    if (Options.shouldPreProcess()) {
-      GenerationBatch batch = new GenerationBatch();
-      for (String fileName : fileNames) {
-        batch.addSource(new RegularInputFile(tempDir.getPath() + "/" + fileName, fileName));
-      }
-      new HeaderMappingPreProcessor(parser).processBatch(batch);
+  protected void preprocessFiles(String... fileNames) {
+    GenerationBatch batch = new GenerationBatch();
+    for (String fileName : fileNames) {
+      batch.addSource(new RegularInputFile(
+          tempDir.getPath() + File.separatorChar + fileName, fileName));
     }
+    new InputFilePreprocessor(parser).processInputs(batch.getInputs());
   }
 
-  protected Map<String,String> writeAndReloadHeaderMappings() throws IOException {
-    File outputHeaderMappingFile = new File(tempDir.getPath() + "/mappings.j2objc");
-    outputHeaderMappingFile.deleteOnExit();
-    Options.setOutputHeaderMappingFile(outputHeaderMappingFile);
-    TranslationProcessor.printHeaderMappings();
-    Options.getHeaderMappings().clear();
-    Options.setOutputHeaderMappingFile(null);
-    Options.setHeaderMappingFiles(Lists.newArrayList(outputHeaderMappingFile.getAbsolutePath()));
-    loadHeaderMappings();
-    return Options.getHeaderMappings();
-  }
-
-  protected void addSourceFile(String source, String fileName) throws IOException {
+  protected String addSourceFile(String source, String fileName) throws IOException {
     File file = new File(tempDir, fileName);
     file.getParentFile().mkdirs();
-    Files.write(source, file, Charset.defaultCharset());
+    Files.write(source, file, Options.getCharset());
+    return file.getPath();
   }
 
   /**
@@ -371,7 +405,7 @@ public abstract class GenerationTest extends TestCase {
   protected String getTranslatedFile(String fileName) throws IOException {
     File f = new File(tempDir, fileName);
     assertTrue(fileName + " not generated", f.exists());
-    return Files.toString(f, Charset.defaultCharset());
+    return Files.toString(f, Options.getCharset());
   }
 
   /**
@@ -438,4 +472,26 @@ public abstract class GenerationTest extends TestCase {
   protected File getTempFile(String filename) {
     return new File(tempDir, filename);
   }
+
+  protected void addJarFile(String jarFileName, String... sources) throws IOException {
+    File jarFile = getTempFile(jarFileName);
+    jarFile.getParentFile().mkdirs();
+    Options.appendSourcePath(jarFile.getPath());
+    JarOutputStream jar = new JarOutputStream(new FileOutputStream(jarFile));
+    try {
+      for (int i = 0; i < sources.length; i += 2) {
+        String name = sources[i];
+        String source = sources[i + 1];
+        JarEntry fooEntry = new JarEntry(name);
+        jar.putNextEntry(fooEntry);
+        jar.write(source.getBytes());
+        jar.closeEntry();
+      }
+    } finally {
+      jar.close();
+    }
+  }
+
+  // Empty test so Bazel won't report a "no tests" error.
+  public void testNothing() {}
 }

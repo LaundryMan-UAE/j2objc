@@ -18,6 +18,7 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
 
 import org.eclipse.jdt.core.dom.IBinding;
@@ -85,13 +86,17 @@ public class TreeUtil {
   }
 
   public static boolean hasAnnotation(Class<?> annotationClass, List<Annotation> annotations) {
+    return getAnnotation(annotationClass, annotations) != null;
+  }
+
+  public static Annotation getAnnotation(Class<?> annotationClass, List<Annotation> annotations) {
     for (Annotation annotation : annotations) {
       ITypeBinding annotationType = annotation.getAnnotationBinding().getAnnotationType();
       if (annotationType.getQualifiedName().equals(annotationClass.getName())) {
-        return true;
+        return annotation;
       }
     }
-    return false;
+    return null;
   }
 
   public static <T extends TreeNode> T getNearestAncestorWithType(Class<T> type, TreeNode node) {
@@ -105,10 +110,53 @@ public class TreeUtil {
   }
 
   /**
-   * Returns the method which is the parent of the specified node.
+   * Returns the first descendant of the given node that is not a ParenthesizedExpression.
    */
-  public static MethodDeclaration getOwningMethod(TreeNode node) {
-    return getNearestAncestorWithType(MethodDeclaration.class, node);
+  public static Expression trimParentheses(Expression node) {
+    while (node instanceof ParenthesizedExpression) {
+      node = ((ParenthesizedExpression) node).getExpression();
+    }
+    return node;
+  }
+
+  /**
+   * Returns the method binding which is the parent of the specified node, as a node may be parented
+   * by a lambda, method reference or a method.
+   */
+  public static IMethodBinding getOwningMethodBinding(TreeNode node) {
+    while (node != null) {
+      if (node instanceof MethodDeclaration) {
+        return ((MethodDeclaration) node).getMethodBinding();
+      } else if (node instanceof LambdaExpression) {
+        return ((LambdaExpression) node).getMethodBinding();
+      } else if (node instanceof MethodReference) {
+        return ((MethodReference) node).getMethodBinding();
+      }
+      node = node.getParent();
+    }
+    return null;
+  }
+
+  /**
+   * With lambdas and methodbindings, the return type of the method binding does not necessarily
+   * match the return type of the functional interface, which enforces the type contracts. To get
+   * the return type of a lambda or method binding, we need the return type of the functional
+   * interface.
+   */
+  public static ITypeBinding getOwningReturnType(TreeNode node) {
+    while (node != null) {
+      if (node instanceof MethodDeclaration) {
+        return ((MethodDeclaration) node).getMethodBinding().getReturnType();
+      } else if (node instanceof LambdaExpression) {
+        return ((LambdaExpression) node).getTypeBinding().getFunctionalInterfaceMethod()
+            .getReturnType();
+      } else if (node instanceof MethodReference) {
+        return ((MethodReference) node).getTypeBinding().getFunctionalInterfaceMethod()
+            .getReturnType();
+      }
+      node = node.getParent();
+    }
+    return null;
   }
 
   /**
@@ -168,7 +216,15 @@ public class TreeUtil {
   }
 
   public static Iterable<MethodDeclaration> getMethodDeclarations(AbstractTypeDeclaration node) {
-    return Iterables.filter(node.getBodyDeclarations(), MethodDeclaration.class);
+    return getMethodDeclarations(node.getBodyDeclarations());
+  }
+
+  public static Iterable<MethodDeclaration> getMethodDeclarations(AnonymousClassDeclaration node) {
+    return getMethodDeclarations(node.getBodyDeclarations());
+  }
+
+  private static Iterable<MethodDeclaration> getMethodDeclarations(List<BodyDeclaration> nodes) {
+    return Iterables.filter(nodes, MethodDeclaration.class);
   }
 
   public static List<MethodDeclaration> getMethodDeclarationsList(AbstractTypeDeclaration node) {
@@ -203,6 +259,7 @@ public class TreeUtil {
    * represents a variable. Returns null otherwise.
    */
   public static IVariableBinding getVariableBinding(Expression node) {
+    node = trimParentheses(node);
     switch (node.getKind()) {
       case FIELD_ACCESS:
         return ((FieldAccess) node).getVariableBinding();
@@ -235,17 +292,23 @@ public class TreeUtil {
   }
 
   /**
+   * Gets the fully qualified name of the main type in this compilation unit.
+   */
+  public static String getQualifiedMainTypeName(CompilationUnit unit) {
+    PackageDeclaration pkg = unit.getPackage();
+    if (pkg.isDefaultPackage()) {
+      return unit.getMainTypeName();
+    } else {
+      return pkg.getName().getFullyQualifiedName() + '.' + unit.getMainTypeName();
+    }
+  }
+
+  /**
    * Gets the relative file path of the source java file for this compilation
    * unit.
    */
   public static String getSourceFileName(CompilationUnit unit) {
-    PackageDeclaration pkg = unit.getPackage();
-    if (pkg.isDefaultPackage()) {
-      return unit.getMainTypeName() + ".java";
-    } else {
-      return pkg.getName().getFullyQualifiedName().replace('.', File.separatorChar)
-          + File.separatorChar + unit.getMainTypeName() + ".java";
-    }
+    return getQualifiedMainTypeName(unit).replace('.', File.separatorChar) + ".java";
   }
 
   /**
@@ -324,55 +387,17 @@ public class TreeUtil {
     asStatementList(node).add(0, toInsert);
   }
 
-  /**
-   * Replaces (in place) a QualifiedName node with an equivalent FieldAccess
-   * node. This is helpful when a mutation needs to replace the qualifier with
-   * a node that has Expression type but not Name type.
-   */
-  public static FieldAccess convertToFieldAccess(QualifiedName node) {
-    TreeNode parent = node.getParent();
-    if (parent instanceof QualifiedName) {
-      FieldAccess newParent = convertToFieldAccess((QualifiedName) parent);
-      Expression expr = newParent.getExpression();
-      assert expr instanceof QualifiedName;
-      node = (QualifiedName) expr;
-    }
-    IVariableBinding variableBinding = getVariableBinding(node);
-    assert variableBinding != null : "node must be a variable";
-    FieldAccess newNode = new FieldAccess(variableBinding, remove(node.getQualifier()));
-    node.replaceWith(newNode);
-    return newNode;
-  }
-
-  public static Expression newLiteral(Object value) {
+  public static Expression newLiteral(Object value, Types typeEnv) {
     if (value instanceof Boolean) {
-      return new BooleanLiteral((Boolean) value);
+      return new BooleanLiteral((Boolean) value, typeEnv);
     } else if (value instanceof Character) {
-      return new CharacterLiteral((Character) value);
+      return new CharacterLiteral((Character) value, typeEnv);
     } else if (value instanceof Number) {
-      return new NumberLiteral((Number) value);
+      return new NumberLiteral((Number) value, typeEnv);
     } else if (value instanceof String) {
-      return new StringLiteral((String) value);
+      return new StringLiteral((String) value, typeEnv);
     }
     throw new AssertionError("unknown constant type");
-  }
-
-  /**
-   * If possible give this expression an unbalanced extra retain. The caller
-   * must ensure the result is eventually consumed. Used to avoid an autorelease
-   * when creating a new object.
-   */
-  public static boolean retainResult(Expression node) {
-    switch (node.getKind()) {
-      case ARRAY_CREATION:
-        ((ArrayCreation) node).setHasRetainedResult(true);
-        return true;
-      case CLASS_INSTANCE_CREATION:
-        ((ClassInstanceCreation) node).setHasRetainedResult(true);
-        return true;
-      default:
-        return false;
-    }
   }
 
   /**
@@ -413,7 +438,7 @@ public class TreeUtil {
   }
 
   public static List<AnnotationTypeMemberDeclaration> getAnnotationMembers(
-      AnnotationTypeDeclaration node) {
+      AbstractTypeDeclaration node) {
     return Lists.newArrayList(
         Iterables.filter(node.getBodyDeclarations(), AnnotationTypeMemberDeclaration.class));
   }

@@ -31,7 +31,6 @@ import com.google.devtools.j2objc.ast.Initializer;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.Statement;
-import com.google.devtools.j2objc.ast.StringLiteral;
 import com.google.devtools.j2objc.ast.SuperConstructorInvocation;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.TreeVisitor;
@@ -39,9 +38,10 @@ import com.google.devtools.j2objc.ast.TypeDeclaration;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.types.GeneratedMethodBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
+import com.google.devtools.j2objc.util.DeadCodeMap;
+import com.google.devtools.j2objc.util.TranslationUtil;
 import com.google.devtools.j2objc.util.UnicodeUtils;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
@@ -58,6 +58,11 @@ import java.util.List;
  * @author Tom Ball
  */
 public class InitializationNormalizer extends TreeVisitor {
+  private final DeadCodeMap deadCodeMap;
+
+  public InitializationNormalizer(DeadCodeMap deadCodeMap) {
+    this.deadCodeMap = deadCodeMap;
+  }
 
   @Override
   public void endVisit(TypeDeclaration node) {
@@ -102,8 +107,10 @@ public class InitializationNormalizer extends TreeVisitor {
           iterator.remove();
           break;
         case FIELD_DECLARATION:
-          addFieldInitializer(member, binding.isInterface(), initStatements, classInitStatements);
+          addFieldInitializer(member, initStatements, classInitStatements);
           break;
+        default:
+          // Fall-through.
       }
     }
 
@@ -139,20 +146,16 @@ public class InitializationNormalizer extends TreeVisitor {
    * add them to the appropriate list of initialization statements.
    */
   private void addFieldInitializer(
-      BodyDeclaration member, boolean isInterface, List<Statement> initStatements,
-      List<Statement> classInitStatements) {
+      BodyDeclaration member, List<Statement> initStatements, List<Statement> classInitStatements) {
     FieldDeclaration field = (FieldDeclaration) member;
     for (VariableDeclarationFragment frag : field.getFragments()) {
       if (frag.getInitializer() != null) {
-        Statement assignStmt = makeAssignmentStatement(frag);
-        if (Modifier.isStatic(field.getModifiers()) || isInterface) {
-          if (requiresInitializer(frag)) {
-            classInitStatements.add(assignStmt);
-            frag.setInitializer(null);
-          }
-        } else {
+        if (BindingUtil.isInstanceVar(frag.getVariableBinding())) {
           // always initialize instance variables, since they can't be constants
-          initStatements.add(assignStmt);
+          initStatements.add(makeAssignmentStatement(frag));
+          frag.setInitializer(null);
+        } else if (requiresInitializer(frag)) {
+          classInitStatements.add(makeAssignmentStatement(frag));
           frag.setInitializer(null);
         }
       }
@@ -165,15 +168,6 @@ public class InitializationNormalizer extends TreeVisitor {
    */
   private boolean requiresInitializer(VariableDeclarationFragment frag) {
     Expression initializer = frag.getInitializer();
-    switch (initializer.getKind()) {
-      case BOOLEAN_LITERAL:
-      case CHARACTER_LITERAL:
-      case NULL_LITERAL:
-      case NUMBER_LITERAL:
-        return false;
-      case STRING_LITERAL:
-        return !UnicodeUtils.hasValidCppCharacters(((StringLiteral) initializer).getLiteralValue());
-    }
     if (BindingUtil.isPrimitiveConstant(frag.getVariableBinding())) {
       return false;
     }
@@ -185,7 +179,7 @@ public class InitializationNormalizer extends TreeVisitor {
           && !UnicodeUtils.hasValidCppCharacters((String) constantValue)) {
         return true;
       }
-      frag.setInitializer(TreeUtil.newLiteral(constantValue));
+      frag.setInitializer(TreeUtil.newLiteral(constantValue, typeEnv));
       return false;
     }
     return true;
@@ -206,16 +200,19 @@ public class InitializationNormalizer extends TreeVisitor {
    */
   void normalizeMethod(MethodDeclaration node, List<Statement> initStatements) {
     if (isDesignatedConstructor(node)) {
+      ITypeBinding superType = node.getMethodBinding().getDeclaringClass().getSuperclass();
+      if (superType == null) {  // java.lang.Object supertype is null.
+        return;
+      }
+
       List<Statement> stmts = node.getBody().getStatements();
       int superCallIdx = findSuperConstructorInvocation(stmts);
 
       // Insert initializer statements after the super invocation. If there
       // isn't a super invocation, add one (like all Java compilers do).
       if (superCallIdx == -1) {
-        ITypeBinding superType = node.getMethodBinding().getDeclaringClass().getSuperclass();
-        GeneratedMethodBinding newBinding = GeneratedMethodBinding.newConstructor(
-            superType, Modifier.PUBLIC);
-        stmts.add(0, new SuperConstructorInvocation(newBinding));
+        stmts.add(0, new SuperConstructorInvocation(
+            TranslationUtil.findDefaultConstructorBinding(superType, typeEnv)));
         superCallIdx = 0;
       }
 
@@ -253,22 +250,33 @@ public class InitializationNormalizer extends TreeVisitor {
     return !(firstStmt instanceof ConstructorInvocation);
   }
 
-  void addDefaultConstructor(
+  private void addDefaultConstructor(
       ITypeBinding type, List<BodyDeclaration> members, List<Statement> initStatements) {
     int constructorModifier =
         type.getModifiers() & (Modifier.PUBLIC | Modifier.PROTECTED | Modifier.PRIVATE);
-    GeneratedMethodBinding binding = GeneratedMethodBinding.newConstructor(
-        type.getSuperclass(), constructorModifier);
-    initStatements.add(0, new SuperConstructorInvocation(binding));
-    members.add(createMethod(GeneratedMethodBinding.newConstructor(type, constructorModifier),
-                             initStatements));
-  }
-
-  private MethodDeclaration createMethod(IMethodBinding binding, List<Statement> statements) {
+    MethodDeclaration method = new MethodDeclaration(
+        GeneratedMethodBinding.newConstructor(type, constructorModifier, typeEnv));
     Block body = new Block();
-    TreeUtil.copyList(statements, body.getStatements());
-    MethodDeclaration method = new MethodDeclaration(binding);
     method.setBody(body);
-    return method;
+    TreeUtil.copyList(initStatements, body.getStatements());
+
+    boolean callSuper = true;
+    if (deadCodeMap != null) {
+      if (deadCodeMap.isDeadClass(type.getBinaryName()) && !type.isEnum()) {
+        callSuper = false;
+      } else if (deadCodeMap.classHasConstructorRemoved(type.getBinaryName())) {
+        // If we get here, this means all declared constructors are dead, which implies that no
+        // instances will ever be created for the class. It's therefore meaningless to call super --
+        // if super does not have a zero-argument constructor, we don't have the information to call
+        // it anyway.
+        callSuper = false;
+      }
+    }
+
+    if (callSuper) {
+      body.getStatements().add(0, new SuperConstructorInvocation(
+          TranslationUtil.findDefaultConstructorBinding(type.getSuperclass(), typeEnv)));
+    }
+    members.add(method);
   }
 }

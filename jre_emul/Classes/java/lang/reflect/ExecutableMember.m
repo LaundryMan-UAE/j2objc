@@ -89,6 +89,11 @@ static GenericInfo *getMethodOrConstructorGenericInfo(ExecutableMember *self);
   return JavaLangReflectModifier_PUBLIC;
 }
 
+- (jint)getNumParams {
+  // First two slots are class and SEL.
+  return (jint)([methodSignature_ numberOfArguments] - SKIPPED_ARGUMENTS);
+}
+
 static IOSClass *DecodePrimitiveParamKeyword(NSString *keyword) {
   if ([keyword isEqualToString:@"Byte"]) {
     return [IOSClass byteClass];
@@ -141,9 +146,27 @@ static IOSClass *ResolveParameterType(const char *objcType, NSString *paramKeywo
 }
 
 - (IOSObjectArray *)getParameterTypes {
-  // First two slots are class and SEL.
-  jint nArgs = (jint)[methodSignature_ numberOfArguments] - SKIPPED_ARGUMENTS;
+  jint nArgs = [self getNumParams];
   IOSObjectArray *parameters = [IOSObjectArray arrayWithLength:nArgs type:IOSClass_class_()];
+  if (nArgs == 0) {
+    return parameters;
+  }
+
+  // If method has genericSignature with no generic types, it's a concrete implementation
+  // of a generic method and its signature has the declared parameter types.
+  if ([metadata_ genericSignature]) {
+    IOSObjectArray *genericParameterTypes = [self getGenericParameterTypes];
+    BOOL hasTypeParameter = NO;
+    for (jint i = 0; i < nArgs; i++) {
+      if (![IOSObjectArray_Get(genericParameterTypes, i) isKindOfClass:[IOSClass class]]) {
+        hasTypeParameter = YES;
+        break;
+      }
+    }
+    if (!hasTypeParameter) {
+      return genericParameterTypes;
+    }
+  }
 
   NSString *selectorStr = NSStringFromSelector(selector_);
   // Remove method name prefix.
@@ -170,30 +193,50 @@ static IOSClass *ResolveParameterType(const char *objcType, NSString *paramKeywo
   return parameters;
 }
 
+- (const char *)getBinaryParameterTypes {
+  if (!binaryParameterTypes_) {
+    IOSObjectArray *paramTypes = [self getParameterTypes];
+    jint numArgs = paramTypes.length;
+    char *binaryParamTypes = malloc((numArgs + 1) * sizeof(char));
+    char *p = binaryParamTypes;
+    for (jint i = 0; i < numArgs; i++) {
+      IOSClass *paramType = [paramTypes objectAtIndex:i];
+      *p++ = [[paramType binaryName] UTF8String][0];
+    }
+    *p = 0;
+    binaryParameterTypes_ = binaryParamTypes;
+  }
+  return binaryParameterTypes_;
+}
+
 // Returns the class this executable is a member of.
 - (IOSClass *)getDeclaringClass {
   return class_;
 }
 
 - (IOSObjectArray *)getTypeParameters {
-  return[IOSObjectArray arrayWithLength:0 type:JavaLangReflectTypeVariable_class_()];
+  GenericInfo *info = getMethodOrConstructorGenericInfo(self);
+  if (info->formalTypeParameters_->size_ == 0) {
+    return info->formalTypeParameters_;
+  }
+  return [info->formalTypeParameters_ clone];
 }
 
 - (IOSObjectArray *)getGenericParameterTypes {
   return LibcoreReflectTypes_getTypeArray_clone_(
-      getMethodOrConstructorGenericInfo(self)->genericParameterTypes_, NO);
+      getMethodOrConstructorGenericInfo(self)->genericParameterTypes_, false);
 }
 
 - (IOSObjectArray *)getGenericExceptionTypes {
   return LibcoreReflectTypes_getTypeArray_clone_(
-      getMethodOrConstructorGenericInfo(self)->genericExceptionTypes_, NO);
+      getMethodOrConstructorGenericInfo(self)->genericExceptionTypes_, false);
 }
 
-- (BOOL)isSynthetic {
+- (jboolean)isSynthetic {
   if (metadata_) {
     return ([metadata_ modifiers] & JavaLangReflectModifier_SYNTHETIC) > 0;
   }
-  return NO;
+  return false;
 }
 
 - (IOSObjectArray *)getExceptionTypes {
@@ -281,7 +324,7 @@ static IOSClass *ResolveParameterType(const char *objcType, NSString *paramKeywo
   [sb appendWithChar:')'];
   if (info) {
     IOSObjectArray *genericExceptionTypeArray =
-        LibcoreReflectTypes_getTypeArray_clone_(info->genericExceptionTypes_, NO);
+        LibcoreReflectTypes_getTypeArray_clone_(info->genericExceptionTypes_, false);
     if (genericExceptionTypeArray->size_ > 0) {
       [sb appendWithNSString:@" throws "];
       LibcoreReflectTypes_appendArrayGenericType_types_(sb, genericExceptionTypeArray);
@@ -290,16 +333,16 @@ static IOSClass *ResolveParameterType(const char *objcType, NSString *paramKeywo
   return [sb description];
 }
 
-- (BOOL)isVarArgs {
+- (jboolean)isVarArgs {
   if (metadata_) {
     return ([metadata_ modifiers] & JavaLangReflectModifier_VARARGS) > 0;
   }
-  return NO;
+  return false;
 }
 
-- (BOOL)isBridge {
+- (jboolean)isBridge {
   // Translator doesn't generate bridge methods.
-  return NO;
+  return false;
 }
 
 - (NSMethodSignature *)signature {
@@ -323,13 +366,14 @@ static IOSClass *ResolveParameterType(const char *objcType, NSString *paramKeywo
   return [[class_ getName] hash] ^ [NSStringFromSelector(selector_) hash];
 }
 
-#if ! __has_feature(objc_arc)
 - (void)dealloc {
+  free((void *)binaryParameterTypes_);
+#if ! __has_feature(objc_arc)
   [methodSignature_ release];
   [metadata_ release];
   [super dealloc];
-}
 #endif
+}
 
 @end
 
@@ -340,11 +384,11 @@ GenericInfo *getMethodOrConstructorGenericInfo(ExecutableMember *self) {
     return nil;
   }
   NSString *signatureAttribute = [metadata genericSignature];
-  BOOL isMethod = [self isKindOfClass:[JavaLangReflectMethod class]];
+  jboolean isMethod = [self isKindOfClass:[JavaLangReflectMethod class]];
   IOSObjectArray *exceptionTypes = [self getExceptionTypes];
   LibcoreReflectGenericSignatureParser *parser =
-  [[[LibcoreReflectGenericSignatureParser alloc]
-    initWithJavaLangClassLoader:JavaLangClassLoader_getSystemClassLoader()] autorelease];
+      [[[LibcoreReflectGenericSignatureParser alloc]
+        initWithJavaLangClassLoader:JavaLangClassLoader_getSystemClassLoader()] autorelease];
   if (isMethod) {
     [parser parseForMethodWithJavaLangReflectGenericDeclaration:self
                                                    withNSString:signatureAttribute

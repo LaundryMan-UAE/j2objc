@@ -15,7 +15,8 @@
  */
 
 #include "java/util/regex/PatternSyntaxException.h"
-#include "unicode/uregex.h"
+#include "jni.h"
+#include "J2ObjC_icu.h"
 
 // ICU documentation: http://icu-project.org/apiref/icu4c/classRegexPattern.html
 
@@ -58,11 +59,12 @@ static void throwPatternSyntaxException(UErrorCode status, NSString *pattern, UP
                                                                 withInt:error.offset] autorelease];
 }
 
-void JavaUtilRegexPattern_closeImplWithLong_(jlong addr) {
+void Java_java_util_regex_Pattern_closeImpl(JNIEnv *env, jclass cls, jlong addr) {
   uregex_close((URegularExpression *)addr);
 }
 
-jlong JavaUtilRegexPattern_compileImplWithNSString_withInt_(NSString *regex, jint flags) {
+jlong Java_java_util_regex_Pattern_compileImpl(
+    JNIEnv *env, jclass cls, NSString *regex, jint flags) {
   flags |= UREGEX_ERROR_ON_UNKNOWN_ESCAPES;
 
   UErrorCode status = U_ZERO_ERROR;
@@ -70,12 +72,41 @@ jlong JavaUtilRegexPattern_compileImplWithNSString_withInt_(NSString *regex, jin
   error.offset = -1;
 
   jint patLen = (jint)[regex length];
-  jchar buffer[patLen];
-  [regex getCharacters:buffer range:NSMakeRange(0, patLen)];
-  URegularExpression *result = uregex_open(buffer, patLen, flags, &error, &status);
+  URegularExpression *result;
+  if (patLen == 0) {
+    // uregex_open rejects a zero pattern length argument value, but accepts an
+    // empty pattern when it is null-terminated.
+    jchar pattern = 0;
+    result = uregex_open(&pattern, -1, flags, &error, &status);
+  } else {
+    jchar buffer[patLen];
+    [regex getCharacters:buffer range:NSMakeRange(0, patLen)];
+    result = uregex_open(buffer, patLen, flags, &error, &status);
+  }
 
   if (!U_SUCCESS(status)) {
     throwPatternSyntaxException(status, regex, error);
   }
   return (jlong)result;
+}
+
+extern bool maybeThrowIcuException(const char* function, UErrorCode error);
+
+jboolean Java_java_util_regex_Pattern_matches(
+    JNIEnv *env, jclass cls, NSString *regex, NSString *input) {
+  URegularExpression *pattern = (URegularExpression *)
+      Java_java_util_regex_Pattern_compileImpl(env, cls, regex, 0);
+  int32_t len = (int32_t)[input length];
+  unichar *chars = malloc(len * sizeof(unichar));
+  [input getCharacters:chars range:NSMakeRange(0, len)];
+
+  UErrorCode status = U_ZERO_ERROR;
+  uregex_setText(pattern, chars, len, &status);
+  uregex_setRegion(pattern, 0, len, &status);
+  maybeThrowIcuException("uregex_setText", status);
+  jboolean result = uregex_matches(pattern, -1, &status);
+  free(chars);
+  uregex_close(pattern);
+  maybeThrowIcuException("uregex_matches", status);
+  return result;
 }

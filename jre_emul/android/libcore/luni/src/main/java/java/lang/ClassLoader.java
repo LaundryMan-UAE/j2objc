@@ -32,7 +32,6 @@
 
 package java.lang;
 
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -45,6 +44,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /*-[
+#import "java/io/BufferedInputStream.h"
+#import "java/io/FileInputStream.h"
+#import "java/net/NetFactory.h"
 #import "java/util/ArrayList.h"
 #import "java/util/Collections.h"
 ]-*/
@@ -74,12 +76,12 @@ public abstract class ClassLoader {
     /**
      * The parent ClassLoader.
      */
-    private ClassLoader parent;
+    private final ClassLoader parent;
 
     /**
      * The packages known to the class loader.
      */
-    private Map<String, Package> packages = new HashMap<String, Package>();
+    private final Map<String, Package> packages = new HashMap<String, Package>();
 
     /**
      * Returns the system class loader. This is the parent for new
@@ -367,11 +369,10 @@ public abstract class ClassLoader {
      * @throws IOException
      *             if an I/O error occurs.
      */
-    @SuppressWarnings("unchecked")
     public Enumeration<URL> getResources(String resName) throws IOException {
 
-        Enumeration first = parent.getResources(resName);
-        Enumeration second = findResources(resName);
+        Enumeration<URL> first = parent.getResources(resName);
+        Enumeration<URL> second = findResources(resName);
 
         return new TwoEnumerationsInOne(first, second);
     }
@@ -690,29 +691,54 @@ class SystemClassLoader extends ClassLoader {
 
   @Override
   protected native Class<?> findClass(String name) throws ClassNotFoundException /*-[
+    nil_chk(name);
     return [IOSClass forName:name initialize:YES classLoader:self];
   ]-*/;
 
   @Override
   protected native URL findResource(String name) /*-[
+    if (!name) {
+      return nil;
+    }
     NSBundle *bundle = [NSBundle mainBundle];
     NSURL *nativeURL = [bundle URLForResource:name withExtension:nil];
-    return nativeURL ? AUTORELEASE([[JavaNetURL alloc] initWithNSString:[nativeURL description]])
-        : nil;
+    return nativeURL ? JavaNetNetFactory_newURLWithNSString_([nativeURL description]) : nil;
   ]-*/;
 
   @Override
   protected native Enumeration<URL> findResources(String name) throws IOException /*-[
+    if (!name) {
+      return [super findResourcesWithNSString:name];
+    }
     JavaUtilArrayList *urls = AUTORELEASE([[JavaUtilArrayList alloc] init]);
     for (NSBundle *bundle in [NSBundle allBundles]) {
       NSURL *nativeURL = [bundle URLForResource:name withExtension:nil];
       if (nativeURL) {
-        JavaNetURL *url =
-            AUTORELEASE([[JavaNetURL alloc] initWithNSString:[nativeURL description]]);
-        [urls addWithId:url];
+        [urls addWithId:JavaNetNetFactory_newURLWithNSString_([nativeURL description])];
+      }
+    }
+    for (NSBundle *bundle in [NSBundle allFrameworks]) {
+      NSURL *nativeURL = [bundle URLForResource:name withExtension:nil];
+      if (nativeURL) {
+        [urls addWithId:JavaNetNetFactory_newURLWithNSString_([nativeURL description])];
       }
     }
     return JavaUtilCollections_enumerationWithJavaUtilCollection_(urls);
+  ]-*/;
+
+  // Gets the resource stream without needing to construct a URL object, which is in libjre_net.
+  @Override
+  public native InputStream getResourceAsStream(String name) /*-[
+    if (!name) {
+      return nil;
+    }
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSString *path = [bundle pathForResource:name ofType:nil];
+    if (!path) {
+      return nil;
+    }
+    return [new_JavaIoBufferedInputStream_initWithJavaIoInputStream_(
+        [new_JavaIoFileInputStream_initWithNSString_(path) autorelease]) autorelease];
   ]-*/;
 
   @Override

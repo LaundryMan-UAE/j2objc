@@ -112,7 +112,7 @@ static jint countArgs(char *s) {
       strcpy(buffer, cname);
       strcat(buffer, "With");
       if (strncmp(buffer, data_->methods[i].selector, strlen(buffer)) != 0) {
-        return [[JavaMethodMetadata alloc] initWithMetadata:&data_->methods[i]];
+        return [[[JavaMethodMetadata alloc] initWithMetadata:&data_->methods[i]] autorelease];
       }
     }
   }
@@ -161,7 +161,8 @@ static jint countArgs(char *s) {
   J2ObjcFieldInfo *fields = (J2ObjcFieldInfo *) data_->fields;
   for (int i = 0; i < data_->fieldCount; i++) {
     [result replaceObjectAtIndex:i
-                      withObject:[[JavaFieldMetadata alloc] initWithMetadata:fields++]];
+                      withObject:[[[JavaFieldMetadata alloc] initWithMetadata:fields++]
+                                  autorelease]];
   }
   return result;
 }
@@ -172,7 +173,8 @@ static jint countArgs(char *s) {
   J2ObjcMethodInfo *methods = (J2ObjcMethodInfo *) data_->methods;
   for (int i = 0; i < data_->methodCount; i++) {
     [result replaceObjectAtIndex:i
-                      withObject:[[JavaMethodMetadata alloc] initWithMetadata:methods++]];
+                      withObject:[[[JavaMethodMetadata alloc] initWithMetadata:methods++]
+                                  autorelease]];
   }
   return result;
 }
@@ -314,22 +316,38 @@ static jint countArgs(char *s) {
   if (!data_->exceptions) {
     return nil;
   }
-  NSString *exceptionsStr = [NSString stringWithUTF8String:data_->exceptions];
-  NSArray *exceptionsArray = [exceptionsStr componentsSeparatedByString:@";"];
-  // The last string is empty, due to the trailing semi-colon of the last exception.
-  NSUInteger n = [exceptionsArray count] - 1;
-  IOSObjectArray *result = [IOSObjectArray arrayWithLength:(jint)n type:IOSClass_class_()];
+
+  const char *p = data_->exceptions;
+  int n = 0;
+  while (p != NULL) {
+    const char *semi = strchr(p, ';');
+    if (semi != NULL) {
+      ++n;
+      p = semi + 1;
+    } else {
+      p = NULL;
+    }
+  }
+  IOSObjectArray *result = [IOSObjectArray arrayWithLength:(jint)n
+                                                      type:JavaLangReflectType_class_()];
   jint count = 0;
-  for (NSUInteger i = 0; i < n; i++) {
-    // Strip off leading 'L'.
-    NSString *thrownException = [[exceptionsArray objectAtIndex:i] substringFromIndex:1];
-    IOSObjectArray_Set(result, count++, [IOSClass forName:thrownException]);
+  p = data_->exceptions;
+  while (p != NULL) {
+    char *semi = strchr(p, ';');
+    if (semi != NULL) {
+      char *exc = strndup(p, semi - p + 1);  // Include trailing ';'.
+      IOSObjectArray_Set(result, count++, JreTypeForString(exc));
+      free(exc);
+      p = semi + 1;
+    } else {
+      p = NULL;
+    }
   }
   return result;
 }
 
-- (BOOL)isConstructor {
-  const char *name = data_->javaName ? data_->javaName : data_->selector;
+- (jboolean)isConstructor {
+  const char *name = data_->selector;
   return strcmp(name, "init") == 0 || strstr(name, "initWith") == name;
 }
 

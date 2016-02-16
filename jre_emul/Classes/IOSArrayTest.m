@@ -24,7 +24,6 @@
 #import "IOSArray.h"
 #import "IOSClass.h"
 #import "IOSPrimitiveArray.h"
-#import "JreEmulation.h"
 #import "java/lang/IndexOutOfBoundsException.h"
 #import "java/util/Calendar.h"
 #import "java/util/Date.h"
@@ -75,7 +74,7 @@
 }
 
 - (void)testBooleanArrayCopy {
-  const BOOL *bools = (BOOL[]){ TRUE, FALSE, TRUE, FALSE };
+  const jboolean *bools = (jboolean[]){ TRUE, FALSE, TRUE, FALSE };
   IOSBooleanArray *a1 = [IOSBooleanArray arrayWithBooleans:bools count:4];
   IOSBooleanArray *a2 = [[a1 copy] autorelease];
   XCTAssertEqual([a1 length], [a2 length], @"bad array size");
@@ -86,7 +85,7 @@
 }
 
 - (void)testByteArrayCopy {
-  const char *bytes = (char[]){ 1, 2, 3, 4 };
+  const jbyte *bytes = (jbyte[]){ 1, 2, 3, 4 };
   IOSByteArray *a1 = [IOSByteArray arrayWithBytes:bytes count:4];
   IOSByteArray *a2 = [[a1 copy] autorelease];
   XCTAssertEqual([a1 length], [a2 length], @"bad array size");
@@ -97,7 +96,7 @@
 }
 
 - (void)testCharArrayCopy {
-  const unichar *chars = (unichar[]){ 'a', 'b', 'c', 'd' };
+  const jchar *chars = (jchar[]){ 'a', 'b', 'c', 'd' };
   IOSCharArray *a1 = [IOSCharArray arrayWithChars:chars count:4];
   IOSCharArray *a2 = [[a1 copy] autorelease];
   XCTAssertEqual([a1 length], [a2 length], @"bad array size");
@@ -108,7 +107,7 @@
 }
 
 - (void)testDoubleArrayCopy {
-  const double *doubles = (double[]){ 1.1, 2.2, 3.3, 4.4 };
+  const jdouble *doubles = (jdouble[]){ 1.1, 2.2, 3.3, 4.4 };
   IOSDoubleArray *a1 = [IOSDoubleArray arrayWithDoubles:doubles count:4];
   IOSDoubleArray *a2 = [[a1 copy] autorelease];
   XCTAssertEqual([a1 length], [a2 length], @"bad array size");
@@ -141,7 +140,7 @@
 }
 
 - (void)testLongArrayCopy {
-  const long long *longs = (long long[]){ 1, 2, 3, 4 };
+  const jlong *longs = (jlong[]){ 1, 2, 3, 4 };
   IOSLongArray *a1 = [IOSLongArray arrayWithLongs:longs count:4];
   IOSLongArray *a2 = [[a1 copy] autorelease];
   XCTAssertEqual([a1 length], [a2 length], @"bad array size");
@@ -152,7 +151,7 @@
 }
 
 - (void)testShortArrayCopy {
-  const short *shorts = (short[]){ 1, 2, 3, 4 };
+  const jshort *shorts = (jshort[]){ 1, 2, 3, 4 };
   IOSShortArray *a1 = [IOSShortArray arrayWithShorts:shorts count:4];
   IOSShortArray *a2 = [[a1 copy] autorelease];
   XCTAssertEqual([a1 length], [a2 length], @"bad array size");
@@ -198,9 +197,9 @@
   IOSClass *type = JavaUtilDate_class_();
 
   // Verify single dimension array is correct type.
-  id array = [IOSObjectArray arrayWithDimensions:1
-                                         lengths:(int[]){2}
-                                            type:type];
+  IOSObjectArray *array = [IOSObjectArray arrayWithDimensions:1
+                                                      lengths:(int[]){2}
+                                                         type:type];
   XCTAssertEqualObjects([array elementType], type,
                        @"wrong element type: %@", [array elementType]);
 
@@ -213,13 +212,13 @@
   XCTAssertTrue([array length] == 2,
                @"invalid array length, was %d", (jint)[array length]);
   for (jint i = 0; i < 2; i++) {
-    id subarray = [array objectAtIndex:i];
+    IOSObjectArray *subarray = [array objectAtIndex:i];
     XCTAssertTrue([subarray isMemberOfClass:[IOSObjectArray class]],
                  @"wrong subarray type: %@", [subarray class]);
     XCTAssertTrue([subarray length] == 4,
                  @"invalid subarray length, was %d", (jint)[subarray length]);
     for (jint i = 0; i < 4; i++) {
-      id subsubarray = [subarray objectAtIndex:i];
+      IOSArray *subsubarray = [subarray objectAtIndex:i];
       XCTAssertTrue([subsubarray isMemberOfClass:[IOSObjectArray class]],
                    @"wrong subarray type: %@", [subarray class]);
       XCTAssertTrue([subsubarray length] == 6,

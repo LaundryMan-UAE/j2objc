@@ -25,11 +25,12 @@
 #import "NSCopying+JavaCloneable.h"
 #import "java/io/Serializable.h"
 #import "java/lang/InstantiationException.h"
+#import "java/lang/reflect/Modifier.h"
 
 @implementation IOSArrayClass
 
 - (instancetype)initWithComponentType:(IOSClass *)type {
-  if ((self = [super init])) {
+  if ((self = [super initWithClass:NULL])) {
     componentType_ = RETAIN_(type);
   }
   return self;
@@ -39,20 +40,20 @@
   return componentType_;
 }
 
-- (BOOL)isArray {
-  return YES;
+- (jboolean)isArray {
+  return true;
 }
 
 - (IOSClass *)getSuperclass {
   return NSObject_class_();
 }
 
-- (BOOL)isInstance:(id)object {
+- (jboolean)isInstance:(id)object {
   IOSClass *objClass = [object getClass];
   return [objClass isArray] && [componentType_ isAssignableFrom:[objClass getComponentType]];
 }
 
-- (BOOL)isAssignableFrom:(IOSClass *)cls {
+- (jboolean)isAssignableFrom:(IOSClass *)cls {
   return [cls isArray] && [componentType_ isAssignableFrom:[cls getComponentType]];
 }
 
@@ -92,6 +93,11 @@
     @throw AUTORELEASE([[JavaLangInstantiationException alloc] init]);
   }
   return [IOSObjectArray arrayWithLength:0 type:componentType_];
+}
+
+- (int)getModifiers {
+  return JavaLangReflectModifier_PUBLIC | JavaLangReflectModifier_ABSTRACT
+      | JavaLangReflectModifier_FINAL;
 }
 
 - (BOOL)isEqual:(id)anObject {

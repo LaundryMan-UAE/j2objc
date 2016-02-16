@@ -25,6 +25,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
+/*-[
+#include "java/lang/reflect/Method.h"
+]-*/
+
 /**
  * MockMaker implementation for iOS. Unlike the JRE and Android versions,
  * this class creates mocks for classes using the Objective-C runtime.
@@ -161,7 +165,7 @@ public final class IosMockMaker implements MockMaker {
         struct objc_method_description *md) {
       IOSClass *mockClass = IOSClass_fromClass(cls);
       IOSClass *mockedClass =
-          [OrgMockitoInternalCreationIosIosMockMaker_proxyCache_ getWithId:mockClass];
+          [OrgMockitoInternalCreationIosIosMockMaker_proxyCache getWithId:mockClass];
 
       // Check for an instance method with this selector.
       unsigned nMethods;

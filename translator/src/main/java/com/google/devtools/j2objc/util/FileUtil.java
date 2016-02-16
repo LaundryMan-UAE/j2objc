@@ -16,15 +16,19 @@ package com.google.devtools.j2objc.util;
 import com.google.common.io.CharStreams;
 import com.google.devtools.j2objc.J2ObjC;
 import com.google.devtools.j2objc.Options;
+import com.google.devtools.j2objc.file.InputFile;
 import com.google.devtools.j2objc.file.JarredInputFile;
 import com.google.devtools.j2objc.file.RegularInputFile;
-import com.google.devtools.j2objc.file.InputFile;
+
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.PackageDeclaration;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Properties;
 
 import javax.annotation.Nullable;
@@ -36,27 +40,66 @@ import javax.annotation.Nullable;
  */
 public class FileUtil {
 
+  public static String getMainTypeName(InputFile file) {
+    String basename = file.getBasename();
+    int end = basename.lastIndexOf(".java");
+    if (end == -1) {
+      end = basename.lastIndexOf(".class");
+    }
+    if (end != -1) {
+      basename = basename.substring(0, end);
+    }
+    return basename;
+  }
+
+  public static String getQualifiedMainTypeName(InputFile file, CompilationUnit unit) {
+    String qualifiedName = getMainTypeName(file);
+    PackageDeclaration packageDecl = unit.getPackage();
+    if (packageDecl != null) {
+      String packageName = packageDecl.getName().getFullyQualifiedName();
+      qualifiedName = packageName + "." + qualifiedName;
+    }
+    return qualifiedName;
+  }
+
   /**
    * Find a {@link com.google.devtools.j2objc.file.InputFile} on the source path,
    * either in a directory or a jar.
    * Returns a file guaranteed to exist, or null.
    */
   @Nullable
-  public static InputFile findOnSourcePath(String filename) throws IOException {
-    for (String pathEntry : Options.getSourcePathEntries()) {
-      if (pathEntry.endsWith(".jar")) {
-        JarredInputFile jarFile = new JarredInputFile(pathEntry, filename);
-        if (jarFile.exists()) {
-          return jarFile;
+  public static InputFile findOnSourcePath(String qualifiedName) throws IOException {
+    return findOnPaths(qualifiedName, Options.getSourcePathEntries(), ".java");
+  }
+
+  /**
+   * Find a {@link com.google.devtools.j2objc.file.InputFile} on the class path,
+   * either in a directory or a jar.
+   * Returns a file guaranteed to exist, or null.
+   */
+  @Nullable
+  public static InputFile findOnClassPath(String qualifiedName) throws IOException {
+    return findOnPaths(qualifiedName, Options.getClassPathEntries(), ".class");
+  }
+
+  private static InputFile findOnPaths(
+      String qualifiedName, List<String> paths, String extension) throws IOException {
+    String sourceFileName = qualifiedName.replace('.', File.separatorChar) + extension;
+    // Zip/jar files always use forward slashes.
+    String jarEntryName = qualifiedName.replace('.', '/') + extension;
+    for (String pathEntry : paths) {
+      File f = new File(pathEntry);
+      if (f.isDirectory()) {
+        RegularInputFile regularFile = new RegularInputFile(
+            pathEntry + File.separatorChar + sourceFileName, sourceFileName);
+        if (regularFile.exists()) {
+          return regularFile;
         }
       } else {
-        File f = new File(pathEntry);
-        if (f.isDirectory()) {
-          RegularInputFile regularFile = new RegularInputFile(
-              pathEntry + File.separatorChar + filename, filename);
-          if (regularFile.exists()) {
-            return regularFile;
-          }
+        // Assume it's a jar file
+        JarredInputFile jarFile = new JarredInputFile(pathEntry, jarEntryName);
+        if (jarFile.exists()) {
+          return jarFile;
         }
       }
     }
@@ -112,7 +155,7 @@ public class FileUtil {
    */
   public static void deleteTempDir(File dir) {
     // TODO(cpovirk): try Directories.deleteRecursively if a c.g.c.unix dep is OK
-    if (dir.exists()) {
+    if (dir != null && dir.exists()) {
       for (File f : dir.listFiles()) {
         if (f.isDirectory()) {
           deleteTempDir(f);

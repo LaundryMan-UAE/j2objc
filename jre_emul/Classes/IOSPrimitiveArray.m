@@ -17,6 +17,7 @@
 
 #import "IOSPrimitiveArray.h"
 
+#import "IOSArray_PackagePrivate.h"
 #import "IOSClass.h"
 #import "java/lang/NegativeArraySizeException.h"
 
@@ -56,6 +57,15 @@
   \
   + (instancetype)arrayWith##U_NAME##s:(const C_TYPE *)buf count:(NSUInteger)count { \
     return [IOS##U_NAME##Array_NewArrayWith##U_NAME##s((jint)count, buf) autorelease]; \
+  } \
+  \
+  + (id)arrayWithDimensions:(NSUInteger)dimensionCount lengths:(const jint *)dimensionLengths { \
+    return [IOSArray_NewArrayWithDimensions(self, dimensionCount, dimensionLengths, nil) \
+        autorelease]; \
+  } \
++ (id)newArrayWithDimensions:(NSUInteger)dimensionCount lengths:(const jint *)dimensionLengths \
+    __attribute__((objc_method_family(none), ns_returns_retained)) { \
+    return IOSArray_NewArrayWithDimensions(self, dimensionCount, dimensionLengths, nil); \
   }
 
 /*!
@@ -138,7 +148,7 @@
 PRIMITIVE_ARRAY_IMPLEMENTATION(boolean, Boolean, jboolean)
 
 - (NSString *)descriptionOfElementAtIndex:(jint)index {
-  return [NSString stringWithFormat:@"%@", (buffer_[index] ? @"YES" : @"NO")];
+  return [NSString stringWithFormat:@"%@", (buffer_[index] ? @"true" : @"false")];
 }
 
 @end
@@ -171,6 +181,15 @@ PRIMITIVE_ARRAY_IMPLEMENTATION(char, Char, jchar)
 @implementation IOSByteArray
 
 PRIMITIVE_ARRAY_IMPLEMENTATION(byte, Byte, jbyte)
+
++ (instancetype)arrayWithNSData:(NSData *)data {
+  NSUInteger length = [data length];
+  IOSByteArray *array = IOSByteArray_NewArray((jint)length);
+  if (length > 0) {
+    [data getBytes:array->buffer_ length:length];
+  }
+  return [array autorelease];
+}
 
 - (void)getBytes:(jbyte *)buffer
           offset:(jint)offset

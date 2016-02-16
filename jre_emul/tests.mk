@@ -21,20 +21,79 @@
 default: test
 
 include environment.mk
+include $(J2OBJC_ROOT)/make/translate_macros.mk
 
 SUPPORT_SOURCES = \
     JSR166TestCase.java \
     android/test/MoreAsserts.java \
     android/text/SpannableTest.java \
-    com/google/j2objc/package-info.java \
+    bar/Third.java \
+    com/google/j2objc/NativeUtil.java \
     com/google/j2objc/TestAnnotation.java \
+    com/google/j2objc/java8/Lambdas.java \
+    com/google/j2objc/mappedpkg/TestClass.java \
+    com/google/j2objc/mappedpkg/package-info.java \
+    com/google/j2objc/package-info.java \
+    com/google/mockwebserver/Dispatcher.java \
+    com/google/mockwebserver/MockResponse.java \
+    com/google/mockwebserver/MockWebServer.java \
+    com/google/mockwebserver/QueueDispatcher.java \
+    com/google/mockwebserver/RecordedRequest.java \
+    com/google/mockwebserver/SocketPolicy.java \
+    foo/Fourth.java \
+    foo/bar/First.java \
+    foo/mumble/Second.java \
     java/lang/test/Example.java \
     java/lang/test/package-info.java \
+    jsr166/BlockingQueueTest.java \
+    jsr166/JSR166TestCase.java \
     libcore/java/net/customstreamhandler/http/Handler.java \
     libcore/java/nio/charset/Charset_TestGenerator.java \
     libcore/java/nio/charset/OldCharset_AbstractTest.java \
     libcore/java/util/ServiceLoaderTestInterface.java \
+    libcore/java/util/zip/AbstractZipFileTest.java \
     libcore/util/SerializationTester.java \
+    org/apache/harmony/beans/tests/support/MisprintBean.java \
+    org/apache/harmony/beans/tests/support/MisprintEvent.java \
+    org/apache/harmony/beans/tests/support/MisprintListenerr.java \
+    org/apache/harmony/beans/tests/support/OtherBean.java \
+    org/apache/harmony/beans/tests/support/SampleBean.java \
+    org/apache/harmony/beans/tests/support/SampleEvent.java \
+    org/apache/harmony/beans/tests/support/SampleListener.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox01.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox011.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox01BeanInfo.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox02.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox02BeanInfo.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox031.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox04.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox041.java \
+    org/apache/harmony/beans/tests/support/mock/FakeFox0411.java \
+    org/apache/harmony/beans/tests/support/mock/MockButton.java \
+    org/apache/harmony/beans/tests/support/mock/MockFakeEvent.java \
+    org/apache/harmony/beans/tests/support/mock/MockFakeListener.java \
+    org/apache/harmony/beans/tests/support/mock/MockFoo.java \
+    org/apache/harmony/beans/tests/support/mock/MockFooButton.java \
+    org/apache/harmony/beans/tests/support/mock/MockFooChild.java \
+    org/apache/harmony/beans/tests/support/mock/MockFooLabel.java \
+    org/apache/harmony/beans/tests/support/mock/MockFooStop.java \
+    org/apache/harmony/beans/tests/support/mock/MockFooSub.java \
+    org/apache/harmony/beans/tests/support/mock/MockFooSubSub.java \
+    org/apache/harmony/beans/tests/support/mock/MockInterface.java \
+    org/apache/harmony/beans/tests/support/mock/MockJavaBean.java \
+    org/apache/harmony/beans/tests/support/mock/MockNullSubClass.java \
+    org/apache/harmony/beans/tests/support/mock/MockNullSuperClass.java \
+    org/apache/harmony/beans/tests/support/mock/MockPropertyChangeEvent.java \
+    org/apache/harmony/beans/tests/support/mock/MockPropertyChangeListener.java \
+    org/apache/harmony/beans/tests/support/mock/MockPropertyChangeListener2.java \
+    org/apache/harmony/beans/tests/support/mock/MockPropertyChangeValidListener.java \
+    org/apache/harmony/beans/tests/support/mock/MockSubClass.java \
+    org/apache/harmony/beans/tests/support/mock/MockSuperClass.java \
+    org/apache/harmony/beans/tests/support/mock/homonymy/mocksubject1/info/MockHomonymySubjectBeanInfo.java \
+    org/apache/harmony/beans/tests/support/mock/homonymy/mocksubject1/MockHomonymySubject.java \
+    org/apache/harmony/beans/tests/support/mock/homonymy/mocksubject2/info/MockHomonymySubjectBeanInfo.java \
+    org/apache/harmony/beans/tests/support/mock/homonymy/mocksubject2/MockHomonymySubject.java \
     org/apache/harmony/logging/tests/java/util/logging/LevelTestResource.java \
     org/apache/harmony/logging/tests/java/util/logging/util/EnvironmentHelper.java \
     org/apache/harmony/luni/tests/java/lang/MockEnum.java \
@@ -47,6 +106,7 @@ SUPPORT_SOURCES = \
     org/apache/harmony/security/tests/support/TestKeyPair.java \
     org/apache/harmony/security/tests/support/spec/MyEncodedKeySpec.java \
     org/apache/harmony/testframework/serialization/SerializationTest.java \
+    org/apache/harmony/tests/java/lang/reflect/GenericReflectionTestsBase.java \
     org/apache/harmony/tests/javax/xml/parsers/SAXParserTestSupport.java \
     org/apache/harmony/tests/org/xml/sax/support/MethodLogger.java \
     org/apache/harmony/tests/org/xml/sax/support/MockHandler.java \
@@ -92,6 +152,8 @@ SUPPORT_SOURCES = \
     tests/util/CallVerificationStack.java \
     tests/util/SerializationTester.java
 
+NATIVE_SOURCES = dalvik_system_JniTest.cpp
+
 TEST_SOURCES := \
     AbstractExecutorServiceTest.java \
     AbstractQueuedSynchronizerTest.java \
@@ -124,6 +186,8 @@ TEST_SOURCES := \
     LinkedListTest.java \
     LockSupportTest.java \
     MaxFloatingPointTest.java \
+    NoPackageTest.java \
+    PackagePrefixesTest.java \
     PriorityBlockingQueueTest.java \
     PriorityQueueTest.java \
     ReentrantLockTest.java \
@@ -139,22 +203,31 @@ TEST_SOURCES := \
     android/text/SpannableStringTest.java \
     android/text/TextUtilsTest.java \
     android/util/Base64Test.java \
+    com/google/j2objc/ArrayTest.java \
+    com/google/j2objc/AssertTest.java \
     com/google/j2objc/ClassTest.java \
     com/google/j2objc/PackageTest.java \
     com/google/j2objc/ThrowableTest.java \
+    com/google/j2objc/net/NSErrorExceptionTest.java \
     com/google/j2objc/security/IosSecureRandomImplTest.java \
+    dalvik/system/JniTest.java \
     java/lang/SystemTest.java \
     java/lang/ref/PhantomReferenceTest.java \
     java/lang/ref/SoftReferenceTest.java \
     java/lang/ref/WeakReferenceTest.java \
+    java/lang/reflect/MethodTest.java \
     java/lang/reflect/ProxyTest.java \
     java/lang/reflect/ReflectionTest.java \
     java/util/TreeMapTest.java \
     java/util/WeakHashMapTest.java \
     java/util/regex/MatcherTest.java \
+    jsr166/LinkedTransferQueueTest.java \
     libcore/icu/ICUTest.java \
     libcore/icu/LocaleDataTest.java \
+    libcore/icu/NativeDecimalFormatTest.java \
     libcore/io/MemoryTest.java \
+    libcore/io/PosixTest.java \
+    libcore/java/awt/font/TextAttributeTest.java \
     libcore/java/io/CharArrayWriterTest.java \
     libcore/java/io/DataOutputStreamTest.java \
     libcore/java/io/FileDescriptorTest.java \
@@ -224,7 +297,6 @@ TEST_SOURCES := \
     libcore/java/io/OldStringWriterTest.java \
     libcore/java/io/OldWriterTest.java \
     libcore/java/io/OutputStreamWriterTest.java \
-    libcore/java/io/RandomAccessFileTest.java \
     libcore/java/io/SerializationTest.java \
     libcore/java/io/StreamTokenizerTest.java \
     libcore/java/lang/CharacterTest.java \
@@ -241,6 +313,7 @@ TEST_SOURCES := \
     libcore/java/lang/reflect/FieldTest.java \
     libcore/java/lang/reflect/MethodTest.java \
     libcore/java/lang/reflect/ReflectionTest.java \
+    libcore/java/net/CookiesTest.java \
     libcore/java/net/DatagramSocketTest.java \
     libcore/java/net/NetworkInterfaceTest.java \
     libcore/java/net/OldAuthenticatorTest.java \
@@ -258,6 +331,7 @@ TEST_SOURCES := \
     libcore/java/nio/OldDirectShortBufferTest.java \
     libcore/java/nio/channels/FileChannelTest.java \
     libcore/java/nio/channels/OldFileChannelTest.java \
+    libcore/java/nio/channels/DatagramChannelTest.java \
     libcore/java/nio/charset/CharsetDecoderTest.java \
     libcore/java/nio/charset/CharsetEncoderTest.java \
     libcore/java/text/AttributedCharacterIteratorAttributeTest.java \
@@ -288,6 +362,7 @@ TEST_SOURCES := \
     libcore/java/util/zip/OldAndroidZipStreamTest.java \
     libcore/java/util/zip/OldDataFormatExceptionTest.java \
     libcore/java/util/zip/OldZipExceptionTest.java \
+    libcore/java/util/zip/Zip64FileTest.java \
     libcore/java/util/zip/ZipEntryTest.java \
     libcore/java/util/zip/ZipFileTest.java \
     libcore/java/util/zip/ZipInputStreamTest.java \
@@ -295,6 +370,19 @@ TEST_SOURCES := \
     libcore/javax/xml/parsers/DocumentBuilderTest.java \
     libcore/net/url/UrlUtilsTest.java \
     org/apache/harmony/archive/tests/java/util/zip/CRC32Test.java \
+    org/apache/harmony/beans/tests/java/beans/BeanDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/EventSetDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/FeatureDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/IndexedPropertyDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/IntrospectorTest.java \
+    org/apache/harmony/beans/tests/java/beans/IntrospectionExceptionTest.java \
+    org/apache/harmony/beans/tests/java/beans/MethodDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/ParameterDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/PropertyChangeEventTest.java \
+    org/apache/harmony/beans/tests/java/beans/PropertyChangeListenerProxyTest.java \
+    org/apache/harmony/beans/tests/java/beans/PropertyDescriptorTest.java \
+    org/apache/harmony/beans/tests/java/beans/PropertyVetoExceptionTest.java \
+    org/apache/harmony/beans/tests/java/beans/SimpleBeanInfoTest.java \
     org/apache/harmony/logging/tests/java/util/logging/ConsoleHandlerTest.java \
     org/apache/harmony/logging/tests/java/util/logging/ErrorManagerTest.java \
     org/apache/harmony/logging/tests/java/util/logging/FilterTest.java \
@@ -419,6 +507,22 @@ TEST_SOURCES := \
     org/apache/harmony/tests/java/lang/FloatTest.java \
     org/apache/harmony/tests/java/lang/MathTest.java \
     org/apache/harmony/tests/java/lang/StrictMathTest.java \
+    org/apache/harmony/tests/java/lang/reflect/AccessibleObjectTest.java \
+    org/apache/harmony/tests/java/lang/reflect/ArrayTest.java \
+    org/apache/harmony/tests/java/lang/reflect/BoundedGenericMethodsTests.java \
+    org/apache/harmony/tests/java/lang/reflect/ConstructorTest.java \
+    org/apache/harmony/tests/java/lang/reflect/FieldTest.java \
+    org/apache/harmony/tests/java/lang/reflect/GenericArrayTypeTest.java \
+    org/apache/harmony/tests/java/lang/reflect/GenericMethodsTests.java \
+    org/apache/harmony/tests/java/lang/reflect/MalformedParameterizedTypeExceptionTest.java \
+    org/apache/harmony/tests/java/lang/reflect/MalformedParameterizedTypeExceptionTests.java \
+    org/apache/harmony/tests/java/lang/reflect/MethodTest.java \
+    org/apache/harmony/tests/java/lang/reflect/ModifierTest.java \
+    org/apache/harmony/tests/java/lang/reflect/ParameterizedTypeTest.java \
+    org/apache/harmony/tests/java/lang/reflect/TypeVariableTest.java \
+    org/apache/harmony/tests/java/lang/reflect/UndeclaredThrowableExceptionTest.java \
+    org/apache/harmony/tests/java/lang/reflect/UndeclaredThrowableExceptionTests.java \
+    org/apache/harmony/tests/java/lang/reflect/WildcardTypeTest.java \
     org/apache/harmony/tests/java/math/BigIntegerAddTest.java \
     org/apache/harmony/tests/java/math/BigIntegerAndTest.java \
     org/apache/harmony/tests/java/math/BigIntegerCompareTest.java \
@@ -430,6 +534,7 @@ TEST_SOURCES := \
     org/apache/harmony/tests/java/math/BigIntegerNotTest.java \
     org/apache/harmony/tests/java/math/BigIntegerOrTest.java \
     org/apache/harmony/tests/java/math/BigIntegerSubtractTest.java \
+    org/apache/harmony/tests/java/nio/channels/ChannelsTest.java \
     org/apache/harmony/tests/java/util/HashMapTest.java \
     org/apache/harmony/tests/java/util/HashtableTest.java \
     org/apache/harmony/tests/java/util/LinkedHashMapTest.java \
@@ -489,9 +594,28 @@ TEST_SOURCES := \
 SUITE_SOURCES = \
     ConcurrencyTests.java \
     libcore/java/io/SmallTests.java \
+    libcore/java/util/zip/LargeTests.java \
     libcore/java/util/zip/SmallTests.java \
+    org/apache/harmony/beans/tests/java/beans/AllTests.java \
     org/apache/harmony/logging/tests/java/util/logging/AllTests.java \
     org/json/SmallTests.java \
+
+ARC_TEST_SOURCES = \
+    com/google/j2objc/arc/EnumTest.java
+
+JAVA8_TEST_SOURCES := \
+    com/google/j2objc/java8/CreationReferenceTest.java \
+    com/google/j2objc/java8/ExpressionMethodReferenceTest.java \
+    com/google/j2objc/java8/LambdaTest.java \
+    com/google/j2objc/java8/SuperMethodReferenceTest.java \
+    com/google/j2objc/java8/TypeMethodReferenceTest.java \
+
+
+JAVA8_SUITE_SOURCES = \
+    com/google/j2objc/java8/SmallTests.java \
+
+ALL_TEST_SOURCES = $(TEST_SOURCES) $(JAVA8_TEST_SOURCES) $(ARC_TEST_SOURCES)
+ALL_SUITE_SOURCES = $(SUITE_SOURCES) $(JAVA8_SUITE_SOURCES)
 
 # These tests fail when run on Travis-CI continuous build, probably due to VM sandbox restrictions.
 # The java.net SmallTests is also skipped, since it refers to these classes; SmallTests isn't
@@ -508,8 +632,7 @@ TESTS_TO_SKIP = \
     ExchangerTest.java
 
 FAILING_TESTS = \
-    libcore/java/text/DateFormatSymbolsTest.java \
-    libcore/java/util/beans/PropertyChangeSupportTest.java
+    libcore/java/text/DateFormatSymbolsTest.java
 
 # Most of these tests are failing for a common index-out-of-range error.
 FAILING_MATH_TESTS = \
@@ -525,16 +648,25 @@ FAILING_MATH_TESTS = \
     org/apache/harmony/tests/java/math/BigIntegerXorTest.java \
     tests/api/java/math/BigIntegerTest.java \
 
-TESTS_TO_RUN = $(filter-out $(TESTS_TO_SKIP),$(TEST_SOURCES))
+TESTS_TO_RUN = $(filter-out $(TESTS_TO_SKIP),$(ALL_TEST_SOURCES))
 TESTS_TO_RUN := $(subst /,.,$(TESTS_TO_RUN:%.java=%))
 
-SUPPORT_OBJS = $(SUPPORT_SOURCES:%.java=$(TESTS_DIR)/%.o)
+ALL_TESTS_CLASS = AllJreTests
+# Creates a test suit that includes all classes in ALL_TEST_SOURCES.
+ALL_TESTS_SOURCE = $(RELATIVE_TESTS_DIR)/AllJreTests.java
+
+SUPPORT_OBJS = $(SUPPORT_SOURCES:%.java=$(TESTS_DIR)/%.o) $(NATIVE_SOURCES:%.cpp=$(TESTS_DIR)/%.o)
 TEST_OBJS = \
-    $(TEST_SOURCES:%.java=$(TESTS_DIR)/%.o) \
-    $(SUITE_SOURCES:%.java=$(TESTS_DIR)/%.o)
+    $(ALL_TEST_SOURCES:%.java=$(TESTS_DIR)/%.o) \
+    $(ALL_SUITE_SOURCES:%.java=$(TESTS_DIR)/%.o) \
+    $(TESTS_DIR)/$(ALL_TESTS_CLASS).o
 
 TEST_RESOURCES_SRCS = \
+    lib/logging.properties \
+    prefixes.properties
+HARMONY_TEST_RESOURCES_SRCS = \
     org/apache/harmony/luni/tests/test_resource.txt \
+    org/apache/harmony/luni/tests/java/lang/test_resource.txt \
     org/apache/harmony/luni/tests/java/io/testfile-utf8.txt \
     serialization/org/apache/harmony/luni/tests/java/lang/EnumTest.harmony.ser \
     serialization/org/apache/harmony/luni/tests/java/lang/EnumTest.golden.0.ser \
@@ -544,16 +676,16 @@ TEST_RESOURCES_SRCS = \
     serialization/org/apache/harmony/regex/tests/java/util/regex/PatternSyntaxExceptionTest.golden.ser
 ANDROID_TEST_RESOURCES_SRCS = \
     META-INF/services/libcore.java.util.ServiceLoaderTestInterface \
-    MD5.check \
-    MD5.data \
-    SHA-1.check \
-    SHA-1.data \
-    SHA-256.check \
-    SHA-256.data \
-    SHA-384.check \
-    SHA-384.data \
-    SHA-512.check \
-    SHA-512.data \
+    tests/targets/security/MD5.check \
+    tests/targets/security/MD5.data \
+    tests/targets/security/SHA-1.check \
+    tests/targets/security/SHA-1.data \
+    tests/targets/security/SHA-256.check \
+    tests/targets/security/SHA-256.data \
+    tests/targets/security/SHA-384.check \
+    tests/targets/security/SHA-384.data \
+    tests/targets/security/SHA-512.check \
+    tests/targets/security/SHA-512.data \
     recipt.xml \
     simple.xml \
     systemid.xml \
@@ -568,53 +700,106 @@ LOGGING_TEST_RESOURCES_SRCS = \
     bundles/java/util/logging/res_en_US.properties \
     bundles/java/util/logging/res_zh_CN.properties \
     config/java/util/logging/logging.config
+ZIP_TEST_RESOURCES_SRCS = \
+    tests/resources/java/util/zip/EmptyArchive.zip \
+    tests/resources/java/util/zip/ZipFileBreak.zip
+BEANS_TEST_RESOURCES_SRCS = \
+    serialization/org/apache/harmony/beans/tests/java/beans/IntrospectionExceptionTest.golden.ser \
+    serialization/org/apache/harmony/beans/tests/java/beans/PropertyChangeEventTest.golden.ser \
+    serialization/org/apache/harmony/beans/tests/java/beans/PropertyVetoExceptionTest.golden.ser
 
-TEST_RESOURCES_ROOT = apache_harmony/classlib/modules/luni/src/test/resources
+HARMONY_TEST_RESOURCES_ROOT = apache_harmony/classlib/modules/luni/src/test/resources
 ANDROID_TEST_RESOURCES_ROOT = android/libcore/luni/src/test/resources
 LOGGING_TEST_RESOURCES_ROOT = apache_harmony/classlib/modules/logging/src/test/resources
+BEANS_TEST_RESOURCES_ROOT = apache_harmony/classlib/modules/beans/src/test/resources
+TEST_RESOURCES_ROOT = Tests/resources
+
 TEST_RESOURCES = \
-    $(TEST_RESOURCES_SRCS:%=$(TESTS_DIR)/%) \
-    $(ANDROID_TEST_RESOURCES_SRCS:%=$(TESTS_DIR)/%) \
-    $(LOGGING_TEST_RESOURCES_SRCS:%=$(TESTS_DIR)/%)
+    $(TEST_RESOURCES_SRCS:%=$(RESOURCES_DEST_DIR)/%) \
+    $(ANDROID_TEST_RESOURCES_SRCS:%=$(RESOURCES_DEST_DIR)/%) \
+    $(HARMONY_TEST_RESOURCES_SRCS:%=$(RESOURCES_DEST_DIR)/%) \
+    $(LOGGING_TEST_RESOURCES_SRCS:%=$(RESOURCES_DEST_DIR)/%) \
+    $(ZIP_TEST_RESOURCES_SRCS:%=$(RESOURCES_DEST_DIR)/%) \
+    $(BEANS_TEST_RESOURCES_SRCS:%=$(RESOURCES_DEST_DIR)/%)
 
 # Broken tests, plus associated bug id.  Once bug is fixed, move line(s) up.
 # $(TESTS_DIR)/org/apache/harmony/luni/tests/java/lang/StringBuilderTest.o     b/8842295
 
 JUNIT_DIST_JAR = $(DIST_JAR_DIR)/$(JUNIT_JAR)
 
+INCLUDE_DIRS = $(TESTS_DIR) $(TESTS_DIR)/arc $(CLASS_DIR) $(EMULATION_CLASS_DIR)
+INCLUDE_ARGS = $(INCLUDE_DIRS:%=-I%)
+
+TEST_JOCC := ../dist/j2objcc -g
+LINK_FLAGS := -ljre_emul -l junit -L$(TESTS_DIR) -l test-support
+COMPILE_FLAGS := $(INCLUDE_ARGS) -c -Wno-objc-redundant-literal-use -Wno-format -Werror \
+  -Wno-parentheses
+
 ifeq ($(OBJCPP_BUILD), YES)
-TEST_JOCC = ../dist/j2objcc -g -I$(TESTS_DIR) -l junit -Werror \
-    -L$(TESTS_DIR) -l test-support -lc++ -ObjC++
+LINK_FLAGS += -lc++ -ObjC++
 else
-TEST_JOCC = ../dist/j2objcc -g -I$(TESTS_DIR) -l junit -Werror \
-    -L$(TESTS_DIR) -l test-support -ObjC
+LINK_FLAGS += -ObjC
 endif
+
 SUPPORT_LIB = $(TESTS_DIR)/libtest-support.a
 TEST_BIN = $(TESTS_DIR)/jre_unit_tests
 
-GEN_OBJC_DIR = $(TESTS_DIR)
-TRANSLATE_JAVA_FULL = $(SUPPORT_SOURCES) $(TEST_SOURCES) $(SUITE_SOURCES)
-TRANSLATE_JAVA_RELATIVE = $(SUPPORT_SOURCES) $(TEST_SOURCES) $(SUITE_SOURCES)
 TRANSLATE_ARGS = -classpath $(JUNIT_DIST_JAR) -Werror -sourcepath $(TEST_SRC) \
-    --extract-unsequenced -encoding UTF-8
-include ../make/translate.mk
+    --extract-unsequenced -encoding UTF-8 \
+    --prefixes Tests/resources/prefixes.properties
+TRANSLATE_SOURCES = $(SUPPORT_SOURCES) $(TEST_SOURCES) $(SUITE_SOURCES) $(ALL_TESTS_CLASS).java
+TRANSLATE_SOURCES_JAVA8 = $(JAVA8_TEST_SOURCES) $(JAVA8_SUITE_SOURCES)
+TRANSLATE_SOURCES_ARC = $(ARC_TEST_SOURCES)
+TRANSLATED_OBJC = $(TRANSLATE_SOURCES:%.java=$(TESTS_DIR)/%.m)
+TRANSLATED_OBJC_JAVA8 = $(TRANSLATE_SOURCES_JAVA8:%.java=$(TESTS_DIR)/%.m)
+TRANSLATED_OBJC_ARC = $(TRANSLATE_SOURCES_ARC:%.java=$(TESTS_DIR)/arc/%.m)
 
-ALL_TESTS_CLASS = AllJreTests
-ALL_TESTS_SOURCE = $(RELATIVE_TESTS_DIR)/AllJreTests.java
+TRANSLATE_ARTIFACT := $(call emit_translate_rule,\
+  jre_emul_tests,\
+  $(TESTS_DIR),\
+  $(SUPPORT_SOURCES) $(TEST_SOURCES) $(SUITE_SOURCES) $(ALL_TESTS_SOURCE),\
+  ,\
+  $(TRANSLATE_ARGS))
+
+TRANSLATE_ARTIFACT_JAVA8 := $(call emit_translate_rule,\
+  jre_emul_tests_java8,\
+  $(TESTS_DIR),\
+  $(JAVA8_TEST_SOURCES) $(JAVA8_SUITE_SOURCES),\
+  ,\
+  $(TRANSLATE_ARGS) -source 8 -Xforce-incomplete-java8)
+
+TRANSLATE_ARTIFACT_ARC := $(call emit_translate_rule,\
+  jre_emul_tests_arc,\
+  $(TESTS_DIR)/arc,\
+  $(ARC_TEST_SOURCES),\
+  ,\
+  $(TRANSLATE_ARGS) -use-arc)
+
+TRANSLATE_ARTIFACTS = $(TRANSLATE_ARTIFACT) $(TRANSLATE_ARTIFACT_JAVA8) $(TRANSLATE_ARTIFACT_ARC)
+
+$(TRANSLATED_OBJC): $(TRANSLATE_ARTIFACT)
+	@:
+
+$(TRANSLATED_OBJC_JAVA8): $(TRANSLATE_ARTIFACT_JAVA8)
+	@:
+
+$(TRANSLATED_OBJC_ARC): $(TRANSLATE_ARTIFACT_ARC)
+	@:
 
 ifdef GENERATE_TEST_COVERAGE
-GCOV_FLAGS = -ftest-coverage -fprofile-arcs
-TEST_JOCC += $(GCOV_FLAGS)
+TEST_JOCC += -ftest-coverage -fprofile-arcs
 endif
+
+all-tests: test run-xctests
 
 test: run-tests
 
 support-lib: $(SUPPORT_LIB)
 
-build: support-lib $(TEST_OBJS) $(ALL_TESTS_SOURCE:%.java=%.o)
+build: support-lib $(TEST_OBJS)
 	@:
 
-translate-all: translate $(ALL_TESTS_SOURCE:%.java=%.m)
+translate-all: translate
 	@:
 
 link: build $(TEST_BIN)
@@ -622,23 +807,54 @@ link: build $(TEST_BIN)
 resources: $(TEST_RESOURCES)
 	@:
 
-$(TESTS_DIR)/%: $(TEST_RESOURCES_ROOT)/%
+$(RESOURCES_DEST_DIR)/%: $(TEST_RESOURCES_ROOT)/%
 	@mkdir -p `dirname $@`
 	@cp $< $@
 
-$(TESTS_DIR)/%: $(ANDROID_TEST_RESOURCES_ROOT)/%
+$(RESOURCES_DEST_DIR)/%: $(ANDROID_TEST_RESOURCES_ROOT)/%
 	@mkdir -p `dirname $@`
 	@cp $< $@
 
-$(TESTS_DIR)/%: $(LOGGING_TEST_RESOURCES_ROOT)/%
+$(RESOURCES_DEST_DIR)/%: $(LOGGING_TEST_RESOURCES_ROOT)/%
 	@mkdir -p `dirname $@`
 	@cp $< $@
 
-run-tests: link resources $(TEST_BIN) run-initialization-test
+$(RESOURCES_DEST_DIR)/%: $(BEANS_TEST_RESOURCES_ROOT)/%
+	@mkdir -p `dirname $@`
+	@cp $< $@
+
+$(RESOURCES_DEST_DIR)/%: $(HARMONY_TEST_RESOURCES_ROOT)/%
+	@mkdir -p `dirname $@`
+	@cp $< $@
+
+run-tests: link resources $(TEST_BIN) run-initialization-test run-core-size-test
 	@$(TEST_BIN) org.junit.runner.JUnitCore $(ALL_TESTS_CLASS)
 
 run-initialization-test: $(TESTS_DIR)/jreinitialization
 	@$(TESTS_DIR)/jreinitialization > /dev/null 2>&1
+
+run-core-size-test: $(TESTS_DIR)/core_size \
+  $(TESTS_DIR)/full_jre_size \
+  $(TESTS_DIR)/core_plus_android_util \
+  $(TESTS_DIR)/core_plus_beans \
+  $(TESTS_DIR)/core_plus_channels \
+  $(TESTS_DIR)/core_plus_concurrent \
+  $(TESTS_DIR)/core_plus_io \
+  $(TESTS_DIR)/core_plus_net \
+  $(TESTS_DIR)/core_plus_security \
+  $(TESTS_DIR)/core_plus_sql \
+  $(TESTS_DIR)/core_plus_ssl \
+  $(TESTS_DIR)/core_plus_util \
+  $(TESTS_DIR)/core_plus_xml \
+  $(TESTS_DIR)/core_plus_zip
+	@for bin in $^; do \
+	  echo Binary size for $$(basename $$bin):; \
+	  ls -l $$bin; \
+	  echo Number of classes: `nm $$bin | grep -c "S _OBJC_CLASS_"`; \
+	done
+
+run-beans-tests: link resources $(TEST_BIN)
+	@$(TEST_BIN) org.junit.runner.JUnitCore org.apache.harmony.beans.tests.java.beans.AllTests
 
 run-concurrency-tests: link resources $(TEST_BIN)
 	@$(TEST_BIN) org.junit.runner.JUnitCore ConcurrencyTests
@@ -648,6 +864,9 @@ run-io-tests: link resources $(TEST_BIN)
 
 run-json-tests: link resources $(TEST_BIN)
 	@$(TEST_BIN) org.junit.runner.JUnitCore org.json.SmallTests
+
+run-java8-tests: link resources $(TEST_BIN)
+	@$(TEST_BIN) org.junit.runner.JUnitCore com.google.j2objc.java8.SmallTests
 
 run-logging-tests: link resources $(TEST_BIN)
 	@$(TEST_BIN) org.junit.runner.JUnitCore \
@@ -659,13 +878,23 @@ run-net-tests: link resources $(TEST_BIN)
 run-zip-tests: link resources $(TEST_BIN)
 	@$(TEST_BIN) org.junit.runner.JUnitCore libcore.java.util.zip.SmallTests
 
+run-zip-tests-large: link resources $(TEST_BIN)
+	@$(TEST_BIN) org.junit.runner.JUnitCore libcore.java.util.zip.LargeTests
+
 # Run this when the above has errors and JUnit doesn't report which
 # test failed or hung.
 run-each-test: link resources $(TEST_BIN)
-	@for test in $(subst /,.,$(TEST_SOURCES:%.java=%)); do \
+	@for test in $(subst /,.,$(ALL_TEST_SOURCES:%.java=%)); do \
 	  echo $$test:; \
 	  $(TEST_BIN) org.junit.runner.JUnitCore $$test; \
 	done
+
+# Build and run the JreEmulation project's test bundle, then close simulator app.
+# Note: the simulator app's name was changed to "Simulator" in Xcode 7.
+run-xctests: test
+	@xcodebuild -project JreEmulation.xcodeproj -scheme jre_emul -destination \
+	    'platform=iOS Simulator,name=iPhone 6' test
+	@killall 'iOS Simulator' || killall 'Simulator'
 
 $(SUPPORT_LIB): $(SUPPORT_OBJS)
 	@echo libtool -o $(SUPPORT_LIB)
@@ -677,28 +906,84 @@ clean:
 $(TESTS_DIR):
 	@mkdir -p $@
 
-$(TESTS_DIR)/%.o: $(TESTS_DIR)/%.m
-	@mkdir -p `dirname $@`
+$(TESTS_DIR)/%.o: $(TESTS_DIR)/%.m | $(TRANSLATE_ARTIFACTS)
+	@mkdir -p $(@D)
 	@echo j2objcc -c $?
-	@../dist/j2objcc -g -I$(TESTS_DIR) -c $? -o $@ \
-	  -Wno-objc-redundant-literal-use -Wno-format \
+	@$(TEST_JOCC) $(COMPILE_FLAGS) -o $@ $<
+
+$(TESTS_DIR)/%.o: $(TESTS_DIR)/arc/%.m | $(TRANSLATE_ARTIFACTS)
+	@mkdir -p $(@D)
+	@echo j2objcc -c $?
+	@$(TEST_JOCC) $(COMPILE_FLAGS) -fobjc-arc -o $@ $<
+
+$(TESTS_DIR)/%.o: $(ANDROID_NATIVE_TEST_DIR)/%.cpp | $(TESTS_DIR)
+	cc -g -I$(EMULATION_CLASS_DIR) -x objective-c++ -c $? -o $@ \
 	  -Werror -Wno-parentheses $(GCOV_FLAGS)
 
-$(TEST_BIN): $(TEST_OBJS) $(SUPPORT_LIB) $(ALL_TESTS_SOURCE:%.java=%.o) \
-        ../dist/lib/libjre_emul.a ../dist/lib/libjunit.a
+$(TEST_BIN): $(TEST_OBJS) $(SUPPORT_LIB) \
+        ../dist/lib/macosx/libjre_emul.a ../dist/lib/macosx/libjunit.a
 	@echo Building test executable...
-	@$(TEST_JOCC) -o $@ $(TEST_OBJS) $(ALL_TESTS_SOURCE:%.java=%.o)
+	@$(TEST_JOCC) $(LINK_FLAGS) -o $@ $(TEST_OBJS)
 
-$(ALL_TESTS_SOURCE): | $(TESTS_DIR)
+$(ALL_TESTS_SOURCE): tests.mk
+	@mkdir -p $(@D)
 	@xcrun awk -f gen_all_tests.sh $(TESTS_TO_RUN) > $@
 
-$(ALL_TESTS_SOURCE:%.java=%.m): $(ALL_TESTS_SOURCE)
-	@$(TRANSLATE_CMD) $?
-
-$(ALL_TESTS_SOURCE:%.java=%.o): $(ALL_TESTS_SOURCE:%.java=%.m) $(TEST_OBJS:%.o=%.h)
-	@echo j2objcc -c $(ALL_TESTS_SOURCE:%.java=%.m)
-	@../dist/j2objcc -g -I$(TESTS_DIR) \
-	    -c $(ALL_TESTS_SOURCE:%.java=%.m) -o $(ALL_TESTS_SOURCE:%.java=%.o)
-
 $(TESTS_DIR)/jreinitialization: Tests/JreInitialization.m
-	@../dist/j2objcc -o $@ -ObjC -Os $?
+	@../dist/j2objcc -o $@ -ljre_emul -ObjC -Os $?
+
+$(TESTS_DIR)/core_size:
+	@mkdir -p $(@D)
+	../dist/j2objcc -o $@ -ObjC
+
+$(TESTS_DIR)/full_jre_size:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_emul -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_io:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_io -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_net:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_net -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_util:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_util -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_concurrent:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_concurrent -ljre_util -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_channels:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_channels -ljre_net -ljre_util -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_security:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_security -ljre_net -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_ssl:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_ssl -ljre_net -ljre_security -ljre_util -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_xml:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_xml -ljre_net -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_zip:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_zip -ljre_security -ljre_net -ljre_io -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_sql:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_sql -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_beans:
+	@mkdir -p $(@D)
+	../dist/j2objcc -ljre_beans -ljre_util -o $@ -ObjC
+
+$(TESTS_DIR)/core_plus_android_util:
+	@mkdir -p $(@D)
+	../dist/j2objcc -landroid_util -ljre_net -ljre_util -ljre_concurrent -o $@ -ObjC

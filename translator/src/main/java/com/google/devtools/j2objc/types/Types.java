@@ -18,9 +18,9 @@ package com.google.devtools.j2objc.types;
 
 import com.google.common.collect.Maps;
 import com.google.devtools.j2objc.util.BindingUtil;
+import com.google.devtools.j2objc.util.NameTable;
 
 import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
@@ -32,38 +32,39 @@ import java.util.Map;
  *
  * @author Tom Ball
  */
-// TODO(tball): convert to injectable implementation, to allow translator
-// core to be reused for other languages.
 public class Types {
+
   private final AST ast;
   private final Map<ITypeBinding, ITypeBinding> typeMap = Maps.newHashMap();
-  private final Map<ITypeBinding, ITypeBinding> renamedTypeMap = Maps.newHashMap();
   private final Map<ITypeBinding, ITypeBinding> primitiveToWrapperTypes =
       new HashMap<ITypeBinding, ITypeBinding>();
   private final Map<ITypeBinding, ITypeBinding> wrapperToPrimitiveTypes =
       new HashMap<ITypeBinding, ITypeBinding>();
+
+  // Commonly used java types.
   private final ITypeBinding javaObjectType;
   private final ITypeBinding javaClassType;
   private final ITypeBinding javaCloneableType;
   private final ITypeBinding javaNumberType;
   private final ITypeBinding javaStringType;
+  private final ITypeBinding javaThrowableType;
   private final ITypeBinding javaVoidType;
-  private final ITypeBinding voidType;
-  private final ITypeBinding booleanType;
 
   // Lazily load localRefType, since its initialization requires Types to be fully initialized.
   private ITypeBinding localRefType;
-
-  private static Types instance;
 
   // Non-standard naming pattern is used, since in this case it's more readable.
   private final IOSTypeBinding NSCopying;
   private final IOSTypeBinding NSObject;
   private final IOSTypeBinding NSNumber;
   private final IOSTypeBinding NSString;
+  private final IOSTypeBinding NSException;
   private final IOSTypeBinding IOSClass;
 
   private IOSTypeBinding IOSObjectArray;
+
+  // Special IOS types.
+  private final IOSTypeBinding idType;
 
   private final Map<String, ITypeBinding> javaBindingMap = Maps.newHashMap();
   private final Map<String, ITypeBinding> iosBindingMap = Maps.newHashMap();
@@ -74,17 +75,23 @@ public class Types {
   // Cache of pointer types.
   private final Map<ITypeBinding, PointerTypeBinding> pointerTypeMap = Maps.newHashMap();
 
-  private Types(CompilationUnit unit) {
-    ast = unit.getAST();
+  // Commonly used methods.
+  private final IOSMethodBinding retainMethod;
+  private final IOSMethodBinding releaseMethod;
+  private final IOSMethodBinding autoreleaseMethod;
+  private final IOSMethodBinding allocMethod;
+  private final IOSMethodBinding deallocMethod;
+
+  public Types(AST ast) {
+    this.ast = ast;
 
     // Find core java types.
     javaObjectType = ast.resolveWellKnownType("java.lang.Object");
     javaClassType = ast.resolveWellKnownType("java.lang.Class");
     javaCloneableType = ast.resolveWellKnownType("java.lang.Cloneable");
     javaStringType = ast.resolveWellKnownType("java.lang.String");
+    javaThrowableType = ast.resolveWellKnownType("java.lang.Throwable");
     javaVoidType = ast.resolveWellKnownType("java.lang.Void");
-    voidType = ast.resolveWellKnownType("void");
-    booleanType = ast.resolveWellKnownType("boolean");
     ITypeBinding binding = ast.resolveWellKnownType("java.lang.Integer");
     javaNumberType = binding.getSuperclass();
 
@@ -93,14 +100,29 @@ public class Types {
     NSObject = mapIOSType(IOSTypeBinding.newClass("NSObject", javaObjectType));
     NSNumber = mapIOSType(IOSTypeBinding.newClass("NSNumber", javaNumberType, NSObject));
     NSString = mapIOSType(IOSTypeBinding.newClass("NSString", javaStringType, NSObject));
+    NSException = mapIOSType(IOSTypeBinding.newClass("NSException", javaThrowableType, NSObject));
     IOSClass = mapIOSType(IOSTypeBinding.newUnmappedClass("IOSClass"));
-    mapIOSType(IOSTypeBinding.newUnmappedClass("id"));
     mapIOSType(IOSTypeBinding.newUnmappedClass("NSZone"));
+    idType = mapIOSType(IOSTypeBinding.newUnmappedClass("id"));
 
     initializeArrayTypes();
     initializeTypeMap();
     initializeCommonJavaTypes();
     populatePrimitiveAndWrapperTypeMaps();
+
+    ITypeBinding voidType = ast.resolveWellKnownType("void");
+
+    // Commonly used methods.
+    retainMethod = IOSMethodBinding.newMethod(
+        NameTable.RETAIN_METHOD, Modifier.PUBLIC, idType, NSObject);
+    releaseMethod = IOSMethodBinding.newMethod(
+        NameTable.RELEASE_METHOD, Modifier.PUBLIC, voidType, NSObject);
+    autoreleaseMethod = IOSMethodBinding.newMethod(
+        NameTable.AUTORELEASE_METHOD, Modifier.PUBLIC, idType, NSObject);
+    allocMethod = IOSMethodBinding.newMethod(
+        NameTable.ALLOC_METHOD, Modifier.PUBLIC, idType, NSObject);
+    deallocMethod = IOSMethodBinding.newMethod(
+        NameTable.DEALLOC_METHOD, Modifier.PUBLIC, idType, NSObject);
   }
 
   private IOSTypeBinding mapIOSType(IOSTypeBinding type) {
@@ -131,8 +153,9 @@ public class Types {
     typeMap.put(javaObjectType, NSObject);
     typeMap.put(javaClassType, IOSClass);
     typeMap.put(javaCloneableType, NSCopying);
-    typeMap.put(javaStringType, NSString);
     typeMap.put(javaNumberType, NSNumber);
+    typeMap.put(javaStringType, NSString);
+    typeMap.put(javaThrowableType, NSException);
   }
 
   private void initializeCommonJavaTypes() {
@@ -140,12 +163,13 @@ public class Types {
     javaBindingMap.put("java.lang.CharSequence", charSequence);
     iosBindingMap.put("JavaLangCharSequence", charSequence);
     javaBindingMap.put("java.lang.Number", javaNumberType);
+    javaBindingMap.put("java.lang.Throwable", javaThrowableType);
   }
 
   private void initializePrimitiveArray(String javaTypeName, String iosTypeName) {
     ITypeBinding javaType = ast.resolveWellKnownType(javaTypeName);
     IOSTypeBinding iosType = mapIOSType(IOSTypeBinding.newUnmappedClass(iosTypeName));
-    iosType.setHeader("IOSPrimitiveArray");
+    iosType.setHeader("IOSPrimitiveArray.h");
     arrayBindingMap.put(javaType, iosType);
   }
 
@@ -169,41 +193,19 @@ public class Types {
   }
 
   /**
-   * Creates a Types service using the AST returned by the parser, and return it.
-   */
-  public static Types newTypes(CompilationUnit unit) {
-    return new Types(unit);
-  }
-
-  /**
-   * Creates a new Types service and sets it as the current instance.
-   */
-  public static void initialize(CompilationUnit unit) {
-    instance = newTypes(unit);
-  }
-
-  public void setInstance() {
-    instance = this;
-  }
-
-  public static void cleanup() {
-    instance = null;
-  }
-
-  /**
    * Given a JDT type binding created by the parser, either replace it with an iOS
    * equivalent, or return the given type.
    */
-  public static ITypeBinding mapType(ITypeBinding binding) {
+  public ITypeBinding mapType(ITypeBinding binding) {
     if (binding == null) {  // happens when mapping a primitive type
       return null;
     }
     if (binding.isArray()) {
       return resolveArrayType(binding.getComponentType());
     }
-    ITypeBinding newBinding = instance.typeMap.get(binding);
-    if (newBinding == null && binding.isAssignmentCompatible(instance.javaClassType)) {
-      newBinding = instance.typeMap.get(instance.javaClassType);
+    ITypeBinding newBinding = typeMap.get(binding);
+    if (newBinding == null && binding.isAssignmentCompatible(javaClassType)) {
+      newBinding = typeMap.get(javaClassType);
     }
     return newBinding != null ? newBinding : binding;
   }
@@ -211,150 +213,136 @@ public class Types {
   /**
    * Given a fully-qualified type name, return its binding.
    */
-  public static ITypeBinding mapTypeName(String typeName) {
-    ITypeBinding binding = instance.ast.resolveWellKnownType(typeName);
+  public ITypeBinding mapTypeName(String typeName) {
+    ITypeBinding binding = ast.resolveWellKnownType(typeName);
     return mapType(binding);
   }
 
   /**
    * Returns whether a given type has an iOS equivalent.
    */
-  public static boolean hasIOSEquivalent(ITypeBinding binding) {
-    return binding.isArray() || instance.typeMap.containsKey(binding.getTypeDeclaration());
+  public boolean hasIOSEquivalent(ITypeBinding binding) {
+    return binding.isArray() || typeMap.containsKey(binding.getTypeDeclaration());
   }
 
-  public static ITypeBinding resolveJavaType(String name) {
-    ITypeBinding result = instance.javaBindingMap.get(name);
+  public ITypeBinding resolveJavaType(String name) {
+    ITypeBinding result = javaBindingMap.get(name);
     if (result == null) {
-      result = instance.ast.resolveWellKnownType(name);
+      result = ast.resolveWellKnownType(name);
     }
     return result;
   }
 
-  public static ITypeBinding resolveIOSType(String name) {
-    return instance.iosBindingMap.get(name);
+  public ITypeBinding resolveIOSType(String name) {
+    return iosBindingMap.get(name);
   }
 
-  public static boolean isJavaObjectType(ITypeBinding type) {
-    return instance.javaObjectType.equals(type);
+  public boolean isJavaObjectType(ITypeBinding type) {
+    return javaObjectType.equals(type);
   }
 
-  public static boolean isJavaStringType(ITypeBinding type) {
-    return instance.javaStringType.equals(type);
+  public boolean isJavaStringType(ITypeBinding type) {
+    return javaStringType.equals(type);
   }
 
-  public static boolean isStringType(ITypeBinding type) {
-    return instance.javaStringType.isEqualTo(type)
-        || instance.NSString.isEqualTo(type);
+  public boolean isStringType(ITypeBinding type) {
+    return javaStringType.isEqualTo(type) || NSString.isEqualTo(type);
   }
 
-  public static boolean isFloatingPointType(ITypeBinding type) {
-    return type.isEqualTo(instance.ast.resolveWellKnownType("double"))
-        || type.isEqualTo(instance.ast.resolveWellKnownType("float"))
-        || type == instance.ast.resolveWellKnownType("java.lang.Double")
-        || type == instance.ast.resolveWellKnownType("java.lang.Float");
+  public boolean isIdType(ITypeBinding type) {
+    return type == idType || type == NSObject || type == javaObjectType;
   }
 
-  public static boolean isBooleanType(ITypeBinding type) {
-    return type.isEqualTo(instance.booleanType)
-        || type == instance.ast.resolveWellKnownType("java.lang.Boolean");
+  public IOSTypeBinding resolveArrayType(ITypeBinding binding) {
+    IOSTypeBinding arrayBinding = arrayBindingMap.get(binding);
+    return arrayBinding != null ? arrayBinding : IOSObjectArray;
   }
 
-  public static boolean isIntegralType(ITypeBinding type) {
-    return type.isEqualTo(instance.ast.resolveWellKnownType("byte"))
-        || type.isEqualTo(instance.ast.resolveWellKnownType("short"))
-        || type.isEqualTo(instance.ast.resolveWellKnownType("int"))
-        || type == instance.ast.resolveWellKnownType("java.lang.Byte")
-        || type == instance.ast.resolveWellKnownType("java.lang.Short")
-        || type == instance.ast.resolveWellKnownType("java.lang.Integer")
-        || isLongType(type);
+  public boolean isJavaVoidType(ITypeBinding type) {
+    return type.isEqualTo(javaVoidType);
   }
 
-  public static boolean isLongType(ITypeBinding type) {
-    return type.isEqualTo(instance.ast.resolveWellKnownType("long"))
-        || type == instance.ast.resolveWellKnownType("java.lang.Long");
+  public ITypeBinding getWrapperType(ITypeBinding primitiveType) {
+    return primitiveToWrapperTypes.get(primitiveType);
   }
 
-  public static IOSTypeBinding resolveArrayType(ITypeBinding binding) {
-    IOSTypeBinding arrayBinding = instance.arrayBindingMap.get(binding);
-    return arrayBinding != null ? arrayBinding : instance.IOSObjectArray;
+  public ITypeBinding getPrimitiveType(ITypeBinding wrapperType) {
+    return wrapperToPrimitiveTypes.get(wrapperType);
   }
 
-  public static ITypeBinding renameTypeBinding(String newName, ITypeBinding newDeclaringClass,
-      ITypeBinding originalBinding) {
-    ITypeBinding renamedBinding =
-        RenamedTypeBinding.rename(newName, newDeclaringClass, originalBinding);
-    instance.renamedTypeMap.put(originalBinding, renamedBinding);
-    return renamedBinding;
+  public boolean isBoxedPrimitive(ITypeBinding type) {
+    return wrapperToPrimitiveTypes.containsKey(type);
   }
 
-  public static ITypeBinding getRenamedBinding(ITypeBinding original) {
-    return original != null && instance.renamedTypeMap.containsKey(original)
-        ? instance.renamedTypeMap.get(original) : original;
+  public ITypeBinding getNSNumber() {
+    return NSNumber;
   }
 
-  public static boolean isVoidType(ITypeBinding type) {
-    return type.isEqualTo(instance.voidType);
+  public ITypeBinding getNSObject() {
+    return NSObject;
   }
 
-  public static boolean isJavaVoidType(ITypeBinding type) {
-    return type.isEqualTo(instance.javaVoidType);
+  // Used by SignatureGenerator. Other classes should use getNSObject().
+  public ITypeBinding getJavaObject() {
+    return javaObjectType;
   }
 
-  public static ITypeBinding getWrapperType(ITypeBinding primitiveType) {
-    return instance.primitiveToWrapperTypes.get(primitiveType);
+  public ITypeBinding getNSString() {
+    return NSString;
   }
 
-  public static ITypeBinding getPrimitiveType(ITypeBinding wrapperType) {
-    return instance.wrapperToPrimitiveTypes.get(wrapperType);
+  public ITypeBinding getIOSClass() {
+    return IOSClass;
   }
 
-  public static boolean isBoxedPrimitive(ITypeBinding type) {
-    return instance.wrapperToPrimitiveTypes.containsKey(type);
+  public ITypeBinding getIdType() {
+    return idType;
   }
 
-  public static ITypeBinding getNSNumber() {
-    return instance.NSNumber;
-  }
-
-  public static ITypeBinding getNSObject() {
-    return instance.NSObject;
-  }
-
-  public static ITypeBinding getNSString() {
-    return instance.NSString;
-  }
-
-  public static ITypeBinding getIOSClass() {
-    return instance.IOSClass;
-  }
-
-  public static PointerTypeBinding getPointerType(ITypeBinding type) {
-    PointerTypeBinding result = instance.pointerTypeMap.get(type);
+  public PointerTypeBinding getPointerType(ITypeBinding type) {
+    PointerTypeBinding result = pointerTypeMap.get(type);
     if (result == null) {
       result = new PointerTypeBinding(type);
-      instance.pointerTypeMap.put(type, result);
+      pointerTypeMap.put(type, result);
     }
     return result;
   }
 
-  public static ITypeBinding getLocalRefType() {
-    synchronized (instance) {
-      if (instance.localRefType == null) {
-        ITypeBinding objectType = instance.ast.resolveWellKnownType("java.lang.Object");
-        GeneratedTypeBinding refType =
-            GeneratedTypeBinding.newTypeBinding("com.google.j2objc.util.ScopedLocalRef",
-            objectType, false);
-        GeneratedVariableBinding varBinding = new GeneratedVariableBinding("var", Modifier.PUBLIC,
-            objectType, true, false, refType, null);
-        refType.addField(varBinding);
-        GeneratedMethodBinding constructor =
-            GeneratedMethodBinding.newConstructor(refType, Modifier.PUBLIC);
-        constructor.addParameter(objectType);
-        refType.addMethod(constructor);
-        instance.localRefType = refType;
-      }
-      return instance.localRefType;
+  public ITypeBinding getLocalRefType() {
+    if (localRefType == null) {
+      ITypeBinding objectType = ast.resolveWellKnownType("java.lang.Object");
+      GeneratedTypeBinding refType =
+          GeneratedTypeBinding.newTypeBinding("com.google.j2objc.util.ScopedLocalRef",
+          objectType, false);
+      GeneratedVariableBinding varBinding = new GeneratedVariableBinding("var", Modifier.PUBLIC,
+          objectType, true, false, refType, null);
+      refType.addField(varBinding);
+      GeneratedMethodBinding constructor =
+          GeneratedMethodBinding.newConstructor(refType, Modifier.PUBLIC, this);
+      constructor.addParameter(objectType);
+      refType.addMethod(constructor);
+      localRefType = refType;
     }
+    return localRefType;
+  }
+
+  public IOSMethodBinding getRetainMethod() {
+    return retainMethod;
+  }
+
+  public IOSMethodBinding getReleaseMethod() {
+    return releaseMethod;
+  }
+
+  public IOSMethodBinding getAutoreleaseMethod() {
+    return autoreleaseMethod;
+  }
+
+  public IOSMethodBinding getAllocMethod() {
+    return allocMethod;
+  }
+
+  public IOSMethodBinding getDeallocMethod() {
+    return deallocMethod;
   }
 }

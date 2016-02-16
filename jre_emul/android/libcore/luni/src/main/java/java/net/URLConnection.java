@@ -68,8 +68,6 @@ import java.util.Map;
  *   <li><strong>HTTP and HTTPS</strong><br>
  *      Refer to the {@link HttpURLConnection} and {@link
  *      javax.net.ssl.HttpsURLConnection HttpsURLConnection} subclasses.
- *   <li><strong>Jar</strong><br>
- *      Refer to the {@link JarURLConnection} subclass.
  * </ul>
  *
  * <h3>Registering Additional Protocols</h3>
@@ -218,7 +216,7 @@ public abstract class URLConnection {
      *             if an error occurs obtaining the content.
      */
     // Param is not generic in spec
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings("rawtypes")
     public Object getContent(Class[] types) throws IOException {
         if (!connected) {
             connect();

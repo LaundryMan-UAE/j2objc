@@ -103,13 +103,25 @@ public class ObjectiveCSourceFileGeneratorTest extends GenerationTest {
         + " static String bar;"
         + " static final String finalBar = \"test\";"
         + " }", "Test", "Test.h");
+    // finalFoo
     assertTranslation(header, "#define Test_finalFoo 12");
-    assertTranslation(header, "J2OBJC_STATIC_FIELD_GETTER(Test, foo_, jint)");
-    assertTranslation(header, "J2OBJC_STATIC_FIELD_REF_GETTER(Test, foo_, jint)");
-    assertTranslation(header, "J2OBJC_STATIC_FIELD_GETTER(Test, bar_, NSString *)");
-    assertTranslation(header, "J2OBJC_STATIC_FIELD_SETTER(Test, bar_, NSString *)");
-    assertTranslation(header, "J2OBJC_STATIC_FIELD_GETTER(Test, finalBar_, NSString *)");
-    assertNotInTranslation(header, "J2OBJC_STATIC_FIELD_SETTER(Test, finalBar_, NSString *)");
+    assertTranslation(header, "jint Test_get_finalFoo();");
+    assertTranslation(header, "J2OBJC_STATIC_FIELD_CONSTANT(Test, finalFoo, jint)");
+    // foo
+    assertTranslation(header, "jint Test_get_foo();");
+    assertTranslation(header, "jint Test_set_foo(jint value);");
+    assertTranslation(header, "jint *Test_getRef_foo();");
+    assertTranslation(header, "FOUNDATION_EXPORT jint Test_foo;");
+    assertTranslation(header, "J2OBJC_STATIC_FIELD_PRIMITIVE(Test, foo, jint)");
+    // bar
+    assertTranslation(header, "NSString *Test_get_bar();");
+    assertTranslation(header, "NSString *Test_set_bar(NSString *value);");
+    assertTranslation(header, "FOUNDATION_EXPORT NSString *Test_bar;");
+    assertTranslation(header, "J2OBJC_STATIC_FIELD_OBJ(Test, bar, NSString *)");
+    // finalBar
+    assertTranslation(header, "NSString *Test_get_finalBar();");
+    assertTranslation(header, "FOUNDATION_EXPORT NSString *Test_finalBar;");
+    assertTranslation(header, "J2OBJC_STATIC_FIELD_OBJ_FINAL(Test, finalBar, NSString *)");
   }
 
   public void testPrivateStaticAccessorsAdded() throws IOException {
@@ -120,19 +132,15 @@ public class ObjectiveCSourceFileGeneratorTest extends GenerationTest {
         + " private static final String finalBar = \"test\";"
         + " }", "Test", "Test.m");
     assertTranslation(translation, "#define Test_finalFoo 12");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(Test, foo_, jint)");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_REF_GETTER(Test, foo_, jint)");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(Test, bar_, NSString *)");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_SETTER(Test, bar_, NSString *)");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(Test, finalBar_, NSString *)");
-    assertNotInTranslation(translation, "J2OBJC_STATIC_FIELD_SETTER(Test, finalBar_, NSString *)");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_PRIMITIVE(Test, foo, jint)");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_OBJ(Test, bar, NSString *)");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_OBJ_FINAL(Test, finalBar, NSString *)");
   }
 
   public void testStaticReaderAddedWhenSameMethodNameExists() throws IOException {
     String translation = translateSourceFile(
         "class Test { static int foo; void foo(String s) {}}", "Test", "Test.h");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(Test, foo__, jint)");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_REF_GETTER(Test, foo__, jint)");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_PRIMITIVE(Test, foo, jint)");
     assertTranslation(translation, "- (void)fooWithNSString:(NSString *)s;");
   }
 
@@ -172,16 +180,6 @@ public class ObjectiveCSourceFileGeneratorTest extends GenerationTest {
     assertTranslation(translation, "- (void)test2 {");
   }
 
-  public void testNoPrivateMethodHiding() throws IOException {
-    Options.resetHidePrivateMembers();
-    String translation = translateSourceFile(
-        "class Test  { public void test1() {} private void test2() {} }", "Test", "Test.h");
-    assertTranslation(translation, "- (void)test1;");
-    assertTranslation(translation, "- (void)test2;");
-    translation = getTranslatedFile("Test.m");
-    assertNotInTranslation(translation, "- (void)test2;");
-  }
-
   public void testPrivateFieldHiding() throws IOException {
     String translation = translateSourceFile(
         "class Test  { public Object o1; protected Object o2; Object o3; private Object o4; }",
@@ -196,18 +194,14 @@ public class ObjectiveCSourceFileGeneratorTest extends GenerationTest {
     assertTranslation(translation, "J2OBJC_FIELD_SETTER(Test, o4_, id)");
   }
 
-  public void testNoPrivateFieldHiding() throws IOException {
-    Options.resetHidePrivateMembers();
+  public void testSortingOfGenericTypes() throws IOException {
     String translation = translateSourceFile(
-        "class Test  { public Object o1; protected Object o2; Object o3; private Object o4; }",
+        "class Test { static class Inner1 extends Inner2<String> {} static class Inner2<T> {} }",
         "Test", "Test.h");
-    assertTranslatedLines(translation, "@public", "id o1_;", "id o2_;", "id o3_;", "id o4_;");
-    assertTranslation(translation, "J2OBJC_FIELD_SETTER(Test, o1_, id)");
-    assertTranslation(translation, "J2OBJC_FIELD_SETTER(Test, o2_, id)");
-    assertTranslation(translation, "J2OBJC_FIELD_SETTER(Test, o3_, id)");
-    assertTranslation(translation, "J2OBJC_FIELD_SETTER(Test, o4_, id)");
-    translation = getTranslatedFile("Test.m");
-    assertNotInTranslation(translation, "id o4_;");
-    assertNotInTranslation(translation, "J2OBJC_FIELD_SETTER(Test, o4_, id)");
+    String inner1 = "@interface Test_Inner1";
+    String inner2 = "@interface Test_Inner2";
+    assertTranslation(translation, inner1);
+    assertTranslation(translation, inner2);
+    assertTrue(translation.indexOf(inner2) < translation.indexOf(inner1));
   }
 }

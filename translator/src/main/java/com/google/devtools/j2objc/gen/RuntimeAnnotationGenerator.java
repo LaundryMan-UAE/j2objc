@@ -22,7 +22,6 @@ import com.google.devtools.j2objc.ast.FieldDeclaration;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.PackageDeclaration;
 import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
-import com.google.devtools.j2objc.ast.StringLiteral;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.util.BindingUtil;
@@ -44,14 +43,33 @@ import java.util.List;
  */
 public class RuntimeAnnotationGenerator extends AbstractSourceGenerator {
 
-  public RuntimeAnnotationGenerator(SourceBuilder builder) {
+  private final NameTable nameTable;
+
+  private RuntimeAnnotationGenerator(SourceBuilder builder, NameTable nameTable) {
     super(builder);
+    this.nameTable = nameTable;
+  }
+
+  public static void printPackageAnnotationMethod(SourceBuilder builder, PackageDeclaration node) {
+    new RuntimeAnnotationGenerator(builder, TreeUtil.getCompilationUnit(node).getNameTable())
+        .printPackageAnnotationMethod(node);
+  }
+
+  public static void printTypeAnnotationMethods(
+      SourceBuilder builder, AbstractTypeDeclaration node) {
+    RuntimeAnnotationGenerator annotationGen = new RuntimeAnnotationGenerator(
+        builder, TreeUtil.getCompilationUnit(node).getNameTable());
+    annotationGen.printTypeAnnotationsMethod(node);
+    annotationGen.printMethodAnnotationMethods(TreeUtil.getMethodDeclarations(node));
+    annotationGen.printFieldAnnotationMethods(node);
   }
 
   public void printPackageAnnotationMethod(PackageDeclaration node) {
     List<Annotation> runtimeAnnotations = TreeUtil.getRuntimeAnnotationsList(node.getAnnotations());
-    println("\n+ (IOSObjectArray *)__annotations {");
-    printAnnotationCreate(runtimeAnnotations);
+    if (runtimeAnnotations.size() > 0) {
+      println("\n+ (IOSObjectArray *)__annotations {");
+      printAnnotationCreate(runtimeAnnotations);
+    }
   }
 
   public void printTypeAnnotationsMethod(AbstractTypeDeclaration decl) {
@@ -130,9 +148,9 @@ public class RuntimeAnnotationGenerator extends AbstractSourceGenerator {
     ITypeBinding[] parameterTypes = method.getParameterTypes();
     for (int i = 0; i < parameterTypes.length; i++) {
       if (i == 0) {
-        sb.append(NameTable.capitalize(NameTable.parameterKeyword(parameterTypes[i])));
+        sb.append(NameTable.capitalize(nameTable.parameterKeyword(parameterTypes[i])));
       } else {
-        sb.append(NameTable.parameterKeyword(parameterTypes[i]));
+        sb.append(nameTable.parameterKeyword(parameterTypes[i]));
       }
       sb.append('_');
     }
@@ -168,8 +186,7 @@ public class RuntimeAnnotationGenerator extends AbstractSourceGenerator {
     if (Options.useReferenceCounting()) {
       print('[');
     }
-    printf("[[%s alloc] init", NameTable.getFullName(
-        annotation.getAnnotationType()));
+    printf("[[%s alloc] init", nameTable.getFullName(annotation.getAnnotationType()));
     printAnnotationParameters(annotation);
     print(']');
     if (Options.useReferenceCounting()) {
@@ -201,12 +218,11 @@ public class RuntimeAnnotationGenerator extends AbstractSourceGenerator {
     } else if (value instanceof IVariableBinding) {
       IVariableBinding var = (IVariableBinding) value;
       ITypeBinding declaringClass = var.getDeclaringClass();
-      printf("%s_get_%s()", NameTable.getFullName(declaringClass), var.getName());
+      printf("%s_get_%s()", nameTable.getFullName(declaringClass), var.getName());
     } else if (value instanceof ITypeBinding) {
-      printf("%s_class_()", NameTable.getFullName((ITypeBinding) value));
+      printf("%s_class_()", nameTable.getFullName((ITypeBinding) value));
     } else if (value instanceof String) {
-      StringLiteral node = new StringLiteral((String) value);
-      print(StatementGenerator.generateStringLiteral(node));
+      print(LiteralGenerator.generateStringLiteral((String) value));
     } else if (value instanceof Number || value instanceof Character || value instanceof Boolean) {
       print(value.toString());
     } else if (value.getClass().isArray()) {

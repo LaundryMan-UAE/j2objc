@@ -25,6 +25,7 @@ import com.google.devtools.j2objc.ast.BodyDeclaration;
 import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.ConstructorInvocation;
 import com.google.devtools.j2objc.ast.EnumDeclaration;
+import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.ExpressionStatement;
 import com.google.devtools.j2objc.ast.FieldDeclaration;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
@@ -42,6 +43,7 @@ import com.google.devtools.j2objc.types.GeneratedMethodBinding;
 import com.google.devtools.j2objc.types.GeneratedVariableBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.ErrorUtil;
+import com.google.devtools.j2objc.util.TranslationUtil;
 import com.google.j2objc.annotations.WeakOuter;
 
 import org.eclipse.jdt.core.dom.ITypeBinding;
@@ -60,17 +62,19 @@ import java.util.List;
  */
 public class InnerClassExtractor extends TreeVisitor {
 
+  private final OuterReferenceResolver outerResolver;
   private final List<AbstractTypeDeclaration> unitTypes;
   // Helps keep types in the order they are visited.
   private ArrayList<Integer> typeOrderStack = Lists.newArrayList();
 
-  public InnerClassExtractor(CompilationUnit unit) {
+  public InnerClassExtractor(OuterReferenceResolver outerResolver, CompilationUnit unit) {
+    this.outerResolver = outerResolver;
     unitTypes = unit.getTypes();
   }
 
   @Override
   public boolean visit(TypeDeclaration node) {
-    return handleType(node);
+    return handleType();
   }
 
   @Override
@@ -80,7 +84,7 @@ public class InnerClassExtractor extends TreeVisitor {
 
   @Override
   public boolean visit(EnumDeclaration node) {
-    return handleType(node);
+    return handleType();
   }
 
   @Override
@@ -90,7 +94,7 @@ public class InnerClassExtractor extends TreeVisitor {
 
   @Override
   public boolean visit(AnnotationTypeDeclaration node) {
-    return handleType(node);
+    return handleType();
   }
 
   @Override
@@ -98,7 +102,7 @@ public class InnerClassExtractor extends TreeVisitor {
     endHandleType(node);
   }
 
-  private boolean handleType(AbstractTypeDeclaration node) {
+  private boolean handleType() {
     typeOrderStack.add(unitTypes.size());
     return true;
   }
@@ -136,12 +140,12 @@ public class InnerClassExtractor extends TreeVisitor {
     ITypeBinding clazz = node.getTypeBinding();
     assert clazz.getDeclaringClass() != null;
 
-    IVariableBinding outerFieldBinding = OuterReferenceResolver.getOuterField(clazz);
+    IVariableBinding outerFieldBinding = outerResolver.getOuterField(clazz);
     if (outerFieldBinding != null) {
       members.add(0, new FieldDeclaration(outerFieldBinding, null));
     }
 
-    List<IVariableBinding> innerFields = OuterReferenceResolver.getInnerFields(clazz);
+    List<IVariableBinding> innerFields = outerResolver.getInnerFields(clazz);
     for (IVariableBinding field : innerFields) {
       node.getBodyDeclarations().add(new FieldDeclaration(field, null));
     }
@@ -159,7 +163,7 @@ public class InnerClassExtractor extends TreeVisitor {
 
     if (needsConstructor) {
       GeneratedMethodBinding binding =
-          GeneratedMethodBinding.newConstructor(node.getTypeBinding(), 0);
+          GeneratedMethodBinding.newConstructor(node.getTypeBinding(), 0, typeEnv);
       MethodDeclaration constructor = new MethodDeclaration(binding);
       constructor.setBody(new Block());
       addOuterParameters(node, constructor);
@@ -167,39 +171,36 @@ public class InnerClassExtractor extends TreeVisitor {
     }
   }
 
-  private GeneratedVariableBinding addParameter(
-      MethodDeclaration constructor, ITypeBinding paramType, String name, int idx) {
-    GeneratedMethodBinding constructorBinding =
-        new GeneratedMethodBinding(constructor.getMethodBinding().getMethodDeclaration());
-    constructor.setMethodBinding(constructorBinding);
-    GeneratedVariableBinding paramBinding = new GeneratedVariableBinding(
-        name, Modifier.FINAL, paramType, false, true, constructorBinding.getDeclaringClass(),
-        constructorBinding);
-    SingleVariableDeclaration paramNode = new SingleVariableDeclaration(paramBinding);
-    if (idx == -1) {
-      constructor.getParameters().add(paramNode);
-      constructorBinding.addParameter(paramType);
-    } else {
-      constructor.getParameters().add(idx, paramNode);
-      constructorBinding.addParameter(idx, paramType);
-    }
-    return paramBinding;
-  }
-
   protected void addOuterParameters(
       AbstractTypeDeclaration typeNode, MethodDeclaration constructor) {
     ITypeBinding type = typeNode.getTypeBinding();
     ITypeBinding outerType = type.getDeclaringClass();
     IVariableBinding outerParamBinding = null;
-    if (OuterReferenceResolver.needsOuterParam(type)) {
-      outerParamBinding = addParameter(constructor, outerType, "outer$", 0);
+
+    GeneratedMethodBinding constructorBinding =
+        new GeneratedMethodBinding(constructor.getMethodBinding().getMethodDeclaration());
+    constructor.setMethodBinding(constructorBinding);
+
+    // Adds the outer and captured parameters to the declaration.
+    List<SingleVariableDeclaration> captureDecls = constructor.getParameters().subList(0, 0);
+    List<ITypeBinding> captureTypes = constructorBinding.getParameters().subList(0, 0);
+    if (outerResolver.needsOuterParam(type)) {
+      GeneratedVariableBinding paramBinding = new GeneratedVariableBinding(
+          "outer$", Modifier.FINAL, outerType, false, true, type, constructorBinding);
+      captureDecls.add(new SingleVariableDeclaration(paramBinding));
+      captureTypes.add(outerType);
+      outerParamBinding = paramBinding;
     }
-    List<IVariableBinding> innerFields = OuterReferenceResolver.getInnerFields(type);
+    List<IVariableBinding> innerFields = outerResolver.getInnerFields(type);
     List<IVariableBinding> captureParams = Lists.newArrayListWithCapacity(innerFields.size());
     int captureCount = 0;
     for (IVariableBinding innerField : innerFields) {
-      captureParams.add(addParameter(
-          constructor, innerField.getType(), "capture$" + captureCount++, -1));
+      GeneratedVariableBinding paramBinding = new GeneratedVariableBinding(
+          "capture$" + captureCount++, Modifier.FINAL, innerField.getType(), false, true, type,
+          constructorBinding);
+      captureDecls.add(new SingleVariableDeclaration(paramBinding));
+      captureTypes.add(innerField.getType());
+      captureParams.add(paramBinding);
     }
 
     ConstructorInvocation thisCall = null;
@@ -220,23 +221,25 @@ public class InnerClassExtractor extends TreeVisitor {
       GeneratedMethodBinding newThisBinding =
           new GeneratedMethodBinding(thisCall.getMethodBinding().getMethodDeclaration());
       thisCall.setMethodBinding(newThisBinding);
+      List<Expression> args = thisCall.getArguments().subList(0, 0);
+      List<ITypeBinding> params = newThisBinding.getParameters().subList(0, 0);
       if (outerParamBinding != null) {
-        thisCall.getArguments().add(0, new SimpleName(outerParamBinding));
-        newThisBinding.addParameter(0, outerParamBinding.getType());
+        args.add(new SimpleName(outerParamBinding));
+        params.add(outerParamBinding.getType());
       }
       for (IVariableBinding captureParam : captureParams) {
-        thisCall.getArguments().add(new SimpleName(captureParam));
-        newThisBinding.addParameter(captureParam.getType());
+        args.add(new SimpleName(captureParam));
+        params.add(captureParam.getType());
       }
     } else {
       ITypeBinding superType = type.getSuperclass().getTypeDeclaration();
       if (superCall == null) {
         superCall = new SuperConstructorInvocation(
-            GeneratedMethodBinding.newConstructor(superType, Modifier.PUBLIC));
+            TranslationUtil.findDefaultConstructorBinding(superType, typeEnv));
         statements.add(0, superCall);
       }
       passOuterParamToSuper(typeNode, superCall, superType, outerParamBinding);
-      IVariableBinding outerField = OuterReferenceResolver.getOuterField(type);
+      IVariableBinding outerField = outerResolver.getOuterField(type);
       int idx = 0;
       if (outerField != null) {
         assert outerParamBinding != null;
@@ -263,7 +266,7 @@ public class InnerClassExtractor extends TreeVisitor {
         new GeneratedMethodBinding(superCall.getMethodBinding().getMethodDeclaration());
     superCall.setMethodBinding(superCallBinding);
 
-    List<IVariableBinding> path = OuterReferenceResolver.getPath(typeNode);
+    List<IVariableBinding> path = outerResolver.getPath(typeNode);
     assert path != null && path.size() > 0;
     path = Lists.newArrayList(path);
     path.set(0, outerParamBinding);

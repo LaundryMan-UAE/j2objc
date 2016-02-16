@@ -30,14 +30,7 @@ CLASSES_DIR = $(BUILD_DIR)/classes
 INJECT_SRC_JAR = $(JAVA_DEPS_JAR_DIR)/$(JAVAX_INJECT_SOURCE_JAR)
 INJECT_JAR_FULL = $(JAVA_DEPS_JAR_DIR)/$(JAVAX_INJECT_JAR)
 
-INJECT_LIB_DIST = $(ARCH_LIB_DIR)/libjavax_inject.a
-
-WARNINGS = -Wall -Werror
-
-C_FLAGS = $(DEBUGFLAGS) -Werror $(ARCH_FLAGS) $(SDK_FLAGS) \
-  -fobjc-abi-version=2 -fobjc-legacy-dispatch
-
-OBJCFLAGS := -ObjC $(WARNINGS) $(DEBUGFLAGS)
+OBJCFLAGS := $(CC_WARNINGS) $(DEBUGFLAGS)
 
 # J2ObjC settings
 J2OBJC = $(DIST_DIR)/j2objc -classpath $(INJECT_JAR_FULL) -d $(BUILD_DIR)

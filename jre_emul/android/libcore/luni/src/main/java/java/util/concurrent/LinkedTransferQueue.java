@@ -11,7 +11,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Queue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
 // BEGIN android-note
@@ -50,7 +49,6 @@ import java.util.concurrent.locks.LockSupport;
  * the {@code LinkedTransferQueue} in another thread.
  *
  * @since 1.7
- * @hide
  * @author Doug Lea
  * @param <E> the type of elements held in this collection
  */
@@ -77,7 +75,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      *
      * A FIFO dual queue may be implemented using a variation of the
      * Michael & Scott (M&S) lock-free queue algorithm
-     * (http://www.cs.rochester.edu/u/scott/papers/1996_PODC_queues.pdf).
+     * (http://www.cs.rochester.edu/~scott/papers/1996_PODC_queues.pdf).
      * It maintains two pointer fields, "head", pointing to a
      * (matched) node that in turn points to the first actual
      * (unmatched) queue node (or null if empty); and "tail" that
@@ -411,6 +409,9 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      */
     static final int SWEEP_THRESHOLD = 32;
 
+    private static final Node UNLINKED = new Node(null, false);
+    private static final Object FORGOTTEN = new Object();
+
     /**
      * Queue nodes. Uses Object, not E, for items to allow forgetting
      * them after use.  Relies heavily on Unsafe mechanics to minimize
@@ -447,7 +448,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * only after CASing head field, so uses relaxed write.
          */
         final void forgetNext() {
-            UNSAFE.putObject(this, nextOffset, this);
+            UNSAFE.putObject(this, nextOffset, UNLINKED);
         }
 
         /**
@@ -460,7 +461,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * else we don't care).
          */
         final void forgetContents() {
-            UNSAFE.putObject(this, itemOffset, this);
+            UNSAFE.putObject(this, itemOffset, FORGOTTEN);
             UNSAFE.putObject(this, waiterOffset, null);
         }
 
@@ -470,7 +471,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          */
         final boolean isMatched() {
             Object x = item;
-            return (x == this) || ((x == null) == isData);
+            return (x == FORGOTTEN) || ((x == null) == isData);
         }
 
         /**
@@ -488,7 +489,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         final boolean cannotPrecede(boolean haveData) {
             boolean d = isData;
             Object x;
-            return d != haveData && (x = item) != this && (x != null) == d;
+            return d != haveData && (x = item) != FORGOTTEN && (x != null) == d;
         }
 
         /**
@@ -497,7 +498,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         final boolean tryMatchData() {
             // assert isData;
             Object x = item;
-            if (x != null && x != this && casItem(x, null)) {
+            if (x != null && x != FORGOTTEN && casItem(x, null)) {
                 LockSupport.unpark(waiter);
                 return true;
             }
@@ -584,7 +585,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
             for (Node h = head, p = h; p != null;) { // find & match first node
                 boolean isData = p.isData;
                 Object item = p.item;
-                if (item != p && (item != null) == isData) { // unmatched
+                if (item != FORGOTTEN && (item != null) == isData) { // unmatched
                     if (isData == haveData)   // can't match
                         break;
                     if (p.casItem(item, e)) { // match
@@ -603,7 +604,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     }
                 }
                 Node n = p.next;
-                p = (p != n) ? n : (h = head); // Use head if p offlist
+                p = (UNLINKED != n) ? n : (h = head); // Use head if p offlist
             }
 
             if (how != NOW) {                 // No matches available
@@ -639,7 +640,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 return null;                  // lost race vs opposite mode
             else if ((n = p.next) != null)    // not last; keep traversing
                 p = p != t && t != (u = tail) ? (t = u) : // stale tail
-                    (p != n) ? n : null;      // restart if off list
+                    (UNLINKED != n) ? n : null; // restart if off list
             else if (!p.casNext(null, s))
                 p = p.next;                   // re-read on CAS failure
             else {
@@ -647,7 +648,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     while ((tail != t || !casTail(t, s)) &&
                            (t = tail)   != null &&
                            (s = t.next) != null && // advance and retry
-                           (s = s.next) != null && s != t);
+                           (s = s.next) != null && s != UNLINKED);
                 }
                 return p;
             }
@@ -667,7 +668,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * @return matched item, or e if unmatched on interrupt or timeout
      */
     private E awaitMatch(Node s, Node pred, E e, boolean timed, long nanos) {
-        long lastTime = timed ? System.nanoTime() : 0L;
+        final long deadline = timed ? System.nanoTime() + nanos : 0L;
         Thread w = Thread.currentThread();
         int spins = -1; // initialized after first item and cancel checks
         ThreadLocalRandom randomYields = null; // bound if needed
@@ -680,7 +681,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 return LinkedTransferQueue.<E>cast(item);
             }
             if ((w.isInterrupted() || (timed && nanos <= 0)) &&
-                    s.casItem(e, s)) {        // cancel
+                    s.casItem(e, FORGOTTEN)) {        // cancel
                 unsplice(pred, s);
                 return e;
             }
@@ -698,10 +699,9 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 s.waiter = w;                 // request unpark then recheck
             }
             else if (timed) {
-                long now = System.nanoTime();
-                if ((nanos -= now - lastTime) > 0)
+                nanos = deadline - System.nanoTime();
+                if (nanos > 0L)
                     LockSupport.parkNanos(this, nanos);
-                lastTime = now;
             }
             else {
                 LockSupport.park(this);
@@ -734,7 +734,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      */
     final Node succ(Node p) {
         Node next = p.next;
-        return (p == next) ? head : next;
+        return (UNLINKED == next) ? head : next;
     }
 
     /**
@@ -757,7 +757,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         for (Node p = head; p != null; p = succ(p)) {
             Object item = p.item;
             if (p.isData) {
-                if (item != null && item != p)
+                if (item != null && item != FORGOTTEN)
                     return LinkedTransferQueue.<E>cast(item);
             }
             else if (item == null)
@@ -780,7 +780,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     break;
             }
             Node n = p.next;
-            if (n != p)
+            if (n != UNLINKED)
                 p = n;
             else {
                 count = 0;
@@ -818,8 +818,8 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
             else {
                 Node s, n;       // help with removal of lastPred.next
                 while ((s = b.next) != null &&
-                       s != b && s.isMatched() &&
-                       (n = s.next) != null && n != s)
+                       s != UNLINKED && s.isMatched() &&
+                       (n = s.next) != null && n != UNLINKED)
                     b.casNext(s, n);
             }
 
@@ -829,13 +829,13 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 s = (p == null) ? head : p.next;
                 if (s == null)
                     break;
-                else if (s == p) {
+                else if (s == UNLINKED) {
                     p = null;
                     continue;
                 }
                 Object item = s.item;
                 if (s.isData) {
-                    if (item != null && item != s) {
+                    if (item != null && item != FORGOTTEN) {
                         nextItem = LinkedTransferQueue.<E>cast(item);
                         nextNode = s;
                         return;
@@ -848,7 +848,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     p = s;
                 else if ((n = s.next) == null)
                     break;
-                else if (s == n)
+                else if (UNLINKED == n)
                     p = null;
                 else
                     p.casNext(s, n);
@@ -905,7 +905,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         if (pred != null && pred != s && pred.next == s) {
             Node n = s.next;
             if (n == null ||
-                (n != s && pred.casNext(s, n) && pred.isMatched())) {
+                (n != UNLINKED && pred.casNext(s, n) && pred.isMatched())) {
                 for (;;) {               // check if at, or could be, head
                     Node h = head;
                     if (h == pred || h == s || h == null)
@@ -915,10 +915,10 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     Node hn = h.next;
                     if (hn == null)
                         return;          // now empty
-                    if (hn != h && casHead(h, hn))
+                    if (hn != UNLINKED && casHead(h, hn))
                         h.forgetNext();  // advance head
                 }
-                if (pred.next != pred && s.next != s) { // recheck if offlist
+                if (pred.next != UNLINKED && s.next != UNLINKED) { // recheck if offlist
                     for (;;) {           // sweep now if enough votes
                         int v = sweepVotes;
                         if (v < SWEEP_THRESHOLD) {
@@ -946,7 +946,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 p = s;
             else if ((n = s.next) == null) // trailing node is pinned
                 break;
-            else if (s == n)    // stale
+            else if (UNLINKED == n)    // stale
                 // No need to also check for p == s, since that implies s == n
                 p = head;
             else
@@ -962,7 +962,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
             for (Node pred = null, p = head; p != null; ) {
                 Object item = p.item;
                 if (p.isData) {
-                    if (item != null && item != p && e.equals(item) &&
+                    if (item != null && item != FORGOTTEN && e.equals(item) &&
                         p.tryMatchData()) {
                         unsplice(pred, p);
                         return true;
@@ -971,7 +971,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 else if (item == null)
                     break;
                 pred = p;
-                if ((p = p.next) == pred) { // stale
+                if ((p = p.next) == UNLINKED) { // stale
                     pred = null;
                     p = head;
                 }
@@ -979,7 +979,6 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         }
         return false;
     }
-
 
     /**
      * Creates an initially empty {@code LinkedTransferQueue}.
@@ -1245,7 +1244,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         for (Node p = head; p != null; p = succ(p)) {
             Object item = p.item;
             if (p.isData) {
-                if (item != null && item != p && o.equals(item))
+                if (item != null && item != FORGOTTEN && o.equals(item))
                     return true;
             }
             else if (item == null)
@@ -1267,11 +1266,10 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     }
 
     /**
-     * Saves the state to a stream (that is, serializes it).
+     * Saves this queue to a stream (that is, serializes it).
      *
      * @serialData All of the elements (each an {@code E}) in
      * the proper order, followed by a null
-     * @param s the stream
      */
     private void writeObject(java.io.ObjectOutputStream s)
         throws java.io.IOException {
@@ -1283,16 +1281,14 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     }
 
     /**
-     * Reconstitutes the Queue instance from a stream (that is,
-     * deserializes it).
-     *
-     * @param s the stream
+     * Reconstitutes this queue from a stream (that is, deserializes it).
      */
     private void readObject(java.io.ObjectInputStream s)
         throws java.io.IOException, ClassNotFoundException {
         s.defaultReadObject();
         for (;;) {
-            @SuppressWarnings("unchecked") E item = (E) s.readObject();
+            @SuppressWarnings("unchecked")
+            E item = (E) s.readObject();
             if (item == null)
                 break;
             else
@@ -1319,5 +1315,12 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         } catch (Exception e) {
             throw new Error(e);
         }
+
+        // Reduce the risk of rare disastrous classloading in first call to
+        // LockSupport.park: https://bugs.openjdk.java.net/browse/JDK-8074773
+        ensureLoaded(LockSupport.class);
+    }
+    private static void ensureLoaded(Class<?> cls) {
+      // No-op, to ensure class argument is loaded.
     }
 }

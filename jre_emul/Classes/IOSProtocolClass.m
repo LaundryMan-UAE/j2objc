@@ -23,12 +23,22 @@
 #import "java/lang/reflect/Modifier.h"
 #import "objc/runtime.h"
 
+@interface IOSProtocolClass () {
+  Protocol *protocol_;
+  _Atomic(IOSObjectArray *) interfaces_;
+}
+@end
+
 @implementation IOSProtocolClass
+
+Class GetBackingClass(Protocol *protocol) {
+  return objc_lookUpClass(protocol_getName(protocol));
+}
 
 @synthesize objcProtocol = protocol_;
 
 - (instancetype)initWithProtocol:(Protocol *)protocol {
-  if ((self = [super init])) {
+  if ((self = [super initWithClass:GetBackingClass(protocol)])) {
     protocol_ = RETAIN_(protocol);
   }
   return self;
@@ -36,13 +46,16 @@
 
 static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
   if (!cls) {
-    return NO;
+    return false;
+  }
+  if (cls == protocol) {
+    return true;
   }
   IOSObjectArray *interfaces = [cls getInterfacesInternal];
   for (int i = 0; i < interfaces->size_; i++) {
     IOSClass *interface = interfaces->buffer_[i];
     if (interface == protocol || ConformsToProtocol(interface, protocol)) {
-      return YES;
+      return true;
     }
   }
   return ConformsToProtocol([cls getSuperclass], protocol);
@@ -50,6 +63,10 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 
 - (jboolean)isInstance:(id)object {
   return ConformsToProtocol([object getClass], self);
+}
+
+- (NSString *)description {
+  return [NSString stringWithFormat:@"interface %@", [self getName]];
 }
 
 - (NSString *)getName {
@@ -68,7 +85,7 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 
 // Returns the class with the same name as the protocol, if it exists.
 - (Class) objcClass {
-  return objc_lookUpClass(protocol_getName(protocol_));
+  return GetBackingClass(protocol_);
 }
 
 - (int)getModifiers {
@@ -81,21 +98,21 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
       JavaLangReflectModifier_ABSTRACT | JavaLangReflectModifier_STATIC;
 }
 
-- (BOOL)isAssignableFrom:(IOSClass *)cls {
+- (jboolean)isAssignableFrom:(IOSClass *)cls {
   return ConformsToProtocol(cls, self);
 }
 
-- (BOOL)isInterface {
-  return YES;
+- (jboolean)isInterface {
+  return true;
 }
 
 // All protocol methods are public, so publicOnly flag is ignored.
 - (void)collectMethods:(NSMutableDictionary *)methodMap
-            publicOnly:(BOOL)publicOnly {
+            publicOnly:(jboolean)publicOnly {
   JavaClassMetadata *metadata = [self getMetadata];
   unsigned int count;
   struct objc_method_description *descriptions =
-      protocol_copyMethodDescriptionList(protocol_, YES, YES, &count);
+      protocol_copyMethodDescriptionList(protocol_, true, true, &count);
   for (unsigned int i = 0; i < count; i++) {
     struct objc_method_description *methodDesc = &descriptions[i];
     SEL sel = methodDesc->name;
@@ -113,7 +130,7 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
           [JavaLangReflectMethod methodWithMethodSignature:signature
                                                   selector:sel
                                                      class:self
-                                                  isStatic:NO
+                                                  isStatic:false
                                                   metadata:methodMetadata];
       [methodMap setObject:method forKey:key];
     }
@@ -122,11 +139,11 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 }
 
 - (JavaLangReflectMethod *)findMethodWithTranslatedName:(NSString *)objcName
-                                        checkSupertypes:(BOOL)checkSupertypes {
+                                        checkSupertypes:(jboolean)checkSupertypes {
   unsigned int count;
   JavaLangReflectMethod *result = nil;
   struct objc_method_description *descriptions =
-      protocol_copyMethodDescriptionList(protocol_, YES, YES, &count);
+      protocol_copyMethodDescriptionList(protocol_, true, true, &count);
   for (unsigned int i = 0; i < count; i++) {
     struct objc_method_description *methodDesc = &descriptions[i];
     SEL sel = methodDesc->name;
@@ -137,7 +154,7 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
         result = [JavaLangReflectMethod methodWithMethodSignature:signature
                                                          selector:sel
                                                             class:self
-                                                         isStatic:NO
+                                                         isStatic:false
                                                          metadata:methodMetadata];
       }
       break;
@@ -158,7 +175,7 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
           result = [JavaLangReflectMethod methodWithMethodSignature:signature
                                                            selector:method_getName(method)
                                                               class:self
-                                                           isStatic:YES
+                                                           isStatic:true
                                                            metadata:methodData];
         }
       }
@@ -179,18 +196,16 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 }
 
 - (IOSObjectArray *)getInterfacesInternal {
-  IOSObjectArray *result = interfaces_;
-  OSMemoryBarrier();
+  IOSObjectArray *result = __c11_atomic_load(&interfaces_, __ATOMIC_ACQUIRE);
   if (!result) {
     @synchronized(self) {
-      result = interfaces_;
+      result = __c11_atomic_load(&interfaces_, __ATOMIC_RELAXED);
       if (!result) {
         unsigned int count;
         Protocol **protocolList = protocol_copyProtocolList(protocol_, &count);
         result = IOSClass_NewInterfacesFromProtocolList(protocolList, count);
+        __c11_atomic_store(&interfaces_, result, __ATOMIC_RELEASE);
         free(protocolList);
-        OSMemoryBarrier();
-        interfaces_ = result;
       }
     }
   }

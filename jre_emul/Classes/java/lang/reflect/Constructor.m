@@ -22,12 +22,13 @@
 #import "Constructor.h"
 #import "J2ObjC_source.h"
 #import "JavaMetadata.h"
+#import "NSException+JavaThrowable.h"
 #import "java/lang/AssertionError.h"
 #import "java/lang/ExceptionInInitializerError.h"
 #import "java/lang/IllegalArgumentException.h"
-#import "java/lang/Throwable.h"
 #import "java/lang/reflect/InvocationTargetException.h"
 #import "java/lang/reflect/Method.h"
+#import "java/lang/reflect/Modifier.h"
 
 #import <objc/runtime.h>
 
@@ -44,18 +45,8 @@
 }
 
 - (id)newInstanceWithNSObjectArray:(IOSObjectArray *)initArgs {
-  id newInstance;
-  @try {
-    newInstance = AUTORELEASE([class_.objcClass alloc]);
-  }
-  @catch (JavaLangThrowable *e) {
-    @throw AUTORELEASE([[JavaLangExceptionInInitializerError alloc] initWithJavaLangThrowable:e]);
-  }
-
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:methodSignature_];
-  [invocation setTarget:newInstance];
-  [invocation setSelector:selector_];
+  id newInstance = [self allocInstance];
+  NSInvocation *invocation = [self invocationForTarget:newInstance];
 
   jint argCount = initArgs ? initArgs->size_ : 0;
   IOSObjectArray *parameterTypes = [self getParameterTypes];
@@ -73,15 +64,48 @@
     [invocation setArgument:&arg atIndex:i + SKIPPED_ARGUMENTS];
   }
 
+  [self invoke:invocation];
+
+  return newInstance;
+}
+
+- (id)jniNewInstance:(const J2ObjcRawValue *)args {
+  id newInstance = [self allocInstance];
+  NSInvocation *invocation = [self invocationForTarget:newInstance];
+  for (int i = 0; i < [self getNumParams]; i++) {
+    [invocation setArgument:(void *)&args[i] atIndex:i + SKIPPED_ARGUMENTS];
+  }
+  [self invoke:invocation];
+  return newInstance;
+}
+
+- (id)allocInstance {
+  id newInstance;
+  @try {
+    newInstance = AUTORELEASE([class_.objcClass alloc]);
+  }
+  @catch (NSException *e) {
+    @throw AUTORELEASE([[JavaLangExceptionInInitializerError alloc] initWithNSException:e]);
+  }
+  return newInstance;
+}
+
+- (NSInvocation *)invocationForTarget:(id)object {
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:methodSignature_];
+  [invocation setSelector:selector_];
+  [invocation setTarget:object];
+  return invocation;
+}
+
+- (void)invoke:(NSInvocation *)invocation {
   @try {
     [invocation invoke];
   }
-  @catch (JavaLangThrowable *e) {
+  @catch (NSException *e) {
     @throw AUTORELEASE(
-        [[JavaLangReflectInvocationTargetException alloc] initWithJavaLangThrowable:e]);
+        [[JavaLangReflectInvocationTargetException alloc] initWithNSException:e]);
   }
-
-  return newInstance;
 }
 
 // Returns the class name, like java.lang.reflect.Constructor does.
@@ -89,28 +113,64 @@
   return [class_ getName];
 }
 
+// A constructor's hash is the hash of its declaring class's name.
+- (NSUInteger)hash {
+  return [[class_ getName] hash];
+}
+
+- (NSString *)description {
+  NSMutableString *s = [NSMutableString string];
+  NSString *modifiers = JavaLangReflectModifier_toStringWithInt_([self getModifiers]);
+  NSString *type = [[self getDeclaringClass] getName];
+  [s appendFormat:@"%@ %@(", modifiers, type];
+  IOSObjectArray *params = [self getParameterTypes];
+  jint n = params->size_;
+  if (n > 0) {
+    [s appendString:[(IOSClass *) params->buffer_[0] getName]];
+    for (jint i = 1; i < n; i++) {
+      [s appendFormat:@",%@", [(IOSClass *) params->buffer_[i] getName]];
+    }
+  }
+  [s appendString:@")"];
+  IOSObjectArray *throws = [self getExceptionTypes];
+  n = throws->size_;
+  if (n > 0) {
+    [s appendFormat:@" throws %@", [(IOSClass *) throws->buffer_[0] getName]];
+    for (jint i = 1; i < n; i++) {
+      [s appendFormat:@",%@", [(IOSClass *) throws->buffer_[i] getName]];
+    }
+  }
+  return [s description];
+}
+
 + (const J2ObjcClassInfo *)__metadata {
   static const J2ObjcMethodInfo methods[] = {
-    { "getName", NULL, "Ljava.lang.String;", 0x1, NULL },
-    { "getModifiers", NULL, "I", 0x1, NULL },
-    { "getDeclaringClass", NULL, "Ljava.lang.Class;", 0x1, NULL },
-    { "getParameterTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL },
-    { "getGenericParameterTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL },
-    { "newInstanceWithNSObjectArray:", "newInstance", "TT;", 0x81, "Ljava.lang.InstantiationException;Ljava.lang.IllegalAccessException;Ljava.lang.IllegalArgumentException;Ljava.lang.reflect.InvocationTargetException;" },
-    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL },
-    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL },
-    { "getParameterAnnotations", NULL, "[[Ljava.lang.annotation.Annotation;", 0x1, NULL },
-    { "getTypeParameters", NULL, "[Ljava.lang.reflect.TypeVariable;", 0x1, NULL },
-    { "isSynthetic", NULL, "Z", 0x1, NULL },
-    { "getExceptionTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL },
-    { "getGenericExceptionTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL },
-    { "toGenericString", NULL, "Ljava.lang.String;", 0x1, NULL },
-    { "isBridge", NULL, "Z", 0x1, NULL },
-    { "isVarArgs", NULL, "Z", 0x1, NULL },
-    { "init", NULL, NULL, 0x1, NULL },
+    { "getName", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
+    { "getModifiers", NULL, "I", 0x1, NULL, NULL },
+    { "getDeclaringClass", NULL, "Ljava.lang.Class;", 0x1, NULL, "()Ljava/lang/Class<TT;>;" },
+    { "getParameterTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL, NULL },
+    { "getGenericParameterTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
+    { "newInstanceWithNSObjectArray:", "newInstance", "TT;", 0x81,
+      "Ljava.lang.InstantiationException;Ljava.lang.IllegalAccessException;"
+      "Ljava.lang.IllegalArgumentException;Ljava.lang.reflect.InvocationTargetException;",
+      "([Ljava/lang/Object;)TT;" },
+    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL,
+      "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" },
+    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
+    { "getParameterAnnotations", NULL, "[[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
+    { "getTypeParameters", NULL, "[Ljava.lang.reflect.TypeVariable;", 0x1, NULL, NULL },
+    { "isSynthetic", NULL, "Z", 0x1, NULL, NULL },
+    { "getExceptionTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL, NULL },
+    { "getGenericExceptionTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
+    { "toGenericString", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
+    { "isBridge", NULL, "Z", 0x1, NULL, NULL },
+    { "isVarArgs", NULL, "Z", 0x1, NULL, NULL },
+    { "init", NULL, NULL, 0x1, NULL, NULL },
   };
   static const J2ObjcClassInfo _JavaLangReflectConstructor = {
-    1, "Constructor", "java.lang.reflect", NULL, 0x1, 17, methods, 0, NULL, 0, NULL
+    2, "Constructor", "java.lang.reflect", NULL, 0x1, 17, methods, 0, NULL, 0, NULL, 0, NULL, NULL,
+    "<T:Ljava/lang/Object;>Ljava/lang/reflect/AccessibleObject;"
+    "Ljava/lang/reflect/GenericDeclaration;Ljava/lang/reflect/Member;"
   };
   return &_JavaLangReflectConstructor;
 }

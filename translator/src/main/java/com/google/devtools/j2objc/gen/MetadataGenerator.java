@@ -29,6 +29,7 @@ import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.types.GeneratedMethodBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
+import com.google.devtools.j2objc.util.UnicodeUtils;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
@@ -46,6 +47,7 @@ public class MetadataGenerator {
   private final StringBuilder builder;
   private final AbstractTypeDeclaration typeNode;
   private final ITypeBinding type;
+  private final NameTable nameTable;
   private boolean generated = false;
   private int methodMetadataCount = 0;
   private int fieldMetadataCount = 0;
@@ -57,6 +59,7 @@ public class MetadataGenerator {
     this.builder = new StringBuilder();
     this.typeNode = Preconditions.checkNotNull(typeNode);
     this.type = typeNode.getTypeBinding();
+    this.nameTable = TreeUtil.getCompilationUnit(typeNode).getNameTable();
   }
 
   public String getMetadataSource() {
@@ -72,7 +75,7 @@ public class MetadataGenerator {
   }
 
   private void generateMetadata() {
-    String fullName = NameTable.getFullName(type);
+    String fullName = nameTable.getFullName(type);
     println("\n+ (const J2ObjcClassInfo *)__metadata {");
     generateMethodsMetadata();
     generateFieldsMetadata();
@@ -128,8 +131,8 @@ public class MetadataGenerator {
 
     String structName = "enclosing_method";
     printf("  static const J2ObjCEnclosingMethodInfo %s = { ", structName);
-    printf("\"%s\", ", NameTable.getFullName(enclosingMethod.getDeclaringClass()));
-    printf("\"%s\" };\n", NameTable.getMethodSelector(enclosingMethod));
+    printf("\"%s\", ", nameTable.getFullName(enclosingMethod.getDeclaringClass()));
+    printf("\"%s\" };\n", nameTable.getMethodSelector(enclosingMethod));
     return structName;
   }
 
@@ -164,15 +167,14 @@ public class MetadataGenerator {
     }
     if (typeNode instanceof AnnotationTypeDeclaration) {
       // Add property accessor and static default methods.
-      for (AnnotationTypeMemberDeclaration decl :
-           TreeUtil.getAnnotationMembers((AnnotationTypeDeclaration) typeNode)) {
+      for (AnnotationTypeMemberDeclaration decl : TreeUtil.getAnnotationMembers(typeNode)) {
         String name = decl.getName().getIdentifier();
         String returnType = getTypeName(decl.getMethodBinding().getReturnType());
-        String metadata = String.format("    { \"%s\", %s, %s, 0x%x, NULL, NULL },\n",
+        String metadata = UnicodeUtils.format("    { \"%s\", %s, %s, 0x%x, NULL, NULL },\n",
             name, cStr(name), cStr(returnType),
             java.lang.reflect.Modifier.PUBLIC | java.lang.reflect.Modifier.ABSTRACT);
         methodMetadata.add(metadata);
-        metadata = String.format("    { \"%s\", %s, %s, 0x%x, NULL, NULL },\n",
+        metadata = UnicodeUtils.format("    { \"%s\", %s, %s, 0x%x, NULL, NULL },\n",
             name + "Default", cStr(name), cStr(returnType),
             java.lang.reflect.Modifier.PRIVATE | java.lang.reflect.Modifier.STATIC
                 | BindingUtil.ACC_SYNTHETIC);
@@ -191,15 +193,13 @@ public class MetadataGenerator {
 
   private void generateFieldsMetadata() {
     List<String> fieldMetadata = Lists.newArrayList();
-    String typeName = NameTable.getFullName(type);
     if (typeNode instanceof EnumDeclaration) {
       for (EnumConstantDeclaration decl : ((EnumDeclaration) typeNode).getEnumConstants()) {
-        fieldMetadata.add(
-            generateFieldMetadata(decl.getVariableBinding(), decl.getName(), typeName));
+        fieldMetadata.add(generateFieldMetadata(decl.getVariableBinding(), decl.getName()));
       }
     }
     for (VariableDeclarationFragment f : TreeUtil.getAllFields(typeNode)) {
-      fieldMetadata.add(generateFieldMetadata(f.getVariableBinding(), f.getName(), typeName));
+      fieldMetadata.add(generateFieldMetadata(f.getVariableBinding(), f.getName()));
     }
     if (fieldMetadata.size() > 0) {
       builder.append("  static const J2ObjcFieldInfo fields[] = {\n");
@@ -211,26 +211,27 @@ public class MetadataGenerator {
     fieldMetadataCount = fieldMetadata.size();
   }
 
-  private String generateFieldMetadata(IVariableBinding var, SimpleName name, String typeName) {
+  private String generateFieldMetadata(IVariableBinding var, SimpleName name) {
     int modifiers = getFieldModifiers(var);
     String javaName = name.getIdentifier();
-    String objcName = var.isEnumConstant() ? NameTable.getName(var)
-        : NameTable.javaFieldToObjC(NameTable.getName(var));
+    String objcName = nameTable.getVariableShortName(var);
     if (objcName.equals(javaName + '_')) {
       // Don't print Java name if it matches the default pattern, to conserve space.
       javaName = null;
     }
     String staticRef = "NULL";
-    String constantValue = "";
-    if (BindingUtil.isStatic(var)) {
-      if (BindingUtil.isPrimitiveConstant(var)) {
-        constantValue = String.format(".constantValue.%s = %s",
-            getRawValueField(var), NameTable.getPrimitiveConstantName(var));
-      } else {
-        staticRef = String.format("&%s_%s", typeName, objcName);
+    String constantValue;
+    if (BindingUtil.isPrimitiveConstant(var)) {
+      constantValue = UnicodeUtils.format(".constantValue.%s = %s",
+          getRawValueField(var), nameTable.getVariableQualifiedName(var));
+    } else {
+      // Explicit 0-initializer to avoid Clang warning.
+      constantValue = ".constantValue.asLong = 0";
+      if (BindingUtil.isStatic(var)) {
+        staticRef = '&' + nameTable.getVariableQualifiedName(var);
       }
     }
-    return String.format(
+    return UnicodeUtils.format(
         "    { \"%s\", %s, 0x%x, \"%s\", %s, %s, %s },\n",
         objcName, cStr(javaName), modifiers, getTypeName(var.getType()), staticRef,
         cStr(SignatureGenerator.createFieldTypeSignature(var)), constantValue);
@@ -256,16 +257,16 @@ public class MetadataGenerator {
     if (method.isSynthetic()) {
       return null;
     }
-    String methodName = method instanceof GeneratedMethodBinding ?
-        ((GeneratedMethodBinding) method).getJavaName() : method.getName();
-    String selector = NameTable.getMethodSelector(method);
+    String methodName = method instanceof GeneratedMethodBinding
+        ? ((GeneratedMethodBinding) method).getJavaName() : method.getName();
+    String selector = nameTable.getMethodSelector(method);
     if (selector.equals(methodName)) {
       methodName = null;  // Reduce redundant data.
     }
 
     int modifiers = getMethodModifiers(method);
     String returnTypeStr = method.isConstructor() ? null : getTypeName(method.getReturnType());
-    return String.format("    { \"%s\", %s, %s, 0x%x, %s, %s },\n",
+    return UnicodeUtils.format("    { \"%s\", %s, %s, 0x%x, %s, %s },\n",
         selector, cStr(methodName), cStr(returnTypeStr), modifiers,
         cStr(getThrownExceptions(method)),
         cStr(SignatureGenerator.createMethodTypeSignature(method)));
@@ -394,7 +395,7 @@ public class MetadataGenerator {
   }
 
   private void printf(String format, Object... args) {
-    builder.append(String.format(format, args));
+    builder.append(UnicodeUtils.format(format, args));
   }
 
   private void println(String s) {

@@ -418,13 +418,17 @@ public final class NativeDecimalFormat implements Cloneable {
     public native void setRoundingMode(RoundingMode roundingMode, double roundingIncrement) /*-[
       int nsRoundingMode;
       switch ([roundingMode ordinal]) {
-        case JavaMathRoundingMode_CEILING: nsRoundingMode = NSNumberFormatterRoundCeiling; break;
-        case JavaMathRoundingMode_FLOOR: nsRoundingMode = NSNumberFormatterRoundFloor; break;
-        case JavaMathRoundingMode_DOWN: nsRoundingMode = NSNumberFormatterRoundDown; break;
-        case JavaMathRoundingMode_UP: nsRoundingMode = NSNumberFormatterRoundUp; break;
-        case JavaMathRoundingMode_HALF_EVEN: nsRoundingMode = NSNumberFormatterRoundHalfEven; break;
-        case JavaMathRoundingMode_HALF_DOWN: nsRoundingMode = NSNumberFormatterRoundHalfDown; break;
-        case JavaMathRoundingMode_HALF_UP: nsRoundingMode = NSNumberFormatterRoundHalfUp; break;
+        case JavaMathRoundingMode_Enum_CEILING:
+          nsRoundingMode = NSNumberFormatterRoundCeiling; break;
+        case JavaMathRoundingMode_Enum_FLOOR: nsRoundingMode = NSNumberFormatterRoundFloor; break;
+        case JavaMathRoundingMode_Enum_DOWN: nsRoundingMode = NSNumberFormatterRoundDown; break;
+        case JavaMathRoundingMode_Enum_UP: nsRoundingMode = NSNumberFormatterRoundUp; break;
+        case JavaMathRoundingMode_Enum_HALF_EVEN:
+          nsRoundingMode = NSNumberFormatterRoundHalfEven; break;
+        case JavaMathRoundingMode_Enum_HALF_DOWN:
+          nsRoundingMode = NSNumberFormatterRoundHalfDown; break;
+        case JavaMathRoundingMode_Enum_HALF_UP:
+          nsRoundingMode = NSNumberFormatterRoundHalfUp; break;
         default:
           @throw [[JavaLangAssertionError alloc] init];
       }
@@ -664,24 +668,28 @@ public final class NativeDecimalFormat implements Cloneable {
       if (range.length > 0 && [formatter allowsFloats] == NO &&
           [string characterAtIndex:start] == '0') {
         BOOL onlyZeroes = YES;
-        for (NSUInteger i = start + 1; i < range.length + start; i++) {
-          if ([string characterAtIndex:i] != '0') {
-            onlyZeroes = NO;
+        NSUInteger i = start + 1;
+        for (; i < range.length + start; i++) {
+          jchar ch = [string characterAtIndex:i];
+          if (ch != '0') {
+            if (ch >= '1' && ch <= '9') {
+              onlyZeroes = NO;
+            } // else it's an unknown character, such as in a date format string.
             break;
           }
         }
         if (onlyZeroes) {
-          [position setIndexWithInt:start + (int) range.length];
+          [position setIndexWithInt:(int) i];
           return JavaLangLong_valueOfWithLong_(0L);
         }
       }
 
-      NSError *error;
+      NSError *error = nil;
       BOOL success = [formatter getObjectValue:&result
                                      forString:string
                                          range:&range
                                          error:&error];
-      if (success) {
+      if (success && (error == nil)) {
         [position setIndexWithInt:start + (int) range.length];
         if (fmod([result doubleValue], 1.0) == 0) {
           return JavaLangLong_valueOfWithLong_([result longLongValue]);

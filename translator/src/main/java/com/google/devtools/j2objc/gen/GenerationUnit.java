@@ -13,12 +13,21 @@
  */
 package com.google.devtools.j2objc.gen;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ListMultimap;
+import com.google.common.collect.MultimapBuilder;
+import com.google.devtools.j2objc.Options;
+import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.CompilationUnit;
+import com.google.devtools.j2objc.ast.NativeDeclaration;
+import com.google.devtools.j2objc.ast.PackageDeclaration;
+import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.file.InputFile;
-import com.google.devtools.j2objc.util.ErrorUtil;
+import com.google.devtools.j2objc.util.NameTable;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.io.File;
+import java.util.Collection;
+import java.util.TreeMap;
 
 import javax.annotation.Nullable;
 
@@ -31,15 +40,53 @@ import javax.annotation.Nullable;
  * @author Mike Thvedt
  */
 public class GenerationUnit {
-  private String name;
-  private String outputPath;
-  private final List<InputFile> inputFiles = new ArrayList<InputFile>();
-  private List<CompilationUnit> compilationUnits = new ArrayList<CompilationUnit>();
-  private final String sourceName;
-  private final List<String> errors = new ArrayList<String>();
 
-  public GenerationUnit(String sourceName) {
+  private String outputPath;
+  private final int numUnits;
+  private int receivedUnits = 0;
+  // It is useful for the generated code to be consistent. Therefore, the
+  // ordering of generated code within this unit should be consistent. For this
+  // we map units of generated code keyed by the Java class they come from,
+  // using map implementations with ordered keys.
+  private TreeMap<String, String> nativeHeaderBlocks = new TreeMap<>();
+  private TreeMap<String, String> nativeImplementationBlocks = new TreeMap<>();
+  private ListMultimap<String, GeneratedType> generatedTypes =
+      MultimapBuilder.treeKeys().arrayListValues().build();
+  private final String sourceName;
+  private State state = State.ACTIVE;
+  private boolean hasIncompleteProtocol = false;
+  private boolean hasIncompleteImplementation = false;
+
+  private enum State {
+    ACTIVE,   // Initial state, still collecting CompilationUnits.
+    FAILED,   // One or more input files failed to compile.
+    FINISHED  // Finished, object is now invalid.
+  }
+
+  @VisibleForTesting
+  public GenerationUnit(String sourceName, int numUnits) {
     this.sourceName = sourceName;
+    this.numUnits = numUnits;
+  }
+
+  public static GenerationUnit newSingleFileUnit(InputFile file) {
+    GenerationUnit unit = new GenerationUnit(file.getPath(), 1);
+    if (Options.useSourceDirectories()) {
+      String outputPath = file.getUnitName();
+      outputPath = outputPath.substring(0, outputPath.lastIndexOf(".java"));
+      unit.outputPath = outputPath;
+    }
+    return unit;
+  }
+
+  public static GenerationUnit newCombinedJarUnit(String filename, int numInputs) {
+    String outputPath = filename;
+    if (outputPath.lastIndexOf(File.separatorChar) < outputPath.lastIndexOf(".")) {
+      outputPath = outputPath.substring(0, outputPath.lastIndexOf("."));
+    }
+    GenerationUnit unit = new GenerationUnit(filename, numInputs);
+    unit.outputPath = outputPath;
+    return unit;
   }
 
   /**
@@ -50,52 +97,101 @@ public class GenerationUnit {
     return sourceName;
   }
 
-  /**
-   * Gets the name of this GenerationUnit.
-   * This will be a name appropriate for use in Obj-C output code.
-   */
-  @Nullable
-  public String getName() {
-    return name;
+  public boolean hasIncompleteProtocol() {
+    return hasIncompleteProtocol;
   }
 
-  /**
-   * Sets the name of this GenerationUnit.
-   * This should be a name appropriate for use in Obj-C output code.
-   */
-  public void setName(String name) {
-    this.name = name;
+  public boolean hasIncompleteImplementation() {
+    return hasIncompleteImplementation;
   }
 
-  public void addInputFile(InputFile file) {
-    assert compilationUnits.isEmpty();  // Probably shouldn't be adding files when this isn't empty.
-    inputFiles.add(file);
+  public Collection<String> getNativeHeaderBlocks() {
+    return nativeHeaderBlocks.values();
   }
 
-  public List<InputFile> getInputFiles() {
-    return inputFiles;
+  public Collection<String> getNativeImplementationBlocks() {
+    return nativeImplementationBlocks.values();
   }
 
-  /**
-   * A list of CompilationUnits generated from the input files in this GenerationUnit.
-   * This list is mildly stateful in that some processors might add to it.
-   * These should be later cleared with {@link #clear()}, to save memory and allow reuse
-   * of GenerationUnits.
-   */
-  public List<CompilationUnit> getCompilationUnits() {
-    return compilationUnits;
+  public Collection<GeneratedType> getGeneratedTypes() {
+    return generatedTypes.values();
   }
 
   public void addCompilationUnit(CompilationUnit unit) {
-    assert compilationUnits.size() < inputFiles.size();
-    compilationUnits.add(unit);
+    assert state != State.FINISHED : "Adding to a finished GenerationUnit.";
+    if (state != State.ACTIVE) {
+      return;  // Ignore any added units.
+    }
+    assert receivedUnits < numUnits;
+    receivedUnits++;
+
+    if (outputPath == null) {
+      // We can only infer the output path if there's one compilation unit.
+      assert numUnits == 1;
+      outputPath = getDefaultOutputPath(unit);
+    }
+
+    hasIncompleteProtocol = hasIncompleteProtocol || unit.hasIncompleteProtocol();
+    hasIncompleteImplementation = hasIncompleteImplementation || unit.hasIncompleteImplementation();
+
+    String qualifiedMainType = TreeUtil.getQualifiedMainTypeName(unit);
+
+    SourceBuilder headerBuilder = new SourceBuilder(false);
+    SourceBuilder implBuilder = new SourceBuilder(false);
+    for (NativeDeclaration decl : unit.getNativeBlocks()) {
+      String headerCode = decl.getHeaderCode();
+      if (headerCode != null) {
+        headerBuilder.newline();
+        headerBuilder.println(headerBuilder.reindent(headerCode));
+      }
+      String implCode = decl.getImplementationCode();
+      if (implCode != null) {
+        implBuilder.newline();
+        implBuilder.println(implBuilder.reindent(implCode));
+      }
+    }
+    if (headerBuilder.length() > 0) {
+      nativeHeaderBlocks.put(qualifiedMainType, headerBuilder.toString());
+    }
+    if (implBuilder.length() > 0) {
+      nativeImplementationBlocks.put(qualifiedMainType, implBuilder.toString());
+    }
+
+    generatedTypes.put(qualifiedMainType, GeneratedType.forPackageDeclaration(unit));
+
+    for (AbstractTypeDeclaration type : unit.getTypes()) {
+      generatedTypes.put(qualifiedMainType, GeneratedType.fromTypeDeclaration(type));
+    }
+  }
+
+  public boolean isFullyParsed() {
+    return receivedUnits == numUnits;
   }
 
   /**
-   * Clear the temporary state of this GenerationUnit.
+   * Gets the output path if there isn't one already.
+   * For example, foo/bar/Mumble.java translates to $(OUTPUT_DIR)/foo/bar/Mumble.
+   * If --no-package-directories is specified, though, the output file is $(OUTPUT_DIR)/Mumble.
    */
-  public void clear() {
-    compilationUnits.clear();
+  private static String getDefaultOutputPath(CompilationUnit unit) {
+    String path = unit.getMainTypeName();
+    if (path.equals(NameTable.PACKAGE_INFO_MAIN_TYPE)) {
+      path = NameTable.PACKAGE_INFO_FILE_NAME;
+    }
+    PackageDeclaration pkg = unit.getPackage();
+    if (Options.usePackageDirectories() && !pkg.isDefaultPackage()) {
+      path = pkg.getName().getFullyQualifiedName().replace('.', File.separatorChar)
+          + File.separatorChar + path;
+    }
+    return path;
+  }
+
+  public void failed() {
+    state = State.FAILED;
+  }
+
+  public void finished() {
+    state = State.FINISHED;
   }
 
   /**
@@ -106,20 +202,14 @@ public class GenerationUnit {
     return outputPath;
   }
 
-  public void setOutputPath(String outputPath) {
-    this.outputPath = outputPath;
-  }
-
-  /**
-   * A unit is broken if we couldn't read all of its input files.
-   * We mark it as broken so some processors may decide to halt for broken GenerationUnits.
-   */
-  public boolean hasErrors() {
-    return !errors.isEmpty();
-  }
-
-  public void error(String message) {
-    ErrorUtil.error(message);
-    errors.add(message);
+  @Override
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+    if (sourceName != null) {
+      sb.append(sourceName);
+      sb.append(' ');
+    }
+    sb.append(generatedTypes);
+    return sb.toString();
   }
 }

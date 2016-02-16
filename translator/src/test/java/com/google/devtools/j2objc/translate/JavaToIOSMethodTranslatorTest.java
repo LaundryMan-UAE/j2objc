@@ -41,10 +41,10 @@ public class JavaToIOSMethodTranslatorTest extends GenerationTest {
     assertTranslation(translation, "- (Example *)copy__ OBJC_METHOD_FAMILY_NONE;");
     translation = getTranslatedFile("Example.m");
     assertTranslation(translation,
-        "return (Example *) check_class_cast([self clone], [Example class]);");
+        "return (Example *) cast_chk([self clone], [Example class]);");
     assertTranslation(translation, "- (id)copyWithZone:(NSZone *)zone {");
     assertTranslation(translation,
-        "Example *e = (Example *) check_class_cast([super clone], [Example class]);");
+        "Example *e = (Example *) cast_chk([super clone], [Example class]);");
     assertTranslation(translation, "((Example *) nil_chk(e))->i_ = i_");
   }
 
@@ -54,9 +54,9 @@ public class JavaToIOSMethodTranslatorTest extends GenerationTest {
     List<Statement> stmts = translateStatements(source);
     assertEquals(2, stmts.size());
     String result = generateStatement(stmts.get(0));
-    assertEquals("NSString *trueString = NSString_valueOfBool_(YES);", result);
+    assertEquals("NSString *trueString = NSString_valueOfBool_(true);", result);
     result = generateStatement(stmts.get(1));
-    assertEquals("NSString *falseString = NSString_valueOfBool_(NO);", result);
+    assertEquals("NSString *falseString = NSString_valueOfBool_(false);", result);
   }
 
   /**
@@ -216,10 +216,10 @@ public class JavaToIOSMethodTranslatorTest extends GenerationTest {
     assertTranslation(translation, "- (Example *)copy__ OBJC_METHOD_FAMILY_NONE;");
     translation = getTranslatedFile("Example.m");
     assertTranslation(translation,
-        "return (Example *) check_class_cast([self clone], [Example class]);");
+        "return (Example *) cast_chk([self clone], [Example class]);");
     assertTranslation(translation, "- (id)copyWithZone:(NSZone *)zone {");
     assertTranslation(translation, "Example_Inner *inner = "
-        + "(Example_Inner *) check_class_cast([super clone], [Example_Inner class]);");
+        + "(Example_Inner *) cast_chk([super clone], [Example_Inner class]);");
     assertTranslation(translation, "((Example_Inner *) nil_chk(inner))->i_ = i_;");
   }
 

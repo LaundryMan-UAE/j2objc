@@ -30,10 +30,10 @@ import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.MethodInvocation;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.SingleMemberAnnotation;
+import com.google.devtools.j2objc.ast.Statement;
 import com.google.devtools.j2objc.ast.StringLiteral;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.TreeVisitor;
-import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
@@ -86,8 +86,9 @@ public class GwtConverter extends TreeVisitor {
     if (isGwtTest(node.getExpression())) {
       if (node.getElseStatement() != null) {
         // Replace this node with the else statement.
-        node.replaceWith(TreeUtil.remove(node.getElseStatement()));
-        node.getElseStatement().accept(this);
+        Statement replacement = TreeUtil.remove(node.getElseStatement());
+        node.replaceWith(replacement);
+        replacement.accept(this);
       } else {
         // No else statement, so remove this if statement or replace it
         // with an empty statement.
@@ -121,13 +122,13 @@ public class GwtConverter extends TreeVisitor {
         && args.size() == 1) {
       // Convert GWT.create(Foo.class) to Foo.class.newInstance().
       IMethodBinding newBinding = BindingUtil.findDeclaredMethod(
-          Types.resolveJavaType("java.lang.Class"), "newInstance");
+          typeEnv.resolveJavaType("java.lang.Class"), "newInstance");
       node.setName(new SimpleName(newBinding));
       Expression clazz = args.remove(0);
       node.setExpression(clazz);
       node.setMethodBinding(newBinding);
     } else if (isGwtTest(node)) {
-      node.replaceWith(new BooleanLiteral(false));
+      node.replaceWith(new BooleanLiteral(false, typeEnv));
     }
     return true;
   }

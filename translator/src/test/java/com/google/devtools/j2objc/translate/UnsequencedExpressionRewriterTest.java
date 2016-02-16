@@ -32,12 +32,6 @@ public class UnsequencedExpressionRewriterTest extends GenerationTest {
     Options.enableExtractUnsequencedModifications();
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    Options.resetExtractUnsequencedModifications();
-    super.tearDown();
-  }
-
   public void testUnsequencedPrefixExpression() throws IOException {
     String translation = translateSourceFile(
         "class Test { void test(int i) { int j = ++i - ++i; } }", "Test", "Test.m");
@@ -74,31 +68,51 @@ public class UnsequencedExpressionRewriterTest extends GenerationTest {
 
   public void testUnsequencedConditionalExpression() throws IOException {
     String translation = translateSourceFile(
-        "class Test { boolean test(int i) { "
-        + "return i == 0 ? i++ + i == 0 || i++ + i == 0 : ++i == 1; } }",
+        "class Test {"
+        + " boolean test(int i) {  return i == 0 ? i++ + i == 0 || i++ + i == 0 : ++i == 1; }"
+        + " boolean test2(int i) { return i == 0 ? ++i == 1 : i++ + i == 0 || i++ + i == 0; } }",
         "Test", "Test.m");
     assertTranslatedLines(translation,
-        "jboolean unseq$1;",
-        "if (i == 0) {",
-        "  jint unseq$2 = i++;",
-        "  jboolean unseq$3;",
-        "  if (!(unseq$3 = (unseq$2 + i == 0))) {",
-        "    jint unseq$4 = i++;",
-        "    unseq$3 = (unseq$3 || unseq$4 + i == 0);",
+        "- (jboolean)testWithInt:(jint)i {",
+        "  jboolean unseq$1;",
+        "  if (i == 0) {",
+        "    jint unseq$2 = i++;",
+        "    jboolean unseq$3;",
+        "    if (!(unseq$3 = (unseq$2 + i == 0))) {",
+        "      jint unseq$4 = i++;",
+        "      unseq$3 = (unseq$3 || unseq$4 + i == 0);",
+        "    }",
+        "    unseq$1 = unseq$3;",
         "  }",
-        "  unseq$1 = unseq$3;",
-        "}",
-        "else {",
-        "  unseq$1 = (++i == 1);",
-        "}",
-        "return unseq$1;");
+        "  else {",
+        "    unseq$1 = (++i == 1);",
+        "  }",
+        "  return unseq$1;",
+        "}");
+    assertTranslatedLines(translation,
+        "- (jboolean)test2WithInt:(jint)i {",
+        "  jboolean unseq$1;",
+        "  if (i == 0) {",
+        "    unseq$1 = (++i == 1);",
+        "  }",
+        "  else {",
+        "    jint unseq$2 = i++;",
+        "    jboolean unseq$3;",
+        "    if (!(unseq$3 = (unseq$2 + i == 0))) {",
+        "      jint unseq$4 = i++;",
+        "      unseq$3 = (unseq$3 || unseq$4 + i == 0);",
+        "    }",
+        "    unseq$1 = unseq$3;",
+        "  }",
+        "  return unseq$1;",
+        "}");
   }
 
   public void testWhileLoop() throws IOException {
     String translation = translateSourceFile(
         "class Test { void test(int i) { while (i + i++ < 10) {} } }", "Test", "Test.m");
     assertTranslatedLines(translation,
-        "while (YES) {",
+        "while (true) {",
         "  jint unseq$1 = i;",
         "  if (!(unseq$1 + i++ < 10)) break;");
   }
@@ -123,8 +137,7 @@ public class UnsequencedExpressionRewriterTest extends GenerationTest {
         "jint unseq$1 = i++;",
         "jboolean unseq$2 = unseq$1 + i++ == 0;",
         "jint unseq$3 = i++;",
-        " NSAssert(unseq$2, [JreStrcat(\"$II\" J2OBJC_COMMA() @\"foo\" J2OBJC_COMMA() unseq$3"
-          + " J2OBJC_COMMA() i++) description]);");
+        "JreAssert((unseq$2), (JreStrcat(\"$II\", @\"foo\", unseq$3, i++)));");
   }
 
   public void testForInitStatements() throws IOException {

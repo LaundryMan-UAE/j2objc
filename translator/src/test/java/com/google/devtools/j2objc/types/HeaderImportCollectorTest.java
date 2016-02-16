@@ -14,9 +14,7 @@
 
 package com.google.devtools.j2objc.types;
 
-import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.GenerationTest;
-import com.google.devtools.j2objc.Options;
 
 import java.io.IOException;
 
@@ -27,27 +25,9 @@ import java.io.IOException;
  */
 public class HeaderImportCollectorTest extends GenerationTest {
 
-  @Override
-  protected void tearDown() throws Exception {
-    Options.resetRemoveClassMethods();
-    super.tearDown();
-  }
-
   public void testVarargsDeclarations() throws IOException {
     String translation = translateSourceFile(
         "class Test { void test1(double... values) {} void test2(Runnable... values) {} }",
-        "Test", "Test.h");
-    assertTranslation(translation, "@class IOSDoubleArray");
-    assertTranslation(translation, "@class IOSObjectArray");
-    assertNotInTranslation(translation, "@protocol JavaLangRunnable");
-  }
-
-  // Same as above but with static methods and class methods removed.
-  public void testVarargsDeclarationsNoClassMethods() throws IOException {
-    Options.setRemoveClassMethods(true);
-    String translation = translateSourceFile(
-        "class Test { static void test1(double... values) {}"
-        + " static void test2(Runnable... values) {} }",
         "Test", "Test.h");
     assertTranslation(translation, "@class IOSDoubleArray");
     assertTranslation(translation, "@class IOSObjectArray");
@@ -68,5 +48,13 @@ public class HeaderImportCollectorTest extends GenerationTest {
     // Tests that there is no self import when the subclass comes first.
     translation = translateCombinedFiles("unit/Test", ".h", "unit/Test2.java", "unit/Test.java");
     assertNotInTranslation(translation, "#include \"unit/Test.h\"");
+  }
+
+  public void testNoForwardDeclarationForPrivateDeclaration() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { private void test(Runnable r) {} }", "Test", "Test.h");
+    // We don't need to forward declare or include Runnable in the header
+    // because the method is private.
+    assertNotInTranslation(translation, "Runnable");
   }
 }

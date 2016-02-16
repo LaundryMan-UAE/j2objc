@@ -30,14 +30,7 @@ CLASSES_DIR = $(BUILD_DIR)/classes
 JSR305_SRC_JAR = $(JAVA_DEPS_JAR_DIR)/$(JSR305_SOURCE_JAR)
 JSR305_JAR_FULL = $(JAVA_DEPS_JAR_DIR)/$(JSR305_JAR)
 
-JSR305_LIB_DIST = $(ARCH_LIB_DIR)/libjsr305.a
-
-WARNINGS = -Wall -Werror
-
-C_FLAGS = $(DEBUGFLAGS) -Werror $(ARCH_FLAGS) $(SDK_FLAGS) \
-  -fobjc-abi-version=2 -fobjc-legacy-dispatch
-
-OBJCFLAGS := -ObjC $(WARNINGS) $(DEBUGFLAGS)
+OBJCFLAGS := $(CC_WARNINGS) $(DEBUGFLAGS)
 
 # J2ObjC settings
 J2OBJC = $(DIST_DIR)/j2objc -classpath $(JSR305_JAR_FULL) -d $(BUILD_DIR)

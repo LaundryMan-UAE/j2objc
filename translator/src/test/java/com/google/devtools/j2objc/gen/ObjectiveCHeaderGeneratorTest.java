@@ -19,11 +19,11 @@ package com.google.devtools.j2objc.gen;
 import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.GenerationTest;
 import com.google.devtools.j2objc.Options;
+import com.google.devtools.j2objc.util.HeaderMap;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.Map;
 
 /**
  * Tests for {@link ObjectiveCHeaderGenerator}.
@@ -31,13 +31,6 @@ import java.util.Map;
  * @author Tom Ball
  */
 public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
-
-  @Override
-  protected void tearDown() throws Exception {
-    Options.resetDeprecatedDeclarations();
-    Options.setDocCommentsEnabled(false);
-    super.tearDown();
-  }
 
   public void testInnerEnumWithPackage() throws IOException {
     String translation = translateSourceFile(
@@ -47,8 +40,8 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         + "class MyClass {}", "Example", "mypackage/Example.h");
     assertTranslation(translation, "@interface MypackageExample");
     // enum declaration
-    assertTranslation(translation, "typedef NS_ENUM(NSUInteger, MypackageAbcd) {");
-    assertTranslation(translation, "@interface MypackageAbcdEnum");
+    assertTranslation(translation, "typedef NS_ENUM(NSUInteger, MypackageAbcd_Enum) {");
+    assertTranslation(translation, "@interface MypackageAbcd");
     assertTranslation(translation, "@interface MypackageMyClass");
     assertTranslation(translation, "MypackageMyClass *myclass_;");
   }
@@ -57,6 +50,24 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "public class Example {}", "Example", "Example.h");
     assertTranslation(translation, "@interface Example ");
+  }
+
+  public void testUnicodeHeaderGuardTranslation() throws IOException {
+    Options.setSegmentedHeaders(false);
+    // Non-letters should be replaced
+    String translation = translateSourceFile(
+        "public class ¢ents {}", "¢ents", "¢ents.h");
+    assertTranslation(translation, "#ifndef _ents_H");
+
+    // Unicode letters outside the Basic Latin range should not be replaced
+    translation = translateSourceFile(
+        "public class こんにちは {}", "こんにちは", "こんにちは.h");
+    assertTranslation(translation, "#ifndef こんにちは_H");
+
+    // Egyptian heiroglyph letters outside UCS-2, requiring two UTF-16 chars
+    translation = translateSourceFile(
+        "public class egyptian\uD80C\uDC00 {}", "egyptian\uD80C\uDC00", "egyptian\uD80C\uDC00.h");
+    assertTranslation(translation, "#ifndef Egyptian\uD80C\uDC00_H");
   }
 
   public void testDeprecatedTypeNameTranslation() throws IOException {
@@ -109,9 +120,9 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
 
   public void testImportTranslation() throws IOException {
     String translation = translateSourceFile(
-        "public class MyException extends Exception { MyException(Throwable t) {super(t);}}",
+        "public class MyException extends Exception { MyException(RuntimeException t) {super(t);}}",
         "MyException", "MyException.h");
-    assertTranslation(translation, "@class JavaLangThrowable;");
+    assertTranslation(translation, "@class JavaLangRuntimeException;");
     assertTranslation(translation, "#include \"java/lang/Exception.h\"");
   }
 
@@ -159,18 +170,18 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         + "    public AnotherDummy() {}"
         + "}", "unit/test/AnotherDummy.java");
 
-    loadSourceFileHeaderMappings("unit/test/Dummy.java", "unit/test/AnotherDummy.java");
+    preprocessFiles("unit/test/Dummy.java", "unit/test/AnotherDummy.java");
     loadHeaderMappings();
 
     String translation = translateSourceFile(getTranslatedFile("unit/test/AnotherDummy.java"),
         "AnotherDummy", "AnotherDummy.h");
     assertTranslation(translation, "#include \"unit/test/Dummy.h\"");
 
-    Map<String, String> outputMapping = writeAndReloadHeaderMappings();
-    assertEquals(outputMapping.get("unit.test.Dummy"), "unit/test/Dummy.h");
-    assertEquals(outputMapping.get("unit.test.AnotherDummy"), "unit/test/AnotherDummy.h");
-    assertEquals(outputMapping.get("unit.mapping.custom.Test"), "my/mapping/custom/Test.h");
-    assertEquals(outputMapping.get("unit.mapping.custom.AnotherTest"), "my/mapping/custom/Test.h");
+    HeaderMap headerMap = Options.getHeaderMap();
+    assertEquals(headerMap.get("unit.test.Dummy"), "unit/test/Dummy.h");
+    assertEquals(headerMap.get("unit.test.AnotherDummy"), "unit/test/AnotherDummy.h");
+    assertEquals(headerMap.get("unit.mapping.custom.Test"), "my/mapping/custom/Test.h");
+    assertEquals(headerMap.get("unit.mapping.custom.AnotherTest"), "my/mapping/custom/Test.h");
   }
 
   public void testOutputHeaderFileMappingWithMultipleClassesInOneHeader() throws IOException {
@@ -193,7 +204,7 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
             + "    public AnotherDummy() {}"
             + "}", "unit/test/AnotherDummy.java");
 
-    loadSourceFileHeaderMappings("unit/test/Dummy.java", "unit/test/AnotherDummy.java");
+    preprocessFiles("unit/test/Dummy.java", "unit/test/AnotherDummy.java");
     loadHeaderMappings();
 
     String translationForDummy = translateSourceFile(getTranslatedFile("unit/test/Dummy.java"),
@@ -203,14 +214,15 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translationForDummy, "#include \"my/mapping/custom/Test.h\"");
     assertTranslation(translationForAnotherDummy, "#include \"my/mapping/custom/Test.h\"");
 
-    Map<String, String> outputMapping = writeAndReloadHeaderMappings();
-    assertEquals(outputMapping.get("unit.test.Dummy"), "unit/test/Dummy.h");
-    assertEquals(outputMapping.get("unit.test.AnotherDummy"), "unit/test/AnotherDummy.h");
-    assertEquals(outputMapping.get("unit.mapping.custom.Test"), "my/mapping/custom/Test.h");
-    assertEquals(outputMapping.get("unit.mapping.custom.AnotherTest"), "my/mapping/custom/Test.h");
+    HeaderMap headerMap = Options.getHeaderMap();
+    assertEquals(headerMap.get("unit.test.Dummy"), "unit/test/Dummy.h");
+    assertEquals(headerMap.get("unit.test.AnotherDummy"), "unit/test/AnotherDummy.h");
+    assertEquals(headerMap.get("unit.mapping.custom.Test"), "my/mapping/custom/Test.h");
+    assertEquals(headerMap.get("unit.mapping.custom.AnotherTest"), "my/mapping/custom/Test.h");
   }
 
   public void testCombinedGeneration() throws IOException {
+    Options.setSegmentedHeaders(false);
     addSourceFile("package unit; public class Test {"
             + "    public void Dummy() {}"
             + "}",
@@ -222,8 +234,8 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
 
     String header = translateCombinedFiles(
         "unit/Foo", ".h", "unit/Test.java", "unit/AnotherTest.java");
-    assertTranslation(header, "#ifndef _UnitFoo_H_");
-    assertTranslation(header, "#define _UnitFoo_H_");
+    assertTranslation(header, "#ifndef UnitFoo_H");
+    assertTranslation(header, "#define UnitFoo_H");
     assertTranslation(header, "@interface UnitTest");
     assertTranslation(header, "- (instancetype)init;");
     assertTranslation(header, "- (void)Dummy;");
@@ -233,6 +245,8 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(header, "- (void)AnotherDummy;");
     assertTranslation(header, "J2OBJC_EMPTY_STATIC_INIT(UnitAnotherTest)");
     assertTranslation(header, "J2OBJC_TYPE_LITERAL_HEADER(UnitAnotherTest)");
+    assertNotInTranslation(header, "@class UnitTest");
+    assertNotInTranslation(header, "@class UnitAnotherTest");
   }
 
   public void testCombinedGenerationOrdering() throws IOException {
@@ -240,13 +254,24 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
             + "    public void Dummy() {}"
             + "}",
         "unit/Test.java");
+    // Test that necessary forward declarations aren't eliminated.
+    addSourceFile("package unit; public class TestDependent {"
+            + "    public Test Dummy() {"
+            + "        return null;"
+            + "    }"
+            + "    public AnotherTest AnotherDummy() {"
+            + "        return null;"
+            + "    }"
+            + "}",
+        "unit/TestDependent.java");
     addSourceFile("package unit; public class AnotherTest extends Test {"
             + "    public void AnotherDummy() {}"
             + "}",
         "unit/AnotherTest.java");
 
     String header = translateCombinedFiles(
-        "unit/Foo", ".h", "unit/AnotherTest.java", "unit/Test.java");
+        "unit/Foo", ".h",
+        "unit/TestDependent.java", "unit/AnotherTest.java", "unit/Test.java");
     assert header.indexOf("@interface UnitTest") < header.indexOf("@interface UnitAnotherTest");
   }
 
@@ -271,19 +296,19 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     String header2 = translateCombinedFiles(
         "unit2/Foo", ".h", "unit2/AnotherTest.java", "unit2/YetAnotherTest.java");
 
-    Map<String, String> outputMapping = writeAndReloadHeaderMappings();
-    assertEquals("unit/Foo.h", outputMapping.get("unit.Test"));
-    assertEquals("unit/Foo.h", outputMapping.get("unit.AnotherTest"));
+    HeaderMap headerMap = Options.getHeaderMap();
+    assertEquals("unit/Foo.h", headerMap.get("unit.Test"));
+    assertEquals("unit/Foo.h", headerMap.get("unit.AnotherTest"));
     assertTranslation(header2, "#include \"unit/Foo.h\"");
-    assertEquals("unit2/Foo.h", outputMapping.get("unit2.AnotherTest"));
-    assertEquals("unit2/Foo.h", outputMapping.get("unit2.YetAnotherTest"));
+    assertEquals("unit2/Foo.h", headerMap.get("unit2.AnotherTest"));
+    assertEquals("unit2/Foo.h", headerMap.get("unit2.YetAnotherTest"));
   }
 
   public void testForwardDeclarationTranslation() throws IOException {
     String translation = translateSourceFile(
-        "public class MyException extends Exception { MyException(Throwable t) {super(t);}}",
+        "public class MyException extends Exception { MyException(RuntimeException t) {super(t);}}",
         "MyException", "MyException.h");
-    assertTranslation(translation, "@class JavaLangThrowable;");
+    assertTranslation(translation, "@class JavaLangRuntimeException;");
   }
 
   public void testInstanceVariableTranslation() throws IOException {
@@ -345,9 +370,11 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "public class Example { public static java.util.Date today; }",
         "Example", "Example.h");
     assertTranslatedLines(translation,
-        "FOUNDATION_EXPORT JavaUtilDate *Example_today_;",
-        "J2OBJC_STATIC_FIELD_GETTER(Example, today_, JavaUtilDate *)",
-        "J2OBJC_STATIC_FIELD_SETTER(Example, today_, JavaUtilDate *)");
+        "inline JavaUtilDate *Example_get_today();",
+        "inline JavaUtilDate *Example_set_today(JavaUtilDate *value);",
+        "/*! INTERNAL ONLY - Use accessor function from above. */",
+        "FOUNDATION_EXPORT JavaUtilDate *Example_today;",
+        "J2OBJC_STATIC_FIELD_OBJ(Example, today, JavaUtilDate *)");
     assertFalse(translation.contains("initialize"));
     assertFalse(translation.contains("dealloc"));
   }
@@ -357,17 +384,20 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "public class Example { public static java.util.Date today = new java.util.Date(); }",
         "Example", "Example.h");
     assertTranslatedLines(translation,
-        "FOUNDATION_EXPORT JavaUtilDate *Example_today_;",
-        "J2OBJC_STATIC_FIELD_GETTER(Example, today_, JavaUtilDate *)",
-        "J2OBJC_STATIC_FIELD_SETTER(Example, today_, JavaUtilDate *)");
-    assertFalse(translation.contains("+ (void)initialize;"));
+        "inline JavaUtilDate *Example_get_today();",
+        "inline JavaUtilDate *Example_set_today(JavaUtilDate *value);",
+        "/*! INTERNAL ONLY - Use accessor function from above. */",
+        "FOUNDATION_EXPORT JavaUtilDate *Example_today;",
+        "J2OBJC_STATIC_FIELD_OBJ(Example, today, JavaUtilDate *)");
+    assertFalse(translation.contains("initialize;"));
     assertFalse(translation.contains("dealloc"));
   }
 
   public void testInitMessageTranslation() throws IOException {
     String translation = translateSourceFile(
-        "public class Example { void init() {} }", "Example", "Example.h");
+        "public class Example { void init() {} void _init() {}}", "Example", "Example.h");
     assertTranslation(translation, "- (void)init__ OBJC_METHOD_FAMILY_NONE;");
+    assertTranslation(translation, "- (void)_init OBJC_METHOD_FAMILY_NONE;");
   }
 
   public void testInitializeMessageTranslation() throws IOException {
@@ -430,40 +460,29 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translation, "Example *this$0_;");
   }
 
-  public void testAnonymousClassDeclaration() throws IOException {
-    String translation = translateSourceFile(
-      "public class Example { Runnable run = new Runnable() { public void run() {} }; }",
-      "Example", "Example.h");
-    assertTranslation(translation, "@interface Example_$1 : NSObject < JavaLangRunnable >");
-    assertTranslation(translation, "- (void)run;");
-    // Outer reference is not required.
-    assertNotInTranslation(translation, "Example *this");
-    assertNotInTranslation(translation, "- (id)initWithExample:");
-  }
-
   public void testEnum() throws IOException {
     String translation = translateSourceFile(
       "public enum Color { RED, WHITE, BLUE }",
       "Color", "Color.h");
     assertTranslatedLines(translation,
-        "typedef NS_ENUM(NSUInteger, Color) {",
-        "  Color_RED = 0,",
-        "  Color_WHITE = 1,",
-        "  Color_BLUE = 2,",
+        "typedef NS_ENUM(NSUInteger, Color_Enum) {",
+        "  Color_Enum_RED = 0,",
+        "  Color_Enum_WHITE = 1,",
+        "  Color_Enum_BLUE = 2,",
         "};");
-    assertTranslation(translation, "@interface ColorEnum : JavaLangEnum < NSCopying > {");
+    assertTranslation(translation, "@interface Color : JavaLangEnum < NSCopying >");
     assertTranslation(translation, "+ (IOSObjectArray *)values;");
-    assertTranslation(translation, "+ (ColorEnum *)valueOfWithNSString:(NSString *)name;");
-    assertTranslation(translation, "FOUNDATION_EXPORT ColorEnum *ColorEnum_values_[];");
+    assertTranslation(translation, "+ (Color *)valueOfWithNSString:(NSString *)name;");
+    assertTranslation(translation, "FOUNDATION_EXPORT Color *Color_values_[];");
     assertTranslatedLines(translation,
-        "#define ColorEnum_RED ColorEnum_values_[Color_RED]",
-        "J2OBJC_ENUM_CONSTANT_GETTER(ColorEnum, RED)");
+        "inline Color *Color_get_RED();",
+        "J2OBJC_ENUM_CONSTANT(Color, RED)");
     assertTranslatedLines(translation,
-        "#define ColorEnum_WHITE ColorEnum_values_[Color_WHITE]",
-        "J2OBJC_ENUM_CONSTANT_GETTER(ColorEnum, WHITE)");
+        "inline Color *Color_get_WHITE();",
+        "J2OBJC_ENUM_CONSTANT(Color, WHITE)");
     assertTranslatedLines(translation,
-        "#define ColorEnum_BLUE ColorEnum_values_[Color_BLUE]",
-        "J2OBJC_ENUM_CONSTANT_GETTER(ColorEnum, BLUE)");
+        "inline Color *Color_get_BLUE();",
+        "J2OBJC_ENUM_CONSTANT(Color, BLUE)");
   }
 
   public void testEnumWithParameters() throws IOException {
@@ -472,13 +491,12 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         + "private int rgb; private Color(int rgb) { this.rgb = rgb; } "
         + "public int getRgb() { return rgb; }}",
         "Color", "Color.h");
-    assertTranslation(translation, "@interface ColorEnum : JavaLangEnum");
+    assertTranslation(translation, "@interface Color : JavaLangEnum");
     translation = getTranslatedFile("Color.m");
     assertTranslation(translation, "int rgb_;");
     assertTranslatedLines(translation,
-        "- (instancetype)initWithInt:(jint)rgb",
-        "withNSString:(NSString *)__name",
-        "withInt:(jint)__ordinal;");
+        "void Color_initWithInt_withNSString_withInt_("
+        + "Color *self, jint rgb, NSString *__name, jint __ordinal) {");
   }
 
   public void testEnumWithMultipleConstructors() throws IOException {
@@ -490,28 +508,30 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
       + "public int getRgb() { return rgb; }"
       + "public boolean isPrimaryColor() { return primary; }}",
       "Color", "Color.h");
-    assertTranslation(translation, "@interface ColorEnum : JavaLangEnum");
+    assertTranslation(translation, "@interface Color : JavaLangEnum");
     translation = getTranslatedFile("Color.m");
     assertTranslation(translation, "jboolean primary_;");
-    assertTranslatedLines(translation,
-        "- (instancetype)initWithInt:(jint)rgb",
-        "withNSString:(NSString *)__name",
-        "withInt:(jint)__ordinal;");
-    assertTranslatedLines(translation,
-        "- (instancetype)initWithInt:(jint)rgb",
-        "withBoolean:(jboolean)primary",
-        "withNSString:(NSString *)__name",
-        "withInt:(jint)__ordinal;");
     assertTranslation(translation,
-        "ColorEnum_initWithInt_withBoolean_withNSString_withInt_("
-        + "self, rgb, YES, __name, __ordinal);");
+        "Color_initWithInt_withBoolean_withNSString_withInt_("
+        + "self, rgb, true, __name, __ordinal);");
     assertTranslatedLines(translation,
-        "void ColorEnum_initWithInt_withBoolean_withNSString_withInt_("
-          + "ColorEnum *self, jint rgb, jboolean primary, NSString *__name, jint __ordinal) {",
+        "void Color_initWithInt_withBoolean_withNSString_withInt_("
+          + "Color *self, jint rgb, jboolean primary, NSString *__name, jint __ordinal) {",
         "  JavaLangEnum_initWithNSString_withInt_(self, __name, __ordinal);",
         "  self->rgb_ = rgb;",
         "  self->primary_ = primary;",
         "}");
+    assertTranslatedLines(translation,
+        "void Color_initWithInt_withNSString_withInt_("
+          + "Color *self, jint rgb, NSString *__name, jint __ordinal) {",
+        "  Color_initWithInt_withBoolean_withNSString_withInt_("
+          + "self, rgb, true, __name, __ordinal);",
+        "}");
+    assertTranslation(translation,
+        "Color_initWithInt_withBoolean_withNSString_withInt_("
+          + "e, (jint) 0xffffff, false, @\"WHITE\", 1);");
+    assertTranslation(translation,
+        "Color_initWithInt_withNSString_withInt_(e, (jint) 0x0000ff, @\"BLUE\", 2);");
   }
 
   public void testArrayFieldDeclaration() throws IOException {
@@ -565,10 +585,10 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "public enum MyEnum { ONE, TWO, THREE }",
         "MyEnum", "MyEnum.h");
-    assertTranslation(translation, "typedef NS_ENUM(NSUInteger, MyEnum) {");
-    assertTranslation(translation, "@interface MyEnumEnum : JavaLangEnum");
-    assertTranslation(translation, "FOUNDATION_EXPORT MyEnumEnum *MyEnumEnum_values_[];");
-    assertTranslation(translation, "#define MyEnumEnum_ONE MyEnumEnum_values_[MyEnum_ONE]");
+    assertTranslation(translation, "typedef NS_ENUM(NSUInteger, MyEnum_Enum) {");
+    assertTranslation(translation, "@interface MyEnum : JavaLangEnum");
+    assertTranslation(translation, "FOUNDATION_EXPORT MyEnum *MyEnum_values_[];");
+    assertTranslation(translation, "inline MyEnum *MyEnum_get_ONE();");
   }
 
   public void testNoImportForMappedTypes() throws IOException {
@@ -588,17 +608,6 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translation, "NSCopying");
   }
 
-  public void testAnonymousConcreteSubclassOfGenericAbstractType() throws IOException {
-    String translation = translateSourceFile(
-        "public class Test {"
-        + "  interface FooInterface<T> { public void foo1(T t); public void foo2(); }"
-        + "  abstract static class Foo<T> implements FooInterface<T> { public void foo2() { } }"
-        + "  Foo<Integer> foo = new Foo<Integer>() {"
-        + "    public void foo1(Integer i) { } }; }",
-        "Test", "Test.h");
-    assertTranslation(translation, "foo1WithId:(JavaLangInteger *)i");
-  }
-
   // Verify that an empty Java enum doesn't define an empty C enum,
   // which is illegal.
   public void testEmptyEnum() throws IOException {
@@ -609,8 +618,8 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertFalse(header.contains("typedef enum {\n} A_Foo;"));
 
     // Verify there's still a Java enum type.
-    assertTranslation(header, "@interface A_FooEnum : JavaLangEnum");
-    assertTranslation(impl, "@implementation A_FooEnum");
+    assertTranslation(header, "@interface A_Foo : JavaLangEnum");
+    assertTranslation(impl, "@implementation A_Foo");
   }
 
   public void testEnumWithInterfaces() throws IOException {
@@ -619,7 +628,7 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         + "enum Foo implements I, Runnable, Cloneable { "
         + "A, B, C; public void run() {}}}", "A", "A.h");
     assertTranslation(translation,
-        "@interface A_FooEnum : JavaLangEnum < NSCopying, A_I, JavaLangRunnable >");
+        "@interface A_Foo : JavaLangEnum < NSCopying, A_I, JavaLangRunnable >");
     assertTranslation(translation, "#include \"java/lang/Runnable.h\"");
   }
 
@@ -657,7 +666,7 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         + "}";
     String translation = translateSourceFile(sourceContent, "FooBar", "FooBar.m");
     assertTranslatedLines(translation,
-        "__weak FooBar_Internal *fieldBar_;",
+        "__unsafe_unretained FooBar_Internal *fieldBar_;",
         "FooBar_Internal *fieldFoo_;");
   }
 
@@ -709,22 +718,20 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
       + "private Test(String name, int ordinal) { this.name = name; this.ordinal = ordinal; }"
       + "public String getName() { return name; }}",
       "Test", "Test.h");
-    assertTranslation(translation, "@interface TestEnum : JavaLangEnum");
+    assertTranslation(translation, "@interface Test : JavaLangEnum");
     translation = getTranslatedFile("Test.m");
     assertTranslation(translation, "NSString *name_Test_;");
     assertTranslation(translation, "int ordinal_Test_;");
-    assertTranslatedLines(translation,
-        "- (instancetype)initWithNSString:(NSString *)name",
-        "withInt:(jint)ordinal",
-        "withNSString:(NSString *)__name",
-        "withInt:(jint)__ordinal;");
+    assertTranslation(translation,
+        "void Test_initWithNSString_withInt_withNSString_withInt_("
+        + "Test *self, NSString *name, jint ordinal, NSString *__name, jint __ordinal) {");
   }
 
   public void testDeprecatedEnumType() throws IOException {
     Options.enableDeprecatedDeclarations();
     String translation = translateSourceFile(
         "@Deprecated public enum Test { A, B }", "Test", "Test.h");
-    assertTranslation(translation, "__attribute__((deprecated))\n@interface TestEnum");
+    assertTranslation(translation, "__attribute__((deprecated))\n@interface Test");
   }
 
   public void testLongConstants() throws IOException {
@@ -733,34 +740,15 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translation, "123LL");
   }
 
-  public void testDocComments() throws IOException {
-    Options.setDocCommentsEnabled(true);
-    String translation = translateSourceFile(
-        "/** Class javadoc for {@link Test}. */ class Test { \n"
-        + "/** Field javadoc. */\n"
-        + "int i;"
-        + "/** Method javadoc.\n"
-        + "  * @param foo Unused.\n"
-        + "  * @return always false.\n"
-        + "  */\n"
-        + "boolean test(int foo) { return false; } }", "Test", "Test.h");
-    assertTranslation(translation, "@brief Class javadoc for Test .");
-    assertTranslation(translation, "@brief Field javadoc.");
-    assertTranslatedLines(translation,
-        "@brief Method javadoc.",
-        "@param foo Unused.",
-        "@return always false.");
-  }
-
   public void testCustomWeakAnnotations() throws IOException {
     String translation = translateSourceFile(
         "class Test { @interface Weak {} @interface WeakOuter {}"
         + " void foo() {}"
         + " @WeakOuter public class Inner { void bar() { foo(); } }"
         + " @Weak public Object obj; }", "Test", "Test.h");
-    assertTranslation(translation, "__weak id obj_;");
+    assertTranslation(translation, "__unsafe_unretained id obj_;");
     translation = getTranslatedFile("Test.m");
-    assertTranslation(translation, "__weak Test *this$0_;");
+    assertTranslation(translation, "__unsafe_unretained Test *this$0_;");
   }
 
   public void testReservedWordAsAnnotationPropertyName() throws IOException {
@@ -809,5 +797,44 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "package bar; public class Test extends Foo {} "
         + "abstract class Foo {}", "Test", "bar/Test.h");
     assertNotInTranslation(translation, "#include \"Foo.h\"");
+  }
+
+  public void testNoForwardDeclarationWhenIncluded() throws IOException {
+    Options.setSegmentedHeaders(false);
+    addSourceFile("class Foo { static class Bar { } }", "Foo.java");
+    String translation = translateSourceFile(
+        "class Test extends Foo { Foo.Bar bar; }", "Test", "Test.h");
+    assertTranslation(translation, "#include \"Foo.h\"");
+    // Forward declaration for Foo_Bar is not needed because we've included Foo.h.
+    assertNotInTranslation(translation, "@class Foo_Bar");
+  }
+
+  // Verify that the default constructor is disallowed if the class has a non-default
+  // constructor.
+  public void testDefaultConstructorDisallowed() throws IOException {
+    Options.setDisallowInheritedConstructors(true);
+    String translation = translateSourceFile("class Test { Test(int i) {} }", "Test", "Test.h");
+    assertTranslation(translation, "- (instancetype)initWithInt:(jint)i;");
+    assertTranslation(translation, "- (instancetype)init NS_UNAVAILABLE;");
+  }
+
+  // Verify that inherited constructors are disallowed. Exception has four constructors,
+  // so a subclass that only implements one should have the other three disallowed.
+  public void testConstructorsDisallowed() throws IOException {
+    Options.setDisallowInheritedConstructors(true);
+    String translation = translateSourceFile(
+        "class Test extends Exception { Test(String s) { super(s); } }", "Test", "Test.h");
+    assertTranslation(translation, "- (instancetype)initWithNSString:(NSString *)s;");
+    assertTranslation(translation, "- (instancetype)init NS_UNAVAILABLE;");
+    assertTranslation(translation,
+        "- (instancetype)initWithNSException:(NSException *)arg0 NS_UNAVAILABLE;");
+    assertTranslatedLines(translation,
+        "- (instancetype)initWithNSString:(NSString *)arg0",
+        "withNSException:(NSException *)arg1 NS_UNAVAILABLE;");
+    assertTranslatedLines(translation,
+        "- (instancetype)initWithNSString:(NSString *)arg0",
+        "withNSException:(NSException *)arg1",
+        "withBoolean:(jboolean)arg2",
+        "withBoolean:(jboolean)arg3 NS_UNAVAILABLE;");
   }
 }

@@ -37,7 +37,7 @@ public class AutoboxerTest extends GenerationTest {
 
     // i should not be boxed since its argument is explicitly declared,
     // but 1 and 2 should be because they are passed as varargs.
-    assertTranslation(translation, "twoWithTest:[[[Test alloc] initWithNSString:s] autorelease] "
+    assertTranslation(translation, "twoWithTest:[new_Test_initWithNSString_(s) autorelease] "
         + "withInt:i withJavaLangIntegerArray:"
         + "[IOSObjectArray arrayWithObjects:(id[]){ JavaLangInteger_valueOfWithInt_(1), "
         + "JavaLangInteger_valueOfWithInt_(2) } count:2 type:JavaLangInteger_class_()]];");
@@ -195,7 +195,7 @@ public class AutoboxerTest extends GenerationTest {
         "public class Test { "
         + "void test() { Boolean b = true ? false : null; } }",
         "Test", "Test.m");
-    assertTranslation(translation, "JavaLangBoolean_valueOfWithBoolean_(NO)");
+    assertTranslation(translation, "JavaLangBoolean_valueOfWithBoolean_(false)");
   }
 
   public void testReturnWithConditional() throws IOException {
@@ -203,7 +203,7 @@ public class AutoboxerTest extends GenerationTest {
         "public class Test { "
         + "boolean test() { Boolean b = null; return b != null ? b : false; } }",
         "Test", "Test.m");
-    assertTranslation(translation, "b != nil ? [b booleanValue] : NO");
+    assertTranslation(translation, "b != nil ? [b booleanValue] : false");
   }
 
   public void testConditionalOnBoxedValue() throws IOException {
@@ -280,15 +280,13 @@ public class AutoboxerTest extends GenerationTest {
   public void testBoxedTypeLiteral() throws IOException {
     String source = "public class Test { Class c = int.class; }";
     String translation = translateSourceFile(source, "Test", "Test.m");
-    assertTranslation(translation, "Test_set_c_(self, [IOSClass intClass]);");
+    assertTranslation(translation, "JreStrongAssign(&self->c_, [IOSClass intClass]);");
   }
 
   public void testBoxedLhsOperatorAssignment() throws IOException {
     String source = "public class Test { Integer i = 1; void foo() { i *= 2; } }";
     String translation = translateSourceFile(source, "Test", "Test.m");
-    assertTranslation(translation,
-        "Test_set_i_(self, "
-        + "JavaLangInteger_valueOfWithInt_([((JavaLangInteger *) nil_chk(i_)) intValue] * 2));");
+    assertTranslation(translation, "JreBoxedTimesAssignStrongInt(&i_, 2);");
   }
 
   public void testBoxedEnumConstructorArgs() throws IOException {
@@ -296,11 +294,11 @@ public class AutoboxerTest extends GenerationTest {
     String translation = translateSourceFile(source, "Test", "Test.m");
 
     assertTranslation(translation,
-        "[[TestEnum alloc] initWithId:JavaLangInteger_valueOfWithInt_(0) "
-        + "withNSString:@\"INT\" withInt:0]");
+        "Test_initWithId_withNSString_withInt_("
+        + "e, JavaLangInteger_valueOfWithInt_(0), @\"INT\", 0);");
     assertTranslation(translation,
-        "[[TestEnum alloc] initWithId:JavaLangBoolean_valueOfWithBoolean_(NO) "
-        + "withNSString:@\"BOOLEAN\" withInt:1]");
+        "Test_initWithId_withNSString_withInt_("
+        + "e, JavaLangBoolean_valueOfWithBoolean_(false), @\"BOOLEAN\", 1);");
   }
 
   public void testBoxedBoolInIf() throws IOException {
@@ -419,8 +417,8 @@ public class AutoboxerTest extends GenerationTest {
         "class Test { void takesDouble(double d) {} void test() { takesDouble(new Double(1.2)); }}",
         "Test", "Test.m");
     assertTranslation(translation,
-        "[self takesDoubleWithDouble:[((JavaLangDouble *) [[[JavaLangDouble alloc] "
-        + "initWithDouble:1.2] autorelease]) doubleValue]];");
+        "[self takesDoubleWithDouble:[((JavaLangDouble *) [new_JavaLangDouble_initWithDouble_(1.2) "
+        + "autorelease]) doubleValue]];");
   }
 
   public void testWildcardBoxType() throws IOException {
@@ -443,7 +441,7 @@ public class AutoboxerTest extends GenerationTest {
     String translation = translateSourceFile(
         "class Test { void test(int i) { assert i == 0 : i; }}", "Test", "Test.m");
     assertTranslation(translation,
-        "NSAssert(i == 0, [JavaLangInteger_valueOfWithInt_(i) description]);");
+        "JreAssert((i == 0), (JavaLangInteger_valueOfWithInt_(i)));");
   }
 
   public void testNonWrapperObjectTypeCastToPrimitive() throws IOException {
@@ -452,10 +450,52 @@ public class AutoboxerTest extends GenerationTest {
         + "int test2(Integer i) { return (int) i; } }", "Test", "Test.m");
     assertTranslation(translation,
         "return [((JavaLangInteger *) nil_chk((JavaLangInteger *) "
-        + "check_class_cast(o, [JavaLangInteger class]))) intValue];");
+        + "cast_chk(o, [JavaLangInteger class]))) intValue];");
     // Make sure we don't unnecessarily add a cast check if the object type
     // matches the primitive cast type.
     assertTranslation(translation,
         "return [((JavaLangInteger *) nil_chk(i)) intValue];");
+  }
+
+  public void testBoxedOperators() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { Integer si; Long sl; Float sf; Double sd;"
+        + " Integer[] ai; Long[] al; Float[] af; Double[] ad;"
+        + " void test(Integer wi, Long wl, Float wf, Double wd) {"
+        + " si++; wi++; ++sl; ++wl; sf--; wf--; --sd; --wd;"
+        + " si += 5; wi += 5; sl &= 6l; wl &= 6l;"
+        + " si <<= 2; wi <<= 2; sl >>>= 3; wl >>>= 3;"
+        + " ai[0]++; --al[1]; af[2] += 9; ad[3] -= 8; } }", "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "JreBoxedPostIncrStrongInt(&si_);",
+        "JreBoxedPostIncrInt(&wi);",
+        "JreBoxedPreIncrStrongLong(&sl_);",
+        "JreBoxedPreIncrLong(&wl);",
+        "JreBoxedPostDecrStrongFloat(&sf_);",
+        "JreBoxedPostDecrFloat(&wf);",
+        "JreBoxedPreDecrStrongDouble(&sd_);",
+        "JreBoxedPreDecrDouble(&wd);",
+        "JreBoxedPlusAssignStrongInt(&si_, 5);",
+        "JreBoxedPlusAssignInt(&wi, 5);",
+        "JreBoxedBitAndAssignStrongLong(&sl_, 6l);",
+        "JreBoxedBitAndAssignLong(&wl, 6l);",
+        "JreBoxedLShiftAssignStrongInt(&si_, 2);",
+        "JreBoxedLShiftAssignInt(&wi, 2);",
+        "JreBoxedURShiftAssignStrongLong(&sl_, 3);",
+        "JreBoxedURShiftAssignLong(&wl, 3);",
+        "JreBoxedPostIncrArrayInt(IOSObjectArray_GetRef(nil_chk(ai_), 0));",
+        "JreBoxedPreDecrArrayLong(IOSObjectArray_GetRef(nil_chk(al_), 1));",
+        "JreBoxedPlusAssignArrayFloat(IOSObjectArray_GetRef(nil_chk(af_), 2), 9);",
+        "JreBoxedMinusAssignArrayDouble(IOSObjectArray_GetRef(nil_chk(ad_), 3), 8);");
+  }
+
+  // https://github.com/google/j2objc/issues/648
+  public void testLongCastOfInteger() throws IOException {
+    String translation = translateSourceFile(
+        "class Test { "
+        + "void test() { "
+        + "  Integer tmp_int = new Integer(100); "
+        + "  long tmp_long = (long)tmp_int; }}", "Test", "Test.m");
+    assertTranslation(translation, "jlong tmp_long = [tmp_int longLongValue];");
   }
 }

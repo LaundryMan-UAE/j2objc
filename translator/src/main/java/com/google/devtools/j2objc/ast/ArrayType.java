@@ -22,11 +22,15 @@ import org.eclipse.jdt.core.dom.ITypeBinding;
  */
 public class ArrayType extends Type {
 
+  // TODO(kirbs): Add dimensions into pipeline processing for annotations support on dimensions.
   private ChildLink<Type> componentType = ChildLink.create(Type.class, this);
 
   public ArrayType(org.eclipse.jdt.core.dom.ArrayType jdtNode) {
     super(jdtNode);
-    componentType.set((Type) TreeConverter.convert(jdtNode.getComponentType()));
+    // This could also be implemented as an element type and dimensions for JLS8, but we mainly deal
+    // with ArrayTypes through the ArrayType(ITypeBinding) initializer, in the ArrayRewriter, for
+    // which we use ITypeBinding's componentType anyway.
+    componentType.set((Type) Type.newType(jdtNode.resolveBinding().getComponentType()));
   }
 
   public ArrayType(ArrayType other) {

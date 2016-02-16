@@ -69,15 +69,22 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
     addParameters(m);
   }
 
+  public static GeneratedMethodBinding newNamedMethod(String name, IMethodBinding m) {
+    return new GeneratedMethodBinding(null, name, m.getModifiers(),
+        m.getReturnType(), null, m.getDeclaringClass(), m.isConstructor(), m.isVarargs());
+  }
+
   public static GeneratedMethodBinding newMethod(
       String name, int modifiers, ITypeBinding returnType, ITypeBinding declaringClass) {
     return new GeneratedMethodBinding(
         null, name, modifiers, returnType, null, declaringClass, false, false);
   }
 
-  public static GeneratedMethodBinding newConstructor(ITypeBinding clazz, int modifiers) {
+  public static GeneratedMethodBinding newConstructor(
+      ITypeBinding clazz, int modifiers, Types typeEnv) {
     return new GeneratedMethodBinding(
-        null, NameTable.INIT_NAME, modifiers, Types.mapTypeName("void"), null, clazz, true, false);
+        null, NameTable.INIT_NAME, modifiers, typeEnv.mapTypeName("void"), null, clazz, true,
+        false);
   }
 
   @Override
@@ -158,6 +165,10 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
 
   public void addParameters(IMethodBinding method) {
     parameters.addAll(Arrays.asList(method.getParameterTypes()));
+  }
+
+  public List<ITypeBinding> getParameters() {
+    return parameters;
   }
 
   @Override
@@ -276,5 +287,13 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
     }
     sb.append(')');
     return sb.toString();
+  }
+
+  public ITypeBinding getDeclaredReceiverType() {
+    return null;
+  }
+
+  public IBinding getDeclaringMember() {
+    return null;
   }
 }

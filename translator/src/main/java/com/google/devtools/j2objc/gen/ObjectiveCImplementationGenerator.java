@@ -19,18 +19,8 @@ package com.google.devtools.j2objc.gen;
 import com.google.common.collect.Sets;
 import com.google.devtools.j2objc.J2ObjC;
 import com.google.devtools.j2objc.Options;
-import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
-import com.google.devtools.j2objc.ast.CompilationUnit;
-import com.google.devtools.j2objc.ast.NativeDeclaration;
-import com.google.devtools.j2objc.ast.PackageDeclaration;
-import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.types.ImplementationImportCollector;
 import com.google.devtools.j2objc.types.Import;
-import com.google.devtools.j2objc.util.NameTable;
-import com.google.devtools.j2objc.util.TranslationUtil;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -52,7 +42,7 @@ public class ObjectiveCImplementationGenerator extends ObjectiveCSourceFileGener
 
   private ObjectiveCImplementationGenerator(GenerationUnit unit) {
     super(unit, Options.emitLineDirectives());
-    suffix = Options.getImplementationFileSuffix();
+    suffix = Options.getLanguage().suffix();
   }
 
   @Override
@@ -60,134 +50,74 @@ public class ObjectiveCImplementationGenerator extends ObjectiveCSourceFileGener
     return suffix;
   }
 
-  private void setGenerationContext(AbstractTypeDeclaration type) {
-    TreeUtil.getCompilationUnit(type).setGenerationContext();
-  }
-
   public void generate() {
-    List<CompilationUnit> units = getGenerationUnit().getCompilationUnits();
-    List<AbstractTypeDeclaration> types = collectTypes(units);
-    List<CompilationUnit> packageInfos = collectPackageInfos(units);
-
-    println(J2ObjC.getFileHeader(getGenerationUnit().getSourceName()));
-    if (!types.isEmpty() || !packageInfos.isEmpty()) {
-      printStart(getGenerationUnit().getSourceName());
-      printImports();
-      for (CompilationUnit packageInfo : packageInfos) {
-        packageInfo.setGenerationContext();
-        generatePackageInfo(packageInfo);
-      }
-
-      if (!types.isEmpty()) {
-        printIgnoreIncompletePragmas(units);
-        pushIgnoreDeprecatedDeclarationsPragma();
-        for (AbstractTypeDeclaration type : types) {
-          setGenerationContext(type);
-          TypePrivateDeclarationGenerator.generate(getBuilder(), type);
-        }
-        for (AbstractTypeDeclaration type : types) {
-          setGenerationContext(type);
-          TypeImplementationGenerator.generate(getBuilder(), type);
-        }
-        popIgnoreDeprecatedDeclarationsPragma();
-      }
+    print(J2ObjC.getFileHeader(getGenerationUnit().getSourceName()));
+    printImports();
+    printIgnoreIncompletePragmas();
+    pushIgnoreDeprecatedDeclarationsPragma();
+    for (GeneratedType generatedType : getOrderedTypes()) {
+      print(generatedType.getPrivateDeclarationCode());
     }
+    for (GeneratedType generatedType : getOrderedTypes()) {
+      print(generatedType.getImplementationCode());
+    }
+    popIgnoreDeprecatedDeclarationsPragma();
 
+    // TODO(kstanger): We should write directly to file instead of using a builder.
     save(getOutputPath());
   }
 
-  private List<AbstractTypeDeclaration> collectTypes(List<CompilationUnit> units) {
-    final List<AbstractTypeDeclaration> types = new ArrayList<AbstractTypeDeclaration>();
-
-    for (CompilationUnit unit : units) {
-      for (AbstractTypeDeclaration type : unit.getTypes()) {
-        types.add(type);
-      }
+  private void printIgnoreIncompletePragmas() {
+    GenerationUnit unit = getGenerationUnit();
+    if (unit.hasIncompleteProtocol() || unit.hasIncompleteImplementation()) {
+      newline();
     }
-
-    return types;
-  }
-
-  private List<CompilationUnit> collectPackageInfos(List<CompilationUnit> units) {
-    List<CompilationUnit> packageInfos = new ArrayList<CompilationUnit>();
-
-    for (CompilationUnit unit : units) {
-      unit.setGenerationContext();
-      if (unit.getMainTypeName().endsWith(NameTable.PACKAGE_INFO_MAIN_TYPE)) {
-        PackageDeclaration pkg = unit.getPackage();
-        if (TreeUtil.getRuntimeAnnotationsList(pkg.getAnnotations()).size() > 0
-            && TranslationUtil.needsReflection(pkg)) {
-          packageInfos.add(unit);
-        }
-      }
+    if (unit.hasIncompleteProtocol()) {
+      println("#pragma clang diagnostic ignored \"-Wprotocol\"");
     }
-
-    return packageInfos;
-  }
-
-  private void printIgnoreIncompletePragmas(List<CompilationUnit> units) {
-    boolean needsNewline = true;
-
-    for (CompilationUnit unit : units) {
-      if (unit.hasIncompleteProtocol()) {
-        newline();
-        needsNewline = false;
-        println("#pragma clang diagnostic ignored \"-Wprotocol\"");
-        break;
-      }
-    }
-
-    for (CompilationUnit unit : units) {
-      if (unit.hasIncompleteImplementation()) {
-        if (needsNewline) {
-          newline();
-        }
-        println("#pragma clang diagnostic ignored \"-Wincomplete-implementation\"");
-        break;
-      }
-    }
-  }
-
-  private void generatePackageInfo(CompilationUnit unit) {
-    PackageDeclaration node = unit.getPackage();
-    newline();
-    String typeName = NameTable.camelCaseQualifiedName(node.getPackageBinding().getName())
-        + NameTable.PACKAGE_INFO_MAIN_TYPE;
-    printf("@interface %s : NSObject\n", typeName);
-    printf("@end\n\n");
-    printf("@implementation %s\n", typeName);
-    new RuntimeAnnotationGenerator(getBuilder()).printPackageAnnotationMethod(node);
-    println("\n@end");
-  }
-
-  private void printNativeDefinition(NativeDeclaration declaration) {
-    newline();
-    String code = declaration.getImplementationCode();
-    if (code != null) {
-      println(reindent(code));
+    if (unit.hasIncompleteImplementation()) {
+      println("#pragma clang diagnostic ignored \"-Wincomplete-implementation\"");
     }
   }
 
   private void printImports() {
-    ImplementationImportCollector collector = new ImplementationImportCollector();
-    collector.collect(getGenerationUnit().getCompilationUnits());
-    Set<Import> imports = collector.getImports();
-
-    Set<String> includeStmts = Sets.newTreeSet();
-    includeStmts.add("#include \"J2ObjC_source.h\"");
-    for (Import imp : imports) {
-      includeStmts.add(String.format("#include \"%s.h\"", imp.getImportFileName()));
+    Set<String> includeFiles = Sets.newTreeSet();
+    includeFiles.add("J2ObjC_source.h");
+    includeFiles.add(getGenerationUnit().getOutputPath() + ".h");
+    for (GeneratedType generatedType : getOrderedTypes()) {
+      for (Import imp : generatedType.getImplementationIncludes()) {
+        if (!isLocalType(imp.getTypeName())) {
+          includeFiles.add(imp.getImportFileName());
+        }
+      }
     }
 
     newline();
-    for (String stmt : includeStmts) {
-      println(stmt);
+    for (String header : includeFiles) {
+      printf("#include \"%s\"\n", header);
     }
 
-    for (CompilationUnit node : getGenerationUnit().getCompilationUnits()) {
-      for (NativeDeclaration decl : node.getNativeBlocks()) {
-        printNativeDefinition(decl);
+    for (String code : getGenerationUnit().getNativeImplementationBlocks()) {
+      print(code);
+    }
+
+    Set<String> seenTypes = Sets.newHashSet();
+    Set<Import> forwardDecls = Sets.newHashSet();
+    for (GeneratedType generatedType : getOrderedTypes()) {
+      String name = generatedType.getTypeName();
+      if (name != null) {
+        seenTypes.add(name);
+      }
+      for (Import imp : generatedType.getImplementationForwardDeclarations()) {
+        // Only need to forward declare private local types. All else is handled
+        // by imports.
+        GeneratedType localType = getLocalType(imp.getTypeName());
+        if (!seenTypes.contains(imp.getTypeName()) && localType != null && localType.isPrivate()) {
+          forwardDecls.add(imp);
+        }
       }
     }
+
+    printForwardDeclarations(forwardDecls);
   }
 }

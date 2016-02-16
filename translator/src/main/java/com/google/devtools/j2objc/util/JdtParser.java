@@ -17,7 +17,8 @@ package com.google.devtools.j2objc.util;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.devtools.j2objc.file.InputFile;
+import com.google.devtools.j2objc.Options;
+import com.google.devtools.j2objc.Options.LintOption;
 
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.AST;
@@ -27,7 +28,8 @@ import org.eclipse.jdt.core.dom.FileASTRequestor;
 
 import java.io.File;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
+import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -50,10 +52,21 @@ public class JdtParser {
 
   private static Map<String, String> initCompilerOptions() {
     Map<String, String> compilerOptions = Maps.newHashMap();
-    // TODO(kstanger): Make the version configurable with -source like javac.
-    compilerOptions.put(org.eclipse.jdt.core.JavaCore.COMPILER_SOURCE, "1.7");
-    compilerOptions.put(org.eclipse.jdt.core.JavaCore.COMPILER_CODEGEN_TARGET_PLATFORM, "1.7");
-    compilerOptions.put(org.eclipse.jdt.core.JavaCore.COMPILER_COMPLIANCE, "1.7");
+    String version = Options.getSourceVersion();
+    compilerOptions.put(org.eclipse.jdt.core.JavaCore.COMPILER_SOURCE, version);
+    compilerOptions.put(org.eclipse.jdt.core.JavaCore.COMPILER_CODEGEN_TARGET_PLATFORM, version);
+    compilerOptions.put(org.eclipse.jdt.core.JavaCore.COMPILER_COMPLIANCE, version);
+
+    // Turn on any specified lint warnings.
+    EnumSet<LintOption> lintOptions = Options.lintOptions();
+    for (Options.LintOption lintOption : lintOptions) {
+      compilerOptions.put(lintOption.jdtFlag(), "warning");
+    }
+
+    // Turn off any warnings on by default but not requested.
+    for (Options.LintOption lintOption : EnumSet.complementOf(lintOptions)) {
+      compilerOptions.put(lintOption.jdtFlag(), "ignore");
+    }
     return compilerOptions;
   }
 
@@ -78,6 +91,12 @@ public class JdtParser {
   public void addSourcepathEntry(String entry) {
     if (isValidPathEntry(entry)) {
       sourcepathEntries.add(entry);
+    }
+  }
+
+  public void prependSourcepathEntry(String entry) {
+    if (isValidPathEntry(entry)) {
+      sourcepathEntries.add(0, entry);
     }
   }
 
@@ -107,13 +126,24 @@ public class JdtParser {
         enable ? "enabled" : "disabled");
   }
 
-  public CompilationUnit parse(String unitName, String source) {
-    ASTParser parser = newASTParser();
+  public CompilationUnit parseWithoutBindings(String unitName, String source) {
+    return parse(unitName, source, false);
+  }
+
+  public CompilationUnit parseWithBindings(String unitName, String source) {
+    return parse(unitName, source, true);
+  }
+
+  private CompilationUnit parse(String unitName, String source, boolean resolveBindings) {
+    ASTParser parser = newASTParser(resolveBindings);
     parser.setUnitName(unitName);
     parser.setSource(source.toCharArray());
     CompilationUnit unit = (CompilationUnit) parser.createAST(null);
-    checkCompilationErrors(unitName, unit);
-    return unit;
+    if (checkCompilationErrors(unitName, unit)) {
+      return unit;
+    } else {
+      return null;
+    }
   }
 
   /**
@@ -121,25 +151,17 @@ public class JdtParser {
    * implementation is called with the parsed units.
    */
   public interface Handler {
-    public void handleParsedUnit(InputFile filePath, CompilationUnit unit);
+    public void handleParsedUnit(String path, CompilationUnit unit);
   }
 
-  public void parseFiles(List<InputFile> files, final Handler handler) {
-    // We need the whole SourceFile to correctly handle a parsed ADT, so we keep track of it here.
-    final Map<String, InputFile> reverseMap = new LinkedHashMap<String, InputFile>();
-    for (InputFile file: files) {
-      reverseMap.put(file.getPath(), file);
-    }
-
-    ASTParser parser = newASTParser();
+  public void parseFiles(Collection<String> paths, final Handler handler) {
+    ASTParser parser = newASTParser(true);
     FileASTRequestor astRequestor = new FileASTRequestor() {
       @Override
       public void acceptAST(String sourceFilePath, CompilationUnit ast) {
         logger.fine("acceptAST: " + sourceFilePath);
-        int errors = ErrorUtil.errorCount();
-        checkCompilationErrors(sourceFilePath, ast);
-        if (errors == ErrorUtil.errorCount()) {
-          handler.handleParsedUnit(reverseMap.get(sourceFilePath), ast);
+        if (checkCompilationErrors(sourceFilePath, ast)) {
+          handler.handleParsedUnit(sourceFilePath, ast);
         }
       }
     };
@@ -147,14 +169,21 @@ public class JdtParser {
     // number of "binding key" strings as source files. It doesn't appear to
     // matter what the binding key strings should be (as long as they're non-
     // null), so the paths array is reused.
-    String[] paths = reverseMap.keySet().toArray(new String[reverseMap.size()]);
-    parser.createASTs(paths, getEncodings(paths.length), paths, astRequestor, null);
+    String[] pathsArray = paths.toArray(new String[paths.size()]);
+    parser.createASTs(pathsArray, getEncodings(pathsArray.length), pathsArray, astRequestor, null);
   }
 
-  private ASTParser newASTParser() {
-    ASTParser parser = ASTParser.newParser(AST.JLS4);
+  @SuppressWarnings("deprecation")
+  private ASTParser newASTParser(boolean resolveBindings) {
+    ASTParser parser;
+    if (Options.isJava8Translator()) {
+      parser = ASTParser.newParser(AST.JLS8);
+    } else {
+      parser = ASTParser.newParser(AST.JLS4); // Java 7
+    }
+
     parser.setCompilerOptions(compilerOptions);
-    parser.setResolveBindings(true);
+    parser.setResolveBindings(resolveBindings);
     parser.setEnvironment(
         toArray(classpathEntries), toArray(sourcepathEntries),
         getEncodings(sourcepathEntries.size()), includeRunningVMBootclasspath);
@@ -180,12 +209,19 @@ public class JdtParser {
     return encodings;
   }
 
-  private void checkCompilationErrors(String filename, CompilationUnit unit) {
+  private boolean checkCompilationErrors(String filename, CompilationUnit unit) {
+    boolean hasErrors = false;
     for (IProblem problem : unit.getProblems()) {
       if (problem.isError()) {
         ErrorUtil.error(String.format(
             "%s:%s: %s", filename, problem.getSourceLineNumber(), problem.getMessage()));
+        hasErrors = true;
+      }
+      if (problem.isWarning()) {
+        ErrorUtil.warning(String.format(
+            "%s:%s: warning: %s", filename, problem.getSourceLineNumber(), problem.getMessage()));
       }
     }
+    return !hasErrors;
   }
 }

@@ -16,13 +16,10 @@
 
 package java.nio;
 
+import com.google.j2objc.LibraryNotLinkedError;
+
 import java.io.FileDescriptor;
-import java.io.IOException;
-import java.net.SocketOption;
-import java.net.StandardSocketOptions;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
-import java.util.Set;
 
 /**
  * @hide internal use only
@@ -30,6 +27,12 @@ import java.util.Set;
 public final class NioUtils {
     private NioUtils() {
     }
+
+    // Substitutions for java.nio.channels.FileChannel.MapMode instances.
+    public static final int NO_MAP_MODE = 0;
+    public static final int PRIVATE = 1;
+    public static final int READ_ONLY = 2;
+    public static final int READ_WRITE = 3;
 
     public static void freeDirectBuffer(ByteBuffer buffer) {
         if (buffer == null) {
@@ -39,18 +42,41 @@ public final class NioUtils {
     }
 
     /**
-     * Returns the int file descriptor from within the given FileChannel 'fc'.
-     */
-    public static FileDescriptor getFD(FileChannel fc) {
-        return ((FileChannelImpl) fc).getFD();
-    }
-
-    /**
      * Helps bridge between io and nio.
      */
     public static FileChannel newFileChannel(Object stream, FileDescriptor fd, int mode) {
-        return new FileChannelImpl(stream, fd, mode);
+        ChannelFactory factory = ChannelFactory.INSTANCE;
+        if (factory == null) {
+          throw new LibraryNotLinkedError("Channel support", "jre_channels",
+              "JavaNioChannelFactoryImpl");
+        }
+        return factory.newFileChannel(stream, fd, mode);
     }
+
+    public static FileChannel newFileChannelSafe(Object stream, FileDescriptor fd, int mode) {
+      ChannelFactory factory = ChannelFactory.INSTANCE;
+      if (factory != null) {
+        return factory.newFileChannel(stream, fd, mode);
+      } else {
+        return null;
+      }
+    }
+
+    static interface ChannelFactory {
+      FileChannel newFileChannel(Object stream, FileDescriptor fd, int mode);
+
+      static final ChannelFactory INSTANCE = getChannelFactory();
+    }
+
+    // Native implementation avoids the use of Class.forName(). This code might end up invoked from
+    // within the internals of Class.forName(), and re-invoking it causes deadlock.
+    private static native ChannelFactory getChannelFactory() /*-[
+      Class cls = NSClassFromString(@"JavaNioChannelFactoryImpl");
+      if (cls) {
+        return [[[cls alloc] init] autorelease];
+      }
+      return nil;
+    ]-*/;
 
     /**
      * Exposes the array backing a non-direct ByteBuffer, even if the ByteBuffer is read-only.
@@ -67,66 +93,4 @@ public final class NioUtils {
     public static int unsafeArrayOffset(ByteBuffer b) {
         return ((ByteArrayBuffer) b).arrayOffset;
     }
-
-    /**
-     * Sets the supplied option on the channel to have the value if option is a member of
-     * allowedOptions.
-     *
-     * @throws IOException
-     *          if the value could not be set due to IO errors.
-     * @throws IllegalArgumentException
-     *          if the socket option or the value is invalid.
-     * @throws UnsupportedOperationException
-     *          if the option is not a member of allowedOptions.
-     * @throws ClosedChannelException
-     *          if the channel is closed
-     */
-    public static <T> void setSocketOption(
-            FileDescriptorChannel channel, Set<SocketOption<?>> allowedOptions,
-            SocketOption<T> option, T value)
-            throws IOException {
-
-        if (!(option instanceof StandardSocketOptions.SocketOptionImpl)) {
-            throw new IllegalArgumentException("SocketOption must come from StandardSocketOptions");
-        }
-        if (!allowedOptions.contains(option)) {
-            throw new UnsupportedOperationException(
-                    option + " is not supported for this type of socket");
-        }
-        if (!channel.getFD().valid()) {
-            throw new ClosedChannelException();
-        }
-        ((StandardSocketOptions.SocketOptionImpl<T>) option).setValue(channel.getFD(), value);
-    }
-
-    /**
-     * Gets the supplied option from the channel if option is a member of allowedOptions.
-     *
-     * @throws IOException
-     *          if the value could not be read due to IO errors.
-     * @throws IllegalArgumentException
-     *          if the socket option is invalid.
-     * @throws UnsupportedOperationException
-     *          if the option is not a member of allowedOptions.
-     * @throws ClosedChannelException
-     *          if the channel is closed
-     */
-    public static <T> T getSocketOption(
-            FileDescriptorChannel channel, Set<SocketOption<?>> allowedOptions,
-            SocketOption<T> option)
-            throws IOException {
-
-        if (!(option instanceof StandardSocketOptions.SocketOptionImpl)) {
-            throw new IllegalArgumentException("SocketOption must come from StandardSocketOptions");
-        }
-        if (!allowedOptions.contains(option)) {
-            throw new UnsupportedOperationException(
-                    option + " is not supported for this type of socket");
-        }
-        if (!channel.getFD().valid()) {
-            throw new ClosedChannelException();
-        }
-        return ((StandardSocketOptions.SocketOptionImpl<T>) option).getValue(channel.getFD());
-    }
-
 }

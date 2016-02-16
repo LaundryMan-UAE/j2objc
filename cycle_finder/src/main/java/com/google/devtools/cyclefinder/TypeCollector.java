@@ -59,7 +59,7 @@ class TypeCollector {
       return;
     }
     type = getElementType(type);
-    if (allTypes.containsKey(type.getKey()) || type.isPrimitive()) {
+    if (allTypes.containsKey(type.getKey()) || type.isPrimitive() || type.isRawType()) {
       return;
     }
     if (hasNestedWildcard(type)) {
@@ -117,7 +117,7 @@ class TypeCollector {
       public boolean visit(AnonymousClassDeclaration node) {
         ITypeBinding binding = node.getTypeBinding();
         visitType(binding);
-        renamings.put(binding, "anonymous:" + unit.getLineNumber(node.getStartPosition()));
+        renamings.put(binding, "anonymous:" + node.getLineNumber());
         return true;
       }
       @Override

@@ -17,6 +17,7 @@ import com.google.devtools.j2objc.Options;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.jar.JarFile;
@@ -38,23 +39,52 @@ public class JarredInputFile implements InputFile {
    * @param internalPath the file's path within the jar
    */
   public JarredInputFile(String jarPath, String internalPath) {
-    assert jarPath.endsWith(".jar");
+    assert !jarPath.endsWith(".java");
     this.jarPath = jarPath;
     this.internalPath = internalPath;
   }
 
   @Override
   public boolean exists() throws IOException {
-    JarFile jarFile = new JarFile(jarPath);
+    try (JarFile jarFile = new JarFile(jarPath)) {
+      ZipEntry entry = jarFile.getEntry(internalPath);
+      return entry != null;
+    }
+  }
+
+  @Override
+  public InputStream getInputStream() throws IOException {
+    final JarFile jarFile = new JarFile(jarPath);
     ZipEntry entry = jarFile.getEntry(internalPath);
-    return entry != null;
+    final InputStream entryStream = jarFile.getInputStream(entry);
+    return new InputStream() {
+
+      @Override
+      public int read() throws IOException {
+        return entryStream.read();
+      }
+
+      @Override
+      public int read(byte[] buffer) throws IOException {
+        return entryStream.read(buffer);
+      }
+
+      @Override
+      public int read(byte[] buffer, int byteOffset, int byteCount) throws IOException {
+        return entryStream.read(buffer, byteOffset, byteCount);
+      }
+
+      @Override
+      public void close() throws IOException {
+        entryStream.close();
+        jarFile.close();
+      }
+    };
   }
 
   @Override
   public Reader openReader() throws IOException {
-    JarFile jarFile = new JarFile(jarPath);
-    ZipEntry entry = jarFile.getEntry(internalPath);
-    return new InputStreamReader(jarFile.getInputStream(entry), Options.getCharset());
+    return new InputStreamReader(getInputStream(), Options.getCharset());
   }
 
   @Override
@@ -69,6 +99,11 @@ public class JarredInputFile implements InputFile {
   @Override
   public String getUnitName() {
     return internalPath;
+  }
+
+  @Override
+  public String getBasename() {
+    return internalPath.substring(internalPath.lastIndexOf('/') + 1);
   }
 
   @Override

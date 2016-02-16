@@ -19,14 +19,14 @@
 //  Created by Tom Ball on 6/21/11.
 //
 
-#import "IOSArray.h"
+#import "IOSArray_PackagePrivate.h"
 
 #import "IOSArrayClass.h"
 #import "IOSClass.h"
 #import "IOSObjectArray.h"
 #import "IOSPrimitiveArray.h"
-#import "java/lang/AssertionError.h"
 #import "java/lang/ArrayIndexOutOfBoundsException.h"
+#import "java/lang/AssertionError.h"
 
 static id NewArrayWithDimensionsAndComponentTypes(
     Class self, NSUInteger dimensionCount, const jint *dimensionLengths,
@@ -37,7 +37,11 @@ static id NewArrayWithDimensionsAndComponentTypes(
   // If dimension of 1, just return a regular array.
   if (dimensionCount == 1) {
     if (componentType) {
-      return [IOSObjectArray newArrayWithLength:size type:componentType];
+      if ([componentType isPrimitive]) {
+        return [[componentType objcArrayClass] newArrayWithLength:size];
+      } else {
+        return [IOSObjectArray newArrayWithLength:size type:componentType];
+      }
     } else {
       return [self newArrayWithLength:size];
     }
@@ -86,8 +90,7 @@ id IOSArray_NewArrayWithDimensions(
 }
 
 + (id)iosClass {
-  @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithNSString:
-      @"abstract method not overridden"]);
+  @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithId:@"abstract method not overridden"]);
 }
 
 - (jint)length {
@@ -132,11 +135,10 @@ void IOSArray_throwOutOfBoundsWithMsg(jint size, jint index) {
 
 - (IOSClass *)elementType {
 #if __has_feature(objc_arc)
-  @throw [[JavaLangAssertionError alloc]
-           initWithNSString:@"abstract method not overridden"];
+  @throw [[JavaLangAssertionError alloc] initWithId:@"abstract method not overridden"];
 #else
   @throw [[[JavaLangAssertionError alloc]
-           initWithNSString:@"abstract method not overridden"] autorelease];
+           initWithId:@"abstract method not overridden"] autorelease];
 #endif
   return nil;
 }
@@ -160,7 +162,7 @@ void IOSArray_throwOutOfBoundsWithMsg(jint size, jint index) {
         dstOffset:(jint)dstOffset
            length:(jint)length {
   @throw [[[JavaLangAssertionError alloc]
-      initWithNSString:@"abstract method not overridden"] autorelease];
+      initWithId:@"abstract method not overridden"] autorelease];
 }
 
 - (void *)buffer {

@@ -21,13 +21,16 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Constructor;
+import java.net.CookieHandler;
 import java.net.HttpURLConnection;
 import java.net.ProtocolException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -39,6 +42,7 @@ import java.util.Map;
 #include "NSDataInputStream.h"
 #include "NSDataOutputStream.h"
 #include "NSDictionaryMap.h"
+#include "com/google/j2objc/net/NSErrorException.h"
 #include "java/lang/Double.h"
 #include "java/net/ConnectException.h"
 #include "java/net/MalformedURLException.h"
@@ -47,7 +51,7 @@ import java.util.Map;
 ]-*/
 
 /**
- * HttpURLConnection implementation for iOS, using NSURLConnection.
+ * HttpURLConnection implementation for iOS, using NSURLSession.
  *
  * @author Tom Ball
  */
@@ -106,7 +110,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
       getResponse();
       return getHeaderFieldsDoNotForceResponse();
     } catch (IOException e) {
-      return Collections.EMPTY_MAP;
+      return Collections.emptyMap();
     }
   }
 
@@ -302,7 +306,56 @@ public class IosHttpURLConnection extends HttpURLConnection {
       // Request already made.
       return;
     }
+    loadRequestCookies();
     makeSynchronousRequest();
+    saveResponseCookies();
+  }
+
+  /**
+   * Add any cookies for this URI to the request headers.
+   */
+  private void loadRequestCookies() throws IOException {
+    CookieHandler cookieHandler = CookieHandler.getDefault();
+    if (cookieHandler != null) {
+      try {
+        URI uri = getURL().toURI();
+        Map<String, List<String>> cookieHeaders =
+            cookieHandler.get(uri, getHeaderFieldsDoNotForceResponse());
+        for (Map.Entry<String, List<String>> entry : cookieHeaders.entrySet()) {
+          String key = entry.getKey();
+          if (("Cookie".equalsIgnoreCase(key)
+              || "Cookie2".equalsIgnoreCase(key))
+              && !entry.getValue().isEmpty()) {
+            List<String> cookies = entry.getValue();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0, size = cookies.size(); i < size; i++) {
+              if (i > 0) {
+                sb.append("; ");
+              }
+              sb.append(cookies.get(i));
+            }
+            setHeader(key, sb.toString());
+          }
+        }
+      } catch (URISyntaxException e) {
+        throw new IOException(e);
+      }
+    }
+  }
+
+  /**
+   * Store any returned cookies.
+   */
+  private void saveResponseCookies() throws IOException {
+    CookieHandler cookieHandler = CookieHandler.getDefault();
+    if (cookieHandler != null) {
+      try {
+        URI uri = getURL().toURI();
+        cookieHandler.put(uri, getHeaderFieldsDoNotForceResponse());
+      } catch (URISyntaxException e) {
+        throw new IOException(e);
+      }
+    }
   }
 
   @Override
@@ -326,7 +379,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
 
       NSMutableURLRequest *request =
           [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self->url_ toExternalForm]]];
-      request.HTTPShouldHandleCookies = NO;
+      request.HTTPShouldHandleCookies = false;
       request.HTTPMethod = self->method_;
       request.cachePolicy = self->useCaches_ ?
           NSURLRequestUseProtocolCachePolicy : NSURLRequestReloadIgnoringLocalCacheData;
@@ -386,7 +439,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
 
       if (urlResponse && ![urlResponse isKindOfClass:[NSHTTPURLResponse class]]) {
           @throw AUTORELEASE(([[JavaLangAssertionError alloc]
-                               initWithNSString:[NSString stringWithFormat:@"Unknown class %@",
+                               initWithId:[NSString stringWithFormat:@"Unknown class %@",
                                    NSStringFromClass([urlResponse class])]]));
       }
       NSHTTPURLResponse *response = (NSHTTPURLResponse*) urlResponse;
@@ -416,10 +469,13 @@ public class IosHttpURLConnection extends HttpURLConnection {
                   [[JavaNetMalformedURLException alloc] initWithNSString:url];
               break;
             case NSURLErrorCannotConnectToHost:
-            case NSURLErrorNotConnectedToInternet:
-            case NSURLErrorSecureConnectionFailed:
               self->responseException_ =
                   [[JavaNetConnectException alloc] initWithNSString:[error description]];
+              break;
+            case NSURLErrorSecureConnectionFailed:
+              self->responseException_ = RETAIN_(
+                  ComGoogleJ2objcNetIosHttpURLConnection_secureConnectionExceptionWithNSString_
+                      ([error description]));
               break;
             case NSURLErrorCannotFindHost:
               self->responseException_ = [[JavaNetUnknownHostException alloc] initWithNSString:url];
@@ -434,6 +490,10 @@ public class IosHttpURLConnection extends HttpURLConnection {
           self->responseException_ =
               [[JavaIoIOException alloc] initWithNSString:[error description]];
         }
+        ComGoogleJ2objcNetNSErrorException *cause =
+            [[ComGoogleJ2objcNetNSErrorException alloc] initWithId:error];
+        [self->responseException_ initCauseWithNSException:cause];
+        [cause release];
         @throw self->responseException_;
       }
 
@@ -456,6 +516,22 @@ public class IosHttpURLConnection extends HttpURLConnection {
       }];
     }
   ]-*/;
+
+  /**
+   * Returns an SSLException if that class is linked into the application,
+   * otherwise IOException.
+   */
+  private static IOException secureConnectionException(String description) {
+    try {
+      Class<?> sslExceptionClass = Class.forName("javax.net.ssl.SSLException");
+      Constructor<?> constructor = sslExceptionClass.getConstructor(String.class);
+      return (IOException) constructor.newInstance(description);
+    } catch (ClassNotFoundException e) {
+      return new IOException(description);
+    } catch (Exception e) {
+      throw new AssertionError("unexpected exception", e);
+    }
+  }
 
   /*-[- (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task

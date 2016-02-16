@@ -36,7 +36,7 @@ public class NilCheckResolverTest extends GenerationTest {
     String translation = translateSourceFile(
         "class Test { int i; void test(Object o) { int i = ((Test) o).i; } }", "Test", "Test.m");
     assertTranslation(translation,
-        "((Test *) nil_chk(((Test *) check_class_cast(o, [Test class]))))->i_");
+        "((Test *) nil_chk(((Test *) cast_chk(o, [Test class]))))->i_");
   }
 
   public void testNoNilCheckOnSecondDereference() throws IOException {
@@ -55,7 +55,7 @@ public class NilCheckResolverTest extends GenerationTest {
         "nil_chk(o) description];",
         "o = nil;",
         "[nil_chk(o) description];",
-        "o = [[[NSObject alloc] init] autorelease];",
+        "o = [new_NSObject_init() autorelease];",
         "[o description];");
   }
 

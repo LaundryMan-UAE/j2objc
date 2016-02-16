@@ -20,7 +20,6 @@ import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.GenerationTest;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.Options.MemoryManagementOption;
-import com.google.devtools.j2objc.util.NameTable;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -34,16 +33,6 @@ import java.util.List;
  * @author Tom Ball
  */
 public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
-
-  @Override
-  protected void tearDown() throws Exception {
-    Options.clearPackagePrefixes();
-    Options.resetDeprecatedDeclarations();
-    Options.resetDocComments();
-    Options.resetMemoryManagementOption();
-    Options.setStripReflection(false);
-    super.tearDown();
-  }
 
   public void testOuterVariableAccess() throws IOException {
     String translation = translateSourceFile(
@@ -125,7 +114,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "public class Example { public static java.util.Date today; }",
         "Example", "Example.m");
-    assertTranslation(translation, "JavaUtilDate *Example_today_;");
+    assertTranslation(translation, "JavaUtilDate *Example_today;");
     assertFalse(translation.contains("initialize"));
   }
 
@@ -133,10 +122,10 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "public class Example { public static java.util.Date today = new java.util.Date();}",
         "Example", "Example.m");
-    assertTranslation(translation, "JavaUtilDate *Example_today_;");
+    assertTranslation(translation, "JavaUtilDate *Example_today;");
     assertTranslation(translation, "+ (void)initialize {");
     assertTranslation(translation,
-        "JreStrongAssignAndConsume(&Example_today_, nil, [[JavaUtilDate alloc] init]);");
+        "JreStrongAssignAndConsume(&Example_today, new_JavaUtilDate_init());");
   }
 
   public void testStaticVariableWithNonInitInitialization() throws IOException {
@@ -146,7 +135,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "      java.util.logging.Logger.getLogger(\"Test\");}",
         "Example", "Example.m");
     assertTranslation(translation,
-        "JreStrongAssign(&Example_logger_, nil, "
+        "JreStrongAssign(&Example_logger, "
         + "JavaUtilLoggingLogger_getLoggerWithNSString_(@\"Test\"));");
   }
 
@@ -157,8 +146,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "    static int foo = 1; "
         + "    final int myFoo = foo++; }}",
         "Example", "Example.m");
-    assertTranslation(translation, "int Example_Inner_foo_ = 1");
-    assertTranslation(translation, "myFoo_ = Example_Inner_foo_++");
+    assertTranslation(translation, "int Example_Inner_foo = 1");
+    assertTranslation(translation, "myFoo_ = Example_Inner_foo++");
   }
 
   public void testStaticVariableWithGenericTypeCast() throws IOException {
@@ -167,16 +156,16 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "  public <B> Example<B> foo() { return (Example<B>) FOO; } "
         + "  public static final Example<?> FOO = new Example(); }",
         "Example", "Example.m");
-    assertTranslation(translation,
-        "return (Example *) check_class_cast(Example_FOO_, [Example class])");
+    // The erasure of FOO matches the erasure of the return type of foo() so no cast necessary.
+    assertTranslation(translation, "return Example_FOO");
   }
 
   public void testStaticVariableInOtherVariable() throws IOException {
     String translation = translateSourceFile("public class Example { "
         + "void test() { Bar.FOO=2; } } class Bar { public static int FOO=1; }",
        "Example", "Example.m");
-    assertTranslation(translation, "int Bar_FOO_ = 1;");
-    assertTranslation(translation, "*Bar_getRef_FOO_() = 2;");
+    assertTranslation(translation, "jint Bar_FOO = 1;");
+    assertTranslation(translation, "*JreLoadStaticRef(Bar, FOO) = 2;");
   }
 
   public void testNSObjectMessageRename() throws IOException {
@@ -231,12 +220,11 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
       "public enum Color { RED, WHITE, BLUE }",
       "Color", "Color.m");
-    assertTranslation(translation, "ColorEnum *ColorEnum_values_[3];");
-    assertTranslation(translation, "@implementation ColorEnum");
-    assertTranslation(translation,
-        "ColorEnum_RED = [[ColorEnum alloc] initWithNSString:@\"RED\" withInt:0];");
+    assertTranslation(translation, "Color *Color_values_[3];");
+    assertTranslation(translation, "@implementation Color");
+    assertTranslation(translation, "Color_initWithNSString_withInt_(e, @\"RED\", 0);");
     assertTranslation(translation, "for (int i = 0; i < 3; i++) {");
-    assertTranslation(translation, "ColorEnum *e = ColorEnum_values_[i];");
+    assertTranslation(translation, "Color *e = Color_values_[i];");
   }
 
   public void testEnumWithParameters() throws IOException {
@@ -246,16 +234,13 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "private Color(int rgb) { this.rgb = rgb; } "
         + "public int getRgb() { return rgb; }}";
     String translation = translateSourceFile(sourceContent, "Color", "Color.m");
-    assertTranslation(translation, "@implementation ColorEnum");
+    assertTranslation(translation, "@implementation Color");
     assertTranslation(translation,
-        "ColorEnum_RED = [[ColorEnum alloc] "
-        + "initWithInt:(jint) 0xff0000 withNSString:@\"RED\" withInt:0];");
+        "Color_initWithInt_withNSString_withInt_(e, (jint) 0xff0000, @\"RED\", 0);");
     assertTranslation(translation,
-        "ColorEnum_WHITE = [[ColorEnum alloc] "
-        + "initWithInt:(jint) 0xffffff withNSString:@\"WHITE\" withInt:1];");
+        "Color_initWithInt_withNSString_withInt_(e, (jint) 0xffffff, @\"WHITE\", 1);");
     assertTranslation(translation,
-        "ColorEnum_BLUE = [[ColorEnum alloc] "
-        + "initWithInt:(jint) 0x0000ff withNSString:@\"BLUE\" withInt:2];");
+        "Color_initWithInt_withNSString_withInt_(e, (jint) 0x0000ff, @\"BLUE\", 2);");
     assertTranslation(translation, "- (jint)getRgb {");
     assertTranslation(translation, "return rgb_;");
     assertTranslation(translation, "jint newValue_;");
@@ -271,16 +256,15 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "private int newFieldBar;"
         + "}";
     String translation = translateSourceFile(sourceContent, "FooBar", "FooBar.m");
-    assertTranslation(translation, "int FooBar_fieldPhi_;");
+    assertTranslation(translation, "int FooBar_fieldPhi;");
     assertTranslation(translation, "RELEASE_(fieldFoo_);");
     assertTranslation(translation, "id fieldFoo_;");
     assertTranslation(translation, "id fieldJar_;");
     assertTranslation(translation, "int newFieldBar_;");
     assertTranslation(translation, "id fieldFoo_;");
-    assertTranslation(translation, "__weak id fieldJar_;");
+    assertTranslation(translation, "__unsafe_unretained id fieldJar_;");
     assertTranslation(translation, "int newFieldBar_;");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(FooBar, fieldPhi_, jint)");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_REF_GETTER(FooBar, fieldPhi_, jint)");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_PRIMITIVE(FooBar, fieldPhi, jint)");
   }
 
   public void testEmptyInterfaceGenerationNoMetadata() throws IOException {
@@ -305,9 +289,9 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         "package foo; public interface Compatible { "
         + "public static final Object FOO = new Object(); }",
         "Compatible", "foo/Compatible.m");
-    assertTranslation(translation, "id FooCompatible_FOO_;");
+    assertTranslation(translation, "id FooCompatible_FOO;");
     assertTranslation(translation,
-        "JreStrongAssignAndConsume(&FooCompatible_FOO_, nil, [[NSObject alloc] init]);");
+        "JreStrongAssignAndConsume(&FooCompatible_FOO, new_NSObject_init());");
   }
 
   public void testAnnotationGeneration() throws IOException {
@@ -325,7 +309,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     // Verify default value accessor.
     assertTranslatedLines(translation,
         "+ (jboolean)fooableDefault {",
-        "return NO;");
+        "return false;");
 
     assertTranslatedLines(translation,
         "- (IOSClass *)annotationType {",
@@ -344,7 +328,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "public class Example { Bar bar; } class Bar {}",
         "Example", "Example.m");
-    assertFalse(translation.contains("#include \"Bar.h\""));
+    assertNotInTranslation(translation, "#include \"Bar.h\"");
   }
 
   public void testEnumWithStaticVar() throws IOException {
@@ -360,7 +344,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         initializeOffset + initializeSignature.length());
     assertTrue(initializeOffset == -1);
 
-    assertTranslation(translation, "int ExampleEnum_foo_ = 42;");
+    assertTranslation(translation, "int Example_foo = 42;");
   }
 
   public void testNativeCodeBlock() throws IOException {
@@ -406,8 +390,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertFalse(header.contains("isPackableWithTest_TypeEnum"));
     assertFalse(impl.contains("\n  return NO;\n  [super initWithTest_TypeEnum:arg$0]}"));
     assertTranslation(impl,
-        "initWithTest_TypeEnum:Test_TypeEnum_get_STRING() "
-        + "withNSString:@\"STRING\" withInt:2");
+        "Test_Field_$1_initWithTest_Type_withNSString_withInt_("
+        + "e, JreLoadEnum(Test_Type, STRING), @\"STRING\", 2);");
   }
 
   public void testAutoreleasePoolMethod() throws IOException {
@@ -645,7 +629,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertOccurrences(translation, "OCNI2", 1);
     assertOccurrences(translation, "OCNI3", 1);
     String testType = "@implementation Test\n";
-    String innerType = "@implementation Test_InnerEnum";
+    String innerType = "@implementation Test_Inner";
     String method1 = "- (void)method1";
     String method2 = "- (void)method2";
     String method3 = "- (void)method3";
@@ -732,10 +716,10 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "@interface Test { String FOO = \"foo\"; int I = 5; }", "Test", "Test.h");
     assertTranslation(translation, "#define Test_I 5");
-    assertTranslation(translation, "FOUNDATION_EXPORT NSString *Test_FOO_;");
-    assertTranslation(translation, "J2OBJC_STATIC_FIELD_GETTER(Test, FOO_, NSString *)");
+    assertTranslation(translation, "FOUNDATION_EXPORT NSString *Test_FOO;");
+    assertTranslation(translation, "J2OBJC_STATIC_FIELD_OBJ_FINAL(Test, FOO, NSString *)");
     translation = getTranslatedFile("Test.m");
-    assertTranslation(translation, "NSString *Test_FOO_ = @\"foo\";");
+    assertTranslation(translation, "NSString *Test_FOO = @\"foo\";");
     assertTranslation(translation, "@interface Test : NSObject");
   }
 
@@ -768,8 +752,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "package foo.bar.mumble;\n"
         + "import foo.annotations.Test;",
         "package-info", "foo/bar/mumble/package-info.h");
-    assertTranslation(translation, "_FooBarMumblepackage_info_H_");
-    assertTranslatedLines(translation, "/**", "@brief A package doc-comment.", "*/");
+    assertTranslatedLines(translation, "/*!", "@brief A package doc-comment.", "*/");
     translation = getTranslatedFile("foo/bar/mumble/package-info.m");
     assertTranslation(translation, "@implementation FooBarMumblepackage_info");
     assertTranslation(translation, "+ (IOSObjectArray *)__annotations");
@@ -789,7 +772,6 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "package foo.bar.mumble;\n"
         + "import foo.annotations.Test;",
         "package-info", "foo/bar/mumble/package-info.h");
-    assertTranslation(translation, "_FooBarMumblepackage_info_H_");
     assertNotInTranslation(translation, "/**");
     translation = getTranslatedFile("foo/bar/mumble/package-info.m");
     assertTranslation(translation, "@implementation FooBarMumblepackage_info");
@@ -804,8 +786,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         "/** A package doc-comment. */\n"
         + "package foo.bar.mumble;",
         "package-info", "foo/bar/mumble/package-info.h");
-    assertTranslation(translation, "_FooBarMumblepackage_info_H_");
-    assertTranslatedLines(translation, "/**", "@brief A package doc-comment.", "*/");
+    assertTranslatedLines(translation, "/*!", "@brief A package doc-comment.", "*/");
     translation = getTranslatedFile("foo/bar/mumble/package-info.m");
     assertNotInTranslation(translation, "@implementation FooBarMumblepackage_info");
     assertNotInTranslation(translation, "+ (IOSObjectArray *)__annotations");
@@ -822,7 +803,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
             + "public class Test {}",
         "foo.bar.mumble.Test", "foo/bar/mumble/Test.h");
     assertTranslation(translation, "@interface FBMTest");
-    assertTranslation(translation, "typedef FBMTest FooBarMumbleTest;");
+    assertTranslation(translation, "@compatibility_alias FooBarMumbleTest FBMTest;");
     translation = getTranslatedFile("foo/bar/mumble/Test.m");
     assertTranslation(translation, "@implementation FBMTest");
     assertNotInTranslation(translation, "FooBarMumbleTest");
@@ -834,12 +815,12 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "package foo.bar.mumble;\n"
         + "import com.google.j2objc.annotations.ObjectiveCName;",
         "foo/bar/mumble/package-info.java");
-    loadPackageInfo("foo/bar/mumble/package-info.java");
+    preprocessFiles("foo/bar/mumble/package-info.java");
     String translation = translateSourceFile("package foo.bar.mumble;\n"
         + "public class Test {}",
         "foo.bar.mumble.Test", "foo/bar/mumble/Test.h");
     assertTranslation(translation, "@interface FBMTest");
-    assertTranslation(translation, "typedef FBMTest FooBarMumbleTest;");
+    assertTranslation(translation, "@compatibility_alias FooBarMumbleTest FBMTest;");
     translation = getTranslatedFile("foo/bar/mumble/Test.m");
     assertTranslation(translation, "@implementation FBMTest");
     assertNotInTranslation(translation, "FooBarMumbleTest");
@@ -867,13 +848,12 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     batchCompiler.compile(compileArgs.toArray(new String[0]));
     List<String> oldClassPathEntries = new ArrayList<String>(Options.getClassPathEntries());
     Options.getClassPathEntries().add(tempDir.getAbsolutePath() + "/src/");
-    NameTable.initialize();
     try {
       String translation = translateSourceFile("package foo.bar.mumble;\n"
           + "public class Test {}",
           "foo.bar.mumble.Test", "foo/bar/mumble/Test.h");
       assertTranslation(translation, "@interface FBMTest");
-      assertTranslation(translation, "typedef FBMTest FooBarMumbleTest;");
+      assertTranslation(translation, "@compatibility_alias FooBarMumbleTest FBMTest;");
       translation = getTranslatedFile("foo/bar/mumble/Test.m");
       assertTranslation(translation, "@implementation FBMTest");
       assertNotInTranslation(translation, "FooBarMumbleTest");
@@ -881,6 +861,17 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
       Options.getClassPathEntries().clear();
       Options.getClassPathEntries().addAll(oldClassPathEntries);
     }
+  }
+
+  public void testPackageInfoPrefixMethod() throws IOException {
+    String translation = translateSourceFile(
+        "@ObjectiveCName(\"FBM\")\npackage foo.bar.mumble;\n"
+        + "import com.google.j2objc.annotations.ObjectiveCName;",
+        "foo.bar.mumble.package-info", "foo/bar/mumble/package-info.m");
+    assertTranslatedLines(translation,
+        "+ (NSString *)__prefix {",
+        "  return @\"FBM\";",
+        "}");
   }
 
   public void testInitializeNotInClassExtension() throws IOException {
@@ -999,17 +990,17 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertTranslatedLines(translation,
         "static const J2ObjCEnclosingMethodInfo "
         + "enclosing_method = { \"A\", \"initWithNSString:\" };",
-        "static const J2ObjcClassInfo _A_A_B = { 2, \"B\", NULL, \"A\", 0x0, 1, methods, "
+        "static const J2ObjcClassInfo _A_1B = { 2, \"B\", NULL, \"A\", 0x0, 1, methods, "
         + "0, NULL, 0, NULL, 0, NULL, &enclosing_method, NULL };");
     assertTranslatedLines(translation,
         "static const J2ObjCEnclosingMethodInfo "
         + "enclosing_method = { \"A\", \"testWithInt:withLong:\" };",
-        "static const J2ObjcClassInfo _A_test_C = { 2, \"C\", NULL, \"A\", 0x0, 1, methods, "
+        "static const J2ObjcClassInfo _A_1C = { 2, \"C\", NULL, \"A\", 0x0, 1, methods, "
         + "0, NULL, 0, NULL, 1, inner_classes, &enclosing_method, NULL };");
 
     // Verify D is not enclosed by test(), as it's enclosed by C.
     assertTranslation(translation,
-        "J2ObjcClassInfo _A_test_C_test_D = { 2, \"D\", NULL, \"A$C\", 0x0, 1, methods, "
+        "J2ObjcClassInfo _A_1C_D = { 2, \"D\", NULL, \"A$C\", 0x0, 1, methods, "
         + "0, NULL, 0, NULL, 0, NULL, NULL, NULL }");
   }
 

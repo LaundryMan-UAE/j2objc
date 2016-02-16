@@ -95,9 +95,9 @@ public class OcniExtractor extends TreeVisitor {
   @Override
   public void endVisit(CompilationUnit node) {
     for (Comment comment : blockComments.get(node)) {
-      String nativeCode = extractNativeCode(comment);
-      if (nativeCode != null) {
-        unit.getNativeBlocks().add(new NativeDeclaration(null, nativeCode + '\n'));
+      NativeDeclaration nativeDecl = extractNativeDeclaration(comment);
+      if (nativeDecl != null) {
+        unit.getNativeBlocks().add(nativeDecl);
       }
     }
   }
@@ -106,10 +106,10 @@ public class OcniExtractor extends TreeVisitor {
   public void endVisit(MethodDeclaration node) {
     int modifiers = node.getModifiers();
     if (Modifier.isNative(modifiers)) {
-      String nativeCode = extractNativeCode(node);
-      if (nativeCode != null) {
+      NativeStatement nativeStmt = extractNativeStatement(node);
+      if (nativeStmt != null) {
         Block body = new Block();
-        body.getStatements().add(new NativeStatement(nativeCode));
+        body.getStatements().add(nativeStmt);
         node.setBody(body);
         node.removeModifiers(Modifier.NATIVE);
       }
@@ -117,7 +117,7 @@ public class OcniExtractor extends TreeVisitor {
     if (Modifier.isSynchronized(modifiers)) {
       ITypeBinding declaringClass = node.getMethodBinding().getDeclaringClass();
       SynchronizedStatement syncStmt = new SynchronizedStatement(
-          Modifier.isStatic(modifiers) ? new TypeLiteral(declaringClass)
+          Modifier.isStatic(modifiers) ? new TypeLiteral(declaringClass, typeEnv)
           : new ThisExpression(declaringClass));
       syncStmt.setBody(TreeUtil.remove(node.getBody()));
       Block newBody = new Block();
@@ -134,7 +134,9 @@ public class OcniExtractor extends TreeVisitor {
 
   @Override
   public void endVisit(TypeDeclaration node) {
-    visitType(node);
+    if (!node.isInterface()) {
+      visitType(node);
+    }
   }
 
   private void visitType(AbstractTypeDeclaration node) {
@@ -154,10 +156,10 @@ public class OcniExtractor extends TreeVisitor {
         declIdx++;
       }
       if (commentPos > minPos) {
-        String nativeCode = extractNativeCode(comment);
-        if (nativeCode != null) {
-          findMethodSignatures(nativeCode, methodsPrinted);
-          bodyDeclarations.add(declIdx++, new NativeDeclaration(null, nativeCode + '\n'));
+        NativeDeclaration nativeDecl = extractNativeDeclaration(comment);
+        if (nativeDecl != null) {
+          findMethodSignatures(nativeDecl.getImplementationCode(), methodsPrinted);
+          bodyDeclarations.add(declIdx++, nativeDecl);
         }
       }
     }
@@ -167,7 +169,7 @@ public class OcniExtractor extends TreeVisitor {
     // implementation.
     if (BindingUtil.findInterface(node.getTypeBinding(), "java.lang.Iterable") != null
         && !methodsPrinted.contains("countByEnumeratingWithState:objects:count:")) {
-      bodyDeclarations.add(new NativeDeclaration(null,
+      bodyDeclarations.add(NativeDeclaration.newInnerDeclaration(null,
           "- (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)state "
           + "objects:(__unsafe_unretained id *)stackbuf count:(NSUInteger)len {\n"
           + "  return JreDefaultFastEnumeration(self, state, stackbuf, len);\n}\n"));
@@ -186,6 +188,9 @@ public class OcniExtractor extends TreeVisitor {
    * Finds the signatures of methods defined in the native code.
    */
   private static void findMethodSignatures(String code, Set<String> signatures) {
+    if (code == null) {
+      return;
+    }
     Matcher matcher = OBJC_METHOD_DECL_PATTERN.matcher(code);
     while (matcher.find()) {
       StringBuilder signature = new StringBuilder();
@@ -204,6 +209,58 @@ public class OcniExtractor extends TreeVisitor {
     }
   }
 
+  private NativeDeclaration extractNativeDeclaration(TreeNode node) {
+    OcniBlock ocniBlock = extractNativeCode(node);
+    if (ocniBlock != null) {
+      switch (ocniBlock.type) {
+        case HEADER:
+          {
+            NativeDeclaration decl = NativeDeclaration.newInnerDeclaration(
+                ocniBlock.code + '\n', null);
+            decl.addModifiers(Modifier.PUBLIC);
+            return decl;
+          }
+        case SOURCE: return NativeDeclaration.newInnerDeclaration(null, ocniBlock.code + '\n');
+      }
+    }
+    return null;
+  }
+
+  private NativeStatement extractNativeStatement(TreeNode node) {
+    OcniBlock ocniBlock = extractNativeCode(node);
+    if (ocniBlock != null) {
+      switch (ocniBlock.type) {
+        case SOURCE: return new NativeStatement(ocniBlock.code);
+        default: ErrorUtil.warning(node, "Unexpected OCNI type: " + ocniBlock.type);
+      }
+    }
+    return null;
+  }
+
+  private enum OcniType {
+    HEADER, SOURCE;
+
+    static OcniType fromString(String type) {
+      if (type.isEmpty()) {
+        return SOURCE;
+      }
+      return valueOf(type);
+    }
+  }
+
+  private static class OcniBlock {
+    private final OcniType type;
+    private final String code;
+
+    private OcniBlock(OcniType type, String code) {
+      this.type = type;
+      this.code = code;
+    }
+  }
+
+  private static final Pattern OCNI_PATTERN =
+      Pattern.compile("/\\*-(\\w*)\\[(.*)\\]-\\*/", Pattern.DOTALL);
+
   /**
    * Returns text from within a source code range, where that text is
    * surrounded by OCNI-like tokens ("/&#42;-[" and "]-&#42;/"), warning
@@ -213,24 +270,37 @@ public class OcniExtractor extends TreeVisitor {
    * @return the extracted text between the OCNI delimiters, or null if
    *     a pair of JSNI delimiters aren't in the specified text range
    */
-  private String extractNativeCode(TreeNode node) {
+  private OcniBlock extractNativeCode(TreeNode node) {
     int offset = node.getStartPosition();
     String text = unit.getSource().substring(offset, offset + node.getLength());
+    Matcher m = OCNI_PATTERN.matcher(text);
+    if (m.find()) {
+      String typeStr = m.group(1);
+      try {
+        OcniType type = OcniType.fromString(typeStr);
+        return new OcniBlock(type, m.group(2).trim());
+      } catch (IllegalArgumentException e) {
+        ErrorUtil.warning(node, "Unknown OCNI type: " + typeStr);
+        return null;
+      }
+    }
+    if (Options.jsniWarnings() && hasJsni(text)) {
+      ErrorUtil.warning(node, "JSNI comment found");
+    }
+    return null;
+  }
+
+  private boolean hasJsni(String text) {
     int start = text.indexOf("/*-[");  // start after the bracket
     int end = text.lastIndexOf("]-*/");
 
     if (start == -1 || end <= start) {
-      if (Options.jsniWarnings()) {
-        start = text.indexOf("/*-{");
-        end = text.lastIndexOf("}-*/");
-        if (start != -1 && end > start) {
-          String message = String.format("JSNI comment found: %s:%d",
-              unit.getInputFile().getPath(), unit.getLineNumber(offset));
-          ErrorUtil.warning(message);
-        }
+      start = text.indexOf("/*-{");
+      end = text.lastIndexOf("}-*/");
+      if (start != -1 && end > start) {
+        return true;
       }
-      return null;
     }
-    return text.substring(start + 4, end).trim();
+    return false;
   }
 }

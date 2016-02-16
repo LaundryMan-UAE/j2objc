@@ -6,10 +6,6 @@
 
 package java.util.concurrent.atomic;
 
-/*-[
-#include <libkern/OSAtomic.h>
-]-*/
-
 /**
  * An {@code AtomicStampedReference} maintains an object reference
  * along with an integer "stamp", that can be updated atomically.
@@ -72,7 +68,7 @@ public class AtomicStampedReference<V> {
      * Typical usage is {@code int[1] holder; ref = v.get(holder); }.
      *
      * @param stampHolder an array of size of at least one.  On return,
-     * {@code stampholder[0]} will hold the value of the stamp.
+     * {@code stampHolder[0]} will hold the value of the stamp.
      * @return the current value of the reference
      */
     public V get(int[] stampHolder) {
@@ -87,9 +83,9 @@ public class AtomicStampedReference<V> {
      * current reference is {@code ==} to the expected reference
      * and the current stamp is equal to the expected stamp.
      *
-     * <p>May <a href="package-summary.html#Spurious">fail spuriously</a>
-     * and does not provide ordering guarantees, so is only rarely an
-     * appropriate alternative to {@code compareAndSet}.
+     * <p><a href="package-summary.html#weakCompareAndSet">May fail
+     * spuriously and does not provide ordering guarantees</a>, so is
+     * only rarely an appropriate alternative to {@code compareAndSet}.
      *
      * @param expectedReference the expected value of the reference
      * @param newReference the new value for the reference
@@ -130,7 +126,6 @@ public class AtomicStampedReference<V> {
              casPair(current, Pair.of(newReference, newStamp)));
     }
 
-
     /**
      * Unconditionally sets the value of both the reference and stamp.
      *
@@ -165,18 +160,6 @@ public class AtomicStampedReference<V> {
     }
 
     private native boolean casPair(Pair<V> cmp, Pair<V> val) /*-[
-#if __has_feature(objc_arc)
-      void * volatile tmp = (__bridge void * volatile) self->pair_;
-      return OSAtomicCompareAndSwapPtrBarrier((__bridge void *) cmp,
-                                              (__bridge void *) val, &self->tmp);
-#else
-      id tmp = self->pair_;
-      if (OSAtomicCompareAndSwapPtrBarrier(cmp, val, (void * volatile *) &self->pair_)) {
-        [self->pair_ retain];
-        [tmp release];
-        return YES;
-      }
-      return NO;
-#endif
+      return JreCompareAndSwapVolatileStrongId(&self->pair_, cmp, val);
     ]-*/;
 }

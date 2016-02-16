@@ -16,6 +16,8 @@ package com.google.devtools.j2objc.util;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.devtools.j2objc.types.LambdaTypeBinding;
+import com.google.j2objc.annotations.Property;
 
 import org.eclipse.jdt.core.dom.IAnnotationBinding;
 import org.eclipse.jdt.core.dom.IBinding;
@@ -31,6 +33,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Utility methods for working with binding types.
@@ -62,13 +65,35 @@ public final class BindingUtil {
     return Modifier.isPrivate(binding.getModifiers());
   }
 
-  public static boolean isPrimitiveConstant(IVariableBinding binding) {
-    return isConstant(binding) && binding.getType().isPrimitive();
+  public static boolean isVolatile(IVariableBinding binding) {
+    return Modifier.isVolatile(binding.getModifiers());
   }
 
-  public static boolean isConstant(IVariableBinding binding) {
-    return binding != null && isStatic(binding) && isFinal(binding)
-        && binding.getConstantValue() != null;
+  public static boolean isPrimitiveConstant(IVariableBinding binding) {
+    return isFinal(binding) && binding.getType().isPrimitive()
+        && binding.getConstantValue() != null
+        // Exclude local variables declared final.
+        && binding.getDeclaringClass() != null;
+  }
+
+  public static boolean isStringConstant(IVariableBinding binding) {
+    Object constantValue = binding.getConstantValue();
+    return constantValue != null && constantValue instanceof String
+        && UnicodeUtils.hasValidCppCharacters((String) constantValue);
+  }
+
+  /**
+   * Returns whether this variable will be declared in global scope in ObjC.
+   */
+  public static boolean isGlobalVar(IVariableBinding binding) {
+    return isStatic(binding) || isPrimitiveConstant(binding);
+  }
+
+  /**
+   * Returns whether this variable will be an ObjC instance variable.
+   */
+  public static boolean isInstanceVar(IVariableBinding binding) {
+    return binding.isField() && !isGlobalVar(binding);
   }
 
   public static boolean isAbstract(IBinding binding) {
@@ -89,6 +114,41 @@ public final class BindingUtil {
 
   public static boolean isSynthetic(IMethodBinding m) {
     return isSynthetic(m.getModifiers());
+  }
+
+  public static boolean isVoid(ITypeBinding type) {
+    return type.isPrimitive() && type.getBinaryName().charAt(0) == 'V';
+  }
+
+  public static boolean isBoolean(ITypeBinding type) {
+    return type.isPrimitive() && type.getBinaryName().charAt(0) == 'Z';
+  }
+
+  public static boolean isFloatingPoint(ITypeBinding type) {
+    if (!type.isPrimitive()) {
+      return false;
+    }
+    char binaryName = type.getBinaryName().charAt(0);
+    return binaryName == 'F' || binaryName == 'D';
+  }
+
+  public static boolean isLambda(ITypeBinding type) {
+    return type instanceof LambdaTypeBinding;
+  }
+
+  /**
+   * Tests if this type is private to it's source file. A public type declared
+   * within a private type is considered private.
+   */
+  public static boolean isPrivateInnerType(ITypeBinding type) {
+    if (isPrivate(type) || type.isLocal() || type.isAnonymous()) {
+      return true;
+    }
+    ITypeBinding declaringClass = type.getDeclaringClass();
+    if (declaringClass != null) {
+      return isPrivateInnerType(declaringClass);
+    }
+    return false;
   }
 
   /**
@@ -221,6 +281,30 @@ public final class BindingUtil {
     return null;
   }
 
+  /**
+   * Locate method which matches either Java or Objective C getter name patterns.
+   */
+  public static IMethodBinding findGetterMethod(String propertyName, ITypeBinding propertyType,
+      ITypeBinding declaringClass) {
+    // Try Objective-C getter naming convention.
+    IMethodBinding getter = BindingUtil.findDeclaredMethod(declaringClass, propertyName);
+    if (getter == null) {
+      // Try Java getter naming conventions.
+      String prefix = BindingUtil.isBoolean(propertyType) ? "is" : "get";
+      getter = BindingUtil.findDeclaredMethod(declaringClass,
+          prefix + NameTable.capitalize(propertyName));
+    }
+    return getter;
+  }
+
+  /**
+   * Locate method which matches the Java/Objective C setter name pattern.
+   */
+  public static IMethodBinding findSetterMethod(String propertyName, ITypeBinding declaringClass) {
+    return BindingUtil.findDeclaredMethod(declaringClass,
+        "set" + NameTable.capitalize(propertyName));
+  }
+
   public static String getMethodKey(IMethodBinding binding) {
     return binding.getDeclaringClass().getBinaryName() + '.' + binding.getName()
         + getSignature(binding);
@@ -228,14 +312,47 @@ public final class BindingUtil {
 
   public static String getSignature(IMethodBinding binding) {
     StringBuilder sb = new StringBuilder("(");
-    for (ITypeBinding parameter : binding.getParameterTypes()) {
-      appendParameterSignature(parameter.getErasure(), sb);
-    }
+    appendParametersSignature(binding, sb);
     sb.append(')');
+    appendReturnTypeSignature(binding, sb);
+    return sb.toString();
+  }
+
+  /**
+   * Get a method's signature for dead code elimination purposes.
+   *
+   * Since DeadCodeEliminator runs before InnerClassExtractor, inner class constructors do not yet
+   * have the parameter for capturing outer class, and therefore we need this special case.
+   */
+  public static String getProGuardSignature(IMethodBinding binding) {
+    StringBuilder sb = new StringBuilder("(");
+
+    // If the method is an inner class constructor, prepend the outer class type.
+    if (binding.isConstructor()) {
+      ITypeBinding declClass = binding.getDeclaringClass();
+      ITypeBinding outerClass = declClass.getDeclaringClass();
+      if (outerClass != null && !declClass.isInterface() && !declClass.isAnnotation()
+          && !Modifier.isStatic(declClass.getModifiers())) {
+        appendParameterSignature(outerClass.getErasure(), sb);
+      }
+    }
+
+    appendParametersSignature(binding, sb);
+    sb.append(')');
+    appendReturnTypeSignature(binding, sb);
+    return sb.toString();
+  }
+
+  private static void appendReturnTypeSignature(IMethodBinding binding, StringBuilder sb) {
     if (binding.getReturnType() != null) {
       appendParameterSignature(binding.getReturnType().getErasure(), sb);
     }
-    return sb.toString();
+  }
+
+  private static void appendParametersSignature(IMethodBinding binding, StringBuilder sb) {
+    for (ITypeBinding parameter : binding.getParameterTypes()) {
+      appendParameterSignature(parameter.getErasure(), sb);
+    }
   }
 
   private static void appendParameterSignature(ITypeBinding parameter, StringBuilder sb) {
@@ -258,6 +375,30 @@ public final class BindingUtil {
   public static boolean hasNamedAnnotation(IBinding binding, String annotationName) {
     for (IAnnotationBinding annotation : binding.getAnnotations()) {
       if (annotation.getName().equals(annotationName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Return true if a binding has a named "Nullable" annotation. Package names aren't
+   * checked because different nullable annotations are defined by several different
+   * Java frameworks.
+   */
+  public static boolean hasNullableAnnotation(IBinding binding) {
+    return hasNamedAnnotation(binding, "Nullable");
+  }
+
+  /**
+   * Return true if a binding has a named "Nonnull" annotation. Package names aren't
+   * checked because different nonnull annotations are defined in several Java
+   * frameworks, with varying but similar names.
+   */
+  public static boolean hasNonnullAnnotation(IBinding binding) {
+    Pattern p = Pattern.compile("No[nt][Nn]ull");
+    for (IAnnotationBinding annotation : binding.getAnnotations()) {
+      if (p.matcher(annotation.getName()).matches()) {
         return true;
       }
     }
@@ -288,8 +429,17 @@ public final class BindingUtil {
 
   public static boolean isWeakReference(IVariableBinding var) {
     return hasNamedAnnotation(var, "Weak")
+        || hasWeakPropertyAttribute(var)
         || var.getName().startsWith("this$")
         && hasNamedAnnotation(var.getDeclaringClass(), "WeakOuter");
+  }
+
+  private static boolean hasWeakPropertyAttribute(IVariableBinding var) {
+    IAnnotationBinding propertyAnnotation = getAnnotation(var, Property.class);
+    if (propertyAnnotation == null) {
+      return false;
+    }
+    return parseAttributeString(propertyAnnotation).contains("weak");
   }
 
   /**
@@ -305,7 +455,7 @@ public final class BindingUtil {
    * a runtime retention policy.
    */
   public static boolean isRuntimeAnnotation(ITypeBinding binding) {
-    if (binding != null) {
+    if (binding != null && binding.isAnnotation()) {
       for (IAnnotationBinding ann : binding.getAnnotations()) {
         if (ann.getName().equals("Retention")) {
           IVariableBinding retentionBinding =
@@ -356,12 +506,61 @@ public final class BindingUtil {
   }
 
   /**
-   * Returns true if method is an Objective-C dealloc method.
+   * Returns the attributes of a Property annotation.
    */
-  public static boolean isDestructor(IMethodBinding m) {
-    String methodName = m.getName();
-    return !m.isConstructor() && !isStatic(m) && m.getParameterTypes().length == 0
-        && (methodName.equals(NameTable.FINALIZE_METHOD)
-            || methodName.equals(NameTable.DEALLOC_METHOD));
+  public static Set<String> parseAttributeString(IAnnotationBinding propertyAnnotation) {
+    assert propertyAnnotation.getName().equals("Property");
+    String attributesStr = (String) getAnnotationValue(propertyAnnotation, "value");
+    Set<String> attributes = Sets.newHashSet();
+    attributes.addAll(Arrays.asList(attributesStr.split(",\\s*")));
+    attributes.remove(""); // Clear any empty strings.
+    return attributes;
+  }
+
+  /**
+   * Returns all declared constructors for a specified type.
+   */
+  public static Set<IMethodBinding> getDeclaredConstructors(ITypeBinding type) {
+    Set<IMethodBinding> constructors = Sets.newHashSet();
+    for (IMethodBinding m : type.getDeclaredMethods()) {
+      if (m.isConstructor()) {
+        constructors.add(m);
+      }
+    }
+    return constructors;
+  }
+
+  /**
+   * Returns true if there's a SuppressedWarning annotation with the specified warning.
+   * The SuppressWarnings annotation can be inherited from the owning method or class,
+   * but does not have package scope.
+   */
+  public static boolean suppressesWarning(String warning, IBinding binding) {
+    if (binding == null) {
+      return false;
+    }
+    IAnnotationBinding annotation = getAnnotation(binding, SuppressWarnings.class);
+    if (annotation != null) {
+      for (IMemberValuePairBinding valuePair : annotation.getAllMemberValuePairs()) {
+        for (Object suppressedWarning : (Object[]) valuePair.getValue()) {
+          if (suppressedWarning.equals(warning)) {
+            return true;
+          }
+        }
+      }
+    }
+    if (binding instanceof IVariableBinding) {
+      IVariableBinding var = (IVariableBinding) binding;
+      IMethodBinding owningMethod = var.getDeclaringMethod();
+      if (owningMethod != null) {
+        return suppressesWarning(warning, owningMethod);
+      } else {
+        return suppressesWarning(warning, var.getDeclaringClass());
+      }
+    }
+    if (binding instanceof IMethodBinding) {
+      return suppressesWarning(warning, ((IMethodBinding) binding).getDeclaringClass());
+    }
+    return false;
   }
 }

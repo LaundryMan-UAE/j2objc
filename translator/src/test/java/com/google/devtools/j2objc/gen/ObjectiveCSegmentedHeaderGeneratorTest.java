@@ -16,6 +16,7 @@ package com.google.devtools.j2objc.gen;
 
 import com.google.devtools.j2objc.GenerationTest;
 import com.google.devtools.j2objc.Options;
+import com.google.devtools.j2objc.Options.OutputStyleOption;
 
 import java.io.IOException;
 
@@ -26,32 +27,27 @@ import java.io.IOException;
  */
 public class ObjectiveCSegmentedHeaderGeneratorTest extends GenerationTest {
 
-  @Override
-  protected void setUp() throws IOException {
-    super.setUp();
-    Options.enableSegmentedHeaders();
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    Options.resetSegmentedHeaders();
-    super.tearDown();
-  }
+  // Segmented headers are on by default.
 
   public void testTypicalPreprocessorStatements() throws IOException {
     String translation = translateSourceFile(
         "class Test { static class Inner {} }", "Test", "Test.h");
     assertTranslatedLines(translation,
-        "#if !Test_RESTRICT",
+        "#pragma push_macro(\"Test_INCLUDE_ALL\")",
+        "#ifdef Test_RESTRICT",
+        "#define Test_INCLUDE_ALL 0",
+        "#else",
         "#define Test_INCLUDE_ALL 1",
         "#endif",
         "#undef Test_RESTRICT");
+    assertTranslation(translation, "#pragma pop_macro(\"Test_INCLUDE_ALL\")");
     assertTranslatedLines(translation,
-        "#if !defined (_Test_) && (Test_INCLUDE_ALL || Test_INCLUDE)",
-        "#define _Test_");
+        "#if !defined (Test_) && (Test_INCLUDE_ALL || defined(Test_INCLUDE))",
+        "#define Test_");
     assertTranslatedLines(translation,
-        "#if !defined (_Test_Inner_) && (Test_INCLUDE_ALL || Test_Inner_INCLUDE)",
-        "#define _Test_Inner_");
+        "#if !defined (Test_Inner_) && "
+        + "(Test_INCLUDE_ALL || defined(Test_Inner_INCLUDE))",
+        "#define Test_Inner_");
   }
 
   public void testIncludedType() throws IOException {
@@ -67,8 +63,17 @@ public class ObjectiveCSegmentedHeaderGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "class Test { static class Inner extends Test {} }", "Test", "Test.h");
     assertTranslatedLines(translation,
-        "#if Test_Inner_INCLUDE",
+        "#ifdef Test_Inner_INCLUDE",
         "#define Test_INCLUDE 1",
+        "#endif");
+  }
+
+  public void testLocalIncludeOfBaseClass() throws IOException {
+    String translation = translateSourceFile(
+        "class Test extends Foo { } class Foo {}", "Test", "Test.h");
+    assertTranslatedLines(translation,
+        "#ifdef Test_INCLUDE",
+        "#define Foo_INCLUDE 1",
         "#endif");
   }
 
@@ -76,8 +81,57 @@ public class ObjectiveCSegmentedHeaderGeneratorTest extends GenerationTest {
   // isn't included for it.
   public void testPackagePrivateBaseClass() throws IOException {
     String translation = translateSourceFile(
-        "package bar; public class Test extends Foo {} " +
-        "abstract class Foo {}", "Test", "bar/Test.h");
+        "package bar; public class Test extends Foo {} "
+        + "abstract class Foo {}", "Test", "bar/Test.h");
     assertNotInTranslation(translation, "#include \"Foo.h\"");
+  }
+
+  public void testAddIgnoreDeprecationWarningsPragmaIfDeprecatedDeclarationsIsEnabled()
+      throws IOException {
+    Options.enableDeprecatedDeclarations();
+
+    String translation = translateSourceFile("class Test {}", "Test", "Test.h");
+
+    assertTranslation(translation, "#pragma clang diagnostic push");
+    assertTranslation(translation, "#pragma GCC diagnostic ignored \"-Wdeprecated-declarations\"");
+    assertTranslation(translation, "#pragma clang diagnostic pop");
+  }
+
+  public void testForwardDeclarationForTypeInSameIncludeAsSuperclass() throws IOException {
+    addSourceFile("class Foo { static class Bar { } }", "Foo.java");
+    String translation = translateSourceFile(
+        "class Test extends Foo { Foo.Bar bar; }", "Test", "Test.h");
+    assertTranslatedLines(translation,
+        "#define Foo_RESTRICT 1",
+        "#define Foo_INCLUDE 1",
+        "#include \"Foo.h\"");
+    // Forward declaration for Foo_Bar is needed because the include of Foo.h
+    // is restricted to only the Foo type.
+    assertTranslation(translation, "@class Foo_Bar");
+  }
+
+  public void testCombinedJarVariableNames() throws IOException {
+    addJarFile("some/path/test.jar", "foo/Test.java",
+               "package foo; import abc.Bar; class Test extends Bar {}");
+    addJarFile("other/path/test2.jar", "abc/Bar.java", "package abc; public class Bar {}");
+    Options.setOutputStyle(OutputStyleOption.SOURCE_COMBINED);
+    runPipeline("some/path/test.jar", "other/path/test2.jar");
+    String translation = getTranslatedFile("some/path/test.h");
+    // Check that the RESTRICT and INCLUDE_ALL variables are prefixed with a
+    // name derived from the jar file path.
+    assertTranslatedLines(translation,
+        "#pragma push_macro(\"SomePathTest_INCLUDE_ALL\")",
+        "#ifdef SomePathTest_RESTRICT",
+        "#define SomePathTest_INCLUDE_ALL 0",
+        "#else",
+        "#define SomePathTest_INCLUDE_ALL 1",
+        "#endif",
+        "#undef SomePathTest_RESTRICT");
+    // Check that the include of "Bar" uses the correct prefix on it's RESTRICT
+    // variable.
+    assertTranslatedLines(translation,
+        "#define OtherPathTest2_RESTRICT 1",
+        "#define AbcBar_INCLUDE 1",
+        "#include \"other/path/test2.h\"");
   }
 }

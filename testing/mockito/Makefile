@@ -140,7 +140,6 @@ EXTRACTED_JAVA_SOURCES = \
     org/mockito/internal/matchers/InstanceOf.java \
     org/mockito/internal/matchers/LessOrEqual.java \
     org/mockito/internal/matchers/LessThan.java \
-    org/mockito/internal/matchers/LocalizedMatcher.java \
     org/mockito/internal/matchers/MatcherDecorator.java \
     org/mockito/internal/matchers/MatchersPrinter.java \
     org/mockito/internal/matchers/Matches.java \
@@ -279,6 +278,7 @@ SUPERSOURCE_JAVA_SOURCES = \
     org/mockito/internal/creation/ios/InvocationHandlerAdapter.java \
     org/mockito/internal/creation/ios/IosMockMaker.java \
     org/mockito/internal/creation/jmock/ClassImposterizer.java \
+    org/mockito/internal/matchers/LocalizedMatcher.java \
     org/mockito/internal/stubbing/answers/ThrowsExceptionClass.java
 
 EXTRACTED_JAVA = $(EXTRACTED_JAVA_SOURCES:%=$(EXTRACTED_JAVA_SRC_DIR)/%)
@@ -307,9 +307,15 @@ FAT_LIB_SOURCE_DIRS = $(GEN_OBJC_DIR)
 FAT_LIB_COMPILE = $(J2OBJCC)
 include $(J2OBJC_ROOT)/make/fat_lib.mk
 
+STATIC_FRAMEWORK_NAME = Mockito
+include $(J2OBJC_ROOT)/make/static_framework.mk
+
+MOCKITO_LICENSE = LICENSE
+MOCKITO_LICENSE_DIST = $(DIST_LICENSE_DIR)/mockito_license.txt
+
 java: jar
 
-lib: $(FAT_LIB_LIBRARY)
+lib: $(FAT_LIBS)
 	@:
 
 $(BUILD_DIR)/.extracted: $(MOCKITO_SRC_JAR) | $(BUILD_DIR)
@@ -320,13 +326,13 @@ $(BUILD_DIR)/.extracted: $(MOCKITO_SRC_JAR) | $(BUILD_DIR)
 
 $(EXTRACTED_JAVA): $(BUILD_DIR)/.extracted
 
-$(MOCKITO_LIB_DIST): $(FAT_LIB_LIBRARY)
-	@mkdir -p $(@D)
-	install -m 0644 $< $@
-
 $(ARCH_INCLUDE_DIR)/%.h: $(GEN_OBJC_DIR)/%.h
 	@mkdir -p $(@D)
 	install -m 0644 $< $@
+
+$(MOCKITO_LICENSE_DIST): $(MOCKITO_LICENSE)
+	@mkdir -p $(@D)
+	@install -m 0644 $< $@
 
 $(JAVA_SOURCES_MANIFEST): $(EXTRACTED_JAVA) $(SUPERSOURCE_JAVA) | $(BUILD_DIR)
 	@echo "Building $$(basename $@)"
@@ -350,7 +356,8 @@ $(BUILD_DIR):
 	@mkdir -p $@
 
 clean:
-	@rm -rf $(BUILD_DIR) $(MOCKITO_LIB_DIST)
+	@rm -rf $(BUILD_DIR) $(FAT_LIBS_DIST) $(MOCKITO_LICENSE_DIST)
 	@rm -rf $(ARCH_INCLUDE_DIR)/org/mockito
+	@rm -rf $(STATIC_FRAMEWORK_DIR)
 
-dist: $(MOCKITO_LIB_DIST) $(ARCH_HEADERS)
+dist: $(FAT_LIBS_DIST) $(ARCH_HEADERS) $(MOCKITO_LICENSE_DIST)

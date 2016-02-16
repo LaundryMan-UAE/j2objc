@@ -21,9 +21,6 @@ import java.lang.reflect.Modifier;
 
 /*-[
 #include "java/lang/AssertionError.h"
-#include "java/lang/reflect/Array.h"
-#include "volatile.h"
-#include <libkern/OSAtomic.h>
 ]-*/
 
 /**
@@ -68,6 +65,40 @@ public final class Unsafe {
         return objectFieldOffset0(field);
     }
 
+    /*-[
+    static void unalignedPointer(void *ptr) {
+      @throw [[[JavaLangAssertionError alloc] initWithId:[NSString stringWithFormat:
+          @"Cannot perform atomic access on unaligned address %p", ptr]] autorelease];
+    }
+
+    #define PTR(OBJ, OFFSET) (uintptr_t)(((uintptr_t)OBJ) + OFFSET)
+    #define CHECK_ADDR(TYPE, PTR) \
+      if (sizeof(volatile_##TYPE) != sizeof(TYPE) \
+          || (PTR & (__alignof__(volatile_##TYPE) - 1)) != 0) { \
+        unalignedPointer((void *)PTR); \
+      }
+
+    #define GET_IMPL(TYPE, MEM_ORDER) \
+      uintptr_t ptr = PTR(obj, offset); \
+      CHECK_ADDR(TYPE, ptr) \
+      return __c11_atomic_load((volatile_##TYPE *)ptr, __ATOMIC_##MEM_ORDER);
+
+    #define PUT_IMPL(TYPE, MEM_ORDER) \
+      uintptr_t ptr = PTR(obj, offset); \
+      CHECK_ADDR(TYPE, ptr) \
+      __c11_atomic_store((volatile_##TYPE *)ptr, newValue, __ATOMIC_##MEM_ORDER);
+
+    #define GET_OBJECT_IMPL() \
+      uintptr_t ptr = PTR(obj, offset); \
+      CHECK_ADDR(id, ptr) \
+      return JreLoadVolatileId((volatile_id *)ptr);
+
+    #define PUT_OBJECT_IMPL() \
+      uintptr_t ptr = PTR(obj, offset); \
+      CHECK_ADDR(id, ptr) \
+      JreVolatileStrongAssign((volatile_id *)ptr, newValue);
+    ]-*/
+
     /**
      * Helper for {@link #objectFieldOffset}, which does all the work,
      * assuming the parameter is deemed valid.
@@ -76,7 +107,7 @@ public final class Unsafe {
      * @return the offset to the field
      */
     private static native long objectFieldOffset0(Field field) /*-[
-      return (long long) [field unsafeOffset];
+      return (jlong) [field unsafeOffset];
     ]-*/;
 
     /**
@@ -98,8 +129,7 @@ public final class Unsafe {
       Class arrayCls = [component_class objcArrayClass];
       Ivar ivar = class_getInstanceVariable(arrayCls, "buffer_");
       if (!ivar) {
-        @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithNSString:
-            @"buffer_ ivar not found."]);
+        @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithId:@"buffer_ ivar not found."]);
       }
       return (jint)ivar_getOffset(ivar);
     ]-*/;
@@ -136,8 +166,10 @@ public final class Unsafe {
      */
     public native boolean compareAndSwapInt(Object obj, long offset,
             int expectedValue, int newValue) /*-[
-      volatile int *address = (volatile int *) (((u_int8_t *) obj) + offset);
-      return OSAtomicCompareAndSwapIntBarrier(expectedValue, newValue, address);
+      uintptr_t ptr = PTR(obj, offset);
+      CHECK_ADDR(jint, ptr)
+      return __c11_atomic_compare_exchange_strong(
+          (volatile_jint *)ptr, &expectedValue, newValue, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     ]-*/;
 
     /**
@@ -154,8 +186,10 @@ public final class Unsafe {
      */
     public native boolean compareAndSwapLong(Object obj, long offset,
             long expectedValue, long newValue) /*-[
-      volatile long long *address = (volatile long long *) (((u_int8_t *) obj) + offset);
-      return OSAtomicCompareAndSwap64Barrier(expectedValue, newValue, address);
+      uintptr_t ptr = PTR(obj, offset);
+      CHECK_ADDR(jlong, ptr)
+      return __c11_atomic_compare_exchange_strong(
+          (volatile_jlong *)ptr, &expectedValue, newValue, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     ]-*/;
 
     /**
@@ -172,14 +206,9 @@ public final class Unsafe {
      */
     public native boolean compareAndSwapObject(Object obj, long offset,
             Object expectedValue, Object newValue) /*-[
-      id volatile *address = (id volatile *) (((u_int8_t *) obj) + offset);
-      id tmp = *address;
-      if (OSAtomicCompareAndSwapPtrBarrier(expectedValue, newValue, (void * volatile *) address)) {
-        [*address retain];
-        [tmp autorelease];
-        return YES;
-      }
-      return NO;
+      uintptr_t ptr = PTR(obj, offset);
+      CHECK_ADDR(id, ptr)
+      return JreCompareAndSwapVolatileStrongId((volatile_id *)ptr, expectedValue, newValue);
     ]-*/;
 
     /**
@@ -191,8 +220,7 @@ public final class Unsafe {
      * @return the retrieved value
      */
     public native int getIntVolatile(Object obj, long offset) /*-[
-      volatile_int *address = (volatile_int *) (((u_int8_t *) obj) + offset);
-      return volatile_load(address);
+      GET_IMPL(jint, SEQ_CST)
     ]-*/;
 
     /**
@@ -204,8 +232,7 @@ public final class Unsafe {
      * @param newValue the value to store
      */
     public native void putIntVolatile(Object obj, long offset, int newValue) /*-[
-      volatile_int *address = (volatile_int *) (((u_int8_t *) obj) + offset);
-      volatile_store(address, newValue);
+      PUT_IMPL(jint, SEQ_CST)
     ]-*/;
 
 
@@ -218,8 +245,7 @@ public final class Unsafe {
      * @return the retrieved value
      */
     public native long getLongVolatile(Object obj, long offset) /*-[
-      volatile_long *address = (volatile_long *) (((u_int8_t *) obj) + offset);
-      return volatile_load(address);
+      GET_IMPL(jlong, SEQ_CST)
     ]-*/;
 
     /**
@@ -231,8 +257,7 @@ public final class Unsafe {
      * @param newValue the value to store
      */
     public native void putLongVolatile(Object obj, long offset, long newValue) /*-[
-      volatile_long *address = (volatile_long *) (((u_int8_t *) obj) + offset);
-      volatile_store(address, newValue);
+      PUT_IMPL(jlong, SEQ_CST)
     ]-*/;
 
     /**
@@ -244,8 +269,7 @@ public final class Unsafe {
      * @return the retrieved value
      */
     public native Object getObjectVolatile(Object obj, long offset) /*-[
-      id volatile *address = (id volatile *) (((u_int8_t *) obj) + offset);
-      return *address;
+      GET_OBJECT_IMPL()
     ]-*/;
 
     /**
@@ -258,13 +282,7 @@ public final class Unsafe {
      */
     public native void putObjectVolatile(Object obj, long offset,
             Object newValue) /*-[
-      id *address = (id *) (((u_int8_t *) obj) + offset);
-      id oldValue = nil;
-      [newValue retain];
-      do {
-        oldValue = *address;
-      } while (!OSAtomicCompareAndSwapPtrBarrier(oldValue, newValue, (void * volatile *)address));
-      [oldValue autorelease];
+      PUT_OBJECT_IMPL()
     ]-*/;
 
     /**
@@ -275,8 +293,7 @@ public final class Unsafe {
      * @return the retrieved value
      */
     public native int getInt(Object obj, long offset) /*-[
-      int *address = (int *) (((u_int8_t *) obj) + offset);
-      return *address;
+      GET_IMPL(jint, RELAXED)
     ]-*/;
 
     /**
@@ -287,17 +304,14 @@ public final class Unsafe {
      * @param newValue the value to store
      */
     public native void putInt(Object obj, long offset, int newValue) /*-[
-      int *address = (int *) (((u_int8_t *) obj) + offset);
-      *address = newValue;
+      PUT_IMPL(jint, RELAXED)
     ]-*/;
 
     /**
      * Lazy set an int field.
      */
     public native void putOrderedInt(Object obj, long offset, int newValue) /*-[
-      int *address = (int *) (((u_int8_t *) obj) + offset);
-      OSMemoryBarrier();
-      *address = newValue;
+      PUT_IMPL(jint, RELEASE)
     ]-*/;
 
     /**
@@ -308,8 +322,7 @@ public final class Unsafe {
      * @return the retrieved value
      */
     public native long getLong(Object obj, long offset) /*-[
-      long long *address = (long long *) (((u_int8_t *) obj) + offset);
-      return *address;
+      GET_IMPL(jlong, RELAXED)
     ]-*/;
 
     /**
@@ -320,17 +333,14 @@ public final class Unsafe {
      * @param newValue the value to store
      */
     public native void putLong(Object obj, long offset, long newValue) /*-[
-      long long *address = (long long *) (((u_int8_t *) obj) + offset);
-      *address = newValue;
+      PUT_IMPL(jlong, RELAXED)
     ]-*/;
 
     /**
      * Lazy set a long field.
      */
     public native void putOrderedLong(Object obj, long offset, long newValue) /*-[
-      long long *address = (long long *) (((u_int8_t *) obj) + offset);
-      OSMemoryBarrier();
-      *address = newValue;
+      PUT_IMPL(jlong, RELEASE)
     ]-*/;
 
     /**
@@ -341,8 +351,7 @@ public final class Unsafe {
      * @return the retrieved value
      */
     public native Object getObject(Object obj, long offset) /*-[
-      id *address = (id *) (((u_int8_t *) obj) + offset);
-      return *address;
+      GET_OBJECT_IMPL()
     ]-*/;
 
     /**
@@ -353,26 +362,14 @@ public final class Unsafe {
      * @param newValue the value to store
      */
     public native void putObject(Object obj, long offset, Object newValue) /*-[
-      id *address = (id *) (((u_int8_t *) obj) + offset);
-      id oldValue = nil;
-      [newValue retain];
-      do {
-        oldValue = *address;
-      } while (!OSAtomicCompareAndSwapPtr(oldValue, newValue, (void * volatile *)address));
-      [oldValue autorelease];
+      PUT_OBJECT_IMPL()
     ]-*/;
 
     /**
      * Lazy set an object field.
      */
     public native void putOrderedObject(Object obj, long offset, Object newValue) /*-[
-      id *address = (id *) (((u_int8_t *) obj) + offset);
-      id oldValue = nil;
-      [newValue retain];
-      do {
-        oldValue = *address;
-      } while (!OSAtomicCompareAndSwapPtrBarrier(oldValue, newValue, (void * volatile *)address));
-      [oldValue autorelease];
+      PUT_OBJECT_IMPL()
     ]-*/;
 
     /**
@@ -420,109 +417,5 @@ public final class Unsafe {
      */
     public native Object allocateInstance(Class<?> c) /*-[
       return [c.objcClass alloc];
-    ]-*/;
-
-    // iOS-specific methods, necessary because an array object's element
-    // buffer isn't inlined as the JVM's is. That makes calculating an
-    // offset from the array address impossible.
-
-    /**
-     * Gets an indexed element from the given array.
-     *
-     * @param array non-null
-     * @param index element index in <code>array</code>
-     * @return the retrieved value
-     */
-    public native Object getArrayObject(Object array, int index) /*-[
-      return ((IOSObjectArray *) array)->buffer_[index];
-    ]-*/;
-
-    /**
-     * Gets an indexed element from the given array,
-     * using <code>volatile</code> semantics.
-     *
-     * @param array non-null
-     * @param index element index in <code>array</code>
-     * @return the retrieved value
-     */
-    public native Object getArrayObjectVolatile(Object array, int index) /*-[
-      id volatile result = ((IOSObjectArray *) array)->buffer_[index];
-      return result;
-    ]-*/;
-
-    /**
-     * Stores an <code>Object</code> into the given array.
-     *
-     * @param array non-null
-     * @param index element index in <code>array</code>
-     * @param newValue the value to store
-     */
-    public native void putArrayObject(Object array, int index, Object newValue) /*-[
-      id *address = &((IOSObjectArray *) array)->buffer_[index];
-      id oldValue = nil;
-      [newValue retain];
-      do {
-        oldValue = *address;
-      } while (!OSAtomicCompareAndSwapPtr(oldValue, newValue, (void * volatile *)address));
-      [oldValue autorelease];
-    ]-*/;
-
-    /**
-     * Stores an <code>Object</code> into the given array.
-     *
-     * @param array non-null
-     * @param index element index in <code>array</code>
-     * @param newValue the value to store
-     */
-    public native void putArrayOrderedObject(Object array, int index, Object newValue) /*-[
-      id *address = &((IOSObjectArray *) array)->buffer_[index];
-      id oldValue = nil;
-      [newValue retain];
-      do {
-        oldValue = *address;
-      } while (!OSAtomicCompareAndSwapPtrBarrier(oldValue, newValue, (void * volatile *)address));
-      [oldValue autorelease];
-    ]-*/;
-
-    /**
-     * Stores an <code>Object</code> into the given array.
-     *
-     * @param array non-null
-     * @param index element index in <code>array</code>
-     * @param newValue the value to store
-     */
-    public native void putArrayObjectVolatile(Object array, int index, Object newValue) /*-[
-      id *address = &((IOSObjectArray *) array)->buffer_[index];
-      id oldValue = nil;
-      [newValue retain];
-      do {
-        oldValue = *address;
-      } while (!OSAtomicCompareAndSwapPtrBarrier(oldValue, newValue, (void * volatile *)address));
-      [oldValue autorelease];
-    ]-*/;
-
-    /**
-     * Performs a compare-and-set operation on an indexed element
-     * within the given object.
-     *
-     * @param array non-null
-     * @param index element index in <code>array</code>
-     * @param expectedValue expected value of the field
-     * @param newValue new value to store in the field if the contents are
-     * as expected
-     * @return <code>true</code> if the new value was in fact stored, and
-     * <code>false</code> if not
-     */
-    public native boolean compareAndSwapArrayObject(Object array, int index,
-            Object expectedValue, Object newValue) /*-[
-      id volatile *buffer = ((IOSObjectArray *) array)->buffer_;
-      id tmp = buffer[index];
-      if (OSAtomicCompareAndSwapPtrBarrier(expectedValue, newValue,
-          (void * volatile *) (buffer + index))) {
-        [buffer[index] retain];
-        [tmp autorelease];
-        return YES;
-      }
-      return NO;
     ]-*/;
 }

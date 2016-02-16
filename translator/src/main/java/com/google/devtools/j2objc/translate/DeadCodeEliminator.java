@@ -26,7 +26,6 @@ import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.TypeDeclaration;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
-import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.DeadCodeMap;
 
@@ -72,7 +71,10 @@ public class DeadCodeEliminator extends TreeVisitor {
 
   @Override
   public void endVisit(AnnotationTypeDeclaration node) {
-    eliminateDeadCode(node.getTypeBinding(), node.getBodyDeclarations());
+    ITypeBinding binding = node.getTypeBinding();
+    if (!BindingUtil.isRuntimeAnnotation(binding)) {
+      eliminateDeadCode(binding, node.getBodyDeclarations());
+    }
   }
 
   @Override
@@ -96,6 +98,17 @@ public class DeadCodeEliminator extends TreeVisitor {
   private void stripClass(List<BodyDeclaration> decls) {
     for (Iterator<BodyDeclaration> iter = decls.iterator(); iter.hasNext(); ) {
       BodyDeclaration decl = iter.next();
+
+      // Do not strip interfaces or static nested classes. They are independent of the dead class,
+      // and even if they are dead, they may still be referenced by other classes.
+      if (decl instanceof TypeDeclaration) {
+        ITypeBinding type = ((TypeDeclaration) decl).getTypeBinding();
+        if (type.isInterface() || Modifier.isStatic(type.getModifiers())) {
+          endVisit((TypeDeclaration) decl);
+          continue;
+        }
+      }
+
       if (!isInlinableConstant(decl)) {
         if (decl instanceof MethodDeclaration) {
           unit.setHasIncompleteProtocol();
@@ -115,7 +128,17 @@ public class DeadCodeEliminator extends TreeVisitor {
       return false;
     }
     ITypeBinding type = ((FieldDeclaration) decl).getType().getTypeBinding();
-    return type.isPrimitive() || Types.isStringType(type);
+    if (!(type.isPrimitive() || typeEnv.isStringType(type))) {
+      return false;
+    }
+
+    // Only when every fragment has constant value do we say this is inlinable.
+    for (VariableDeclarationFragment fragment : ((FieldDeclaration) decl).getFragments()) {
+      if (fragment.getVariableBinding().getConstantValue() == null) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -135,8 +158,11 @@ public class DeadCodeEliminator extends TreeVisitor {
         }
         IMethodBinding binding = method.getMethodBinding();
         String name = getProGuardName(binding);
-        String signature = BindingUtil.getSignature(binding);
+        String signature = BindingUtil.getProGuardSignature(binding);
         if (deadCodeMap.isDeadMethod(clazz, name, signature)) {
+          if (method.isConstructor()) {
+            deadCodeMap.addConstructorRemovedClass(clazz);
+          }
           declarationsIter.remove();
         }
       }

@@ -30,7 +30,6 @@ import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.FunctionInvocation;
 import com.google.devtools.j2objc.ast.IfStatement;
 import com.google.devtools.j2objc.ast.InfixExpression;
-import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.MethodInvocation;
 import com.google.devtools.j2objc.ast.ParenthesizedExpression;
 import com.google.devtools.j2objc.ast.PostfixExpression;
@@ -46,10 +45,11 @@ import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.Type;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.ast.WhileStatement;
+import com.google.devtools.j2objc.types.FunctionBinding;
 import com.google.devtools.j2objc.types.IOSMethodBinding;
-import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
+import com.google.devtools.j2objc.util.TranslationUtil;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
@@ -72,7 +72,7 @@ public class Autoboxer extends TreeVisitor {
    * translated to "Wrapper.valueOf(expr)".
    */
   private Expression box(Expression expr) {
-    ITypeBinding wrapperBinding = Types.getWrapperType(expr.getTypeBinding());
+    ITypeBinding wrapperBinding = typeEnv.getWrapperType(expr.getTypeBinding());
     if (wrapperBinding != null) {
       return newBoxExpression(expr, wrapperBinding);
     } else {
@@ -81,14 +81,14 @@ public class Autoboxer extends TreeVisitor {
   }
 
   private Expression boxWithType(Expression expr, ITypeBinding wrapperType) {
-    if (Types.isBoxedPrimitive(wrapperType)) {
+    if (typeEnv.isBoxedPrimitive(wrapperType)) {
       return newBoxExpression(expr, wrapperType);
     }
     return box(expr);
   }
 
   private Expression newBoxExpression(Expression expr, ITypeBinding wrapperType) {
-    ITypeBinding primitiveType = Types.getPrimitiveType(wrapperType);
+    ITypeBinding primitiveType = typeEnv.getPrimitiveType(wrapperType);
     assert primitiveType != null;
     IMethodBinding wrapperMethod = BindingUtil.findDeclaredMethod(
         wrapperType, VALUEOF_METHOD, primitiveType.getName());
@@ -100,7 +100,7 @@ public class Autoboxer extends TreeVisitor {
 
   private ITypeBinding findWrapperSuperclass(ITypeBinding type) {
     while (type != null) {
-      if (Types.isBoxedPrimitive(type)) {
+      if (typeEnv.isBoxedPrimitive(type)) {
         return type;
       }
       type = type.getSuperclass();
@@ -116,7 +116,7 @@ public class Autoboxer extends TreeVisitor {
    */
   private Expression unbox(Expression expr) {
     ITypeBinding wrapperType = findWrapperSuperclass(expr.getTypeBinding());
-    ITypeBinding primitiveType = Types.getPrimitiveType(wrapperType);
+    ITypeBinding primitiveType = typeEnv.getPrimitiveType(wrapperType);
     if (primitiveType != null) {
       IMethodBinding valueMethod = BindingUtil.findDeclaredMethod(
           wrapperType, primitiveType.getName() + VALUE_METHOD);
@@ -127,6 +127,18 @@ public class Autoboxer extends TreeVisitor {
     }
   }
 
+  /**
+   * Convert a wrapper class instance to a specified primitive equivalent.
+   */
+  private Expression unbox(Expression expr, ITypeBinding primitiveType) {
+    ITypeBinding wrapperType = findWrapperSuperclass(expr.getTypeBinding());
+    IMethodBinding valueMethod = BindingUtil.findDeclaredMethod(
+        wrapperType, primitiveType.getName() + VALUE_METHOD);
+    assert valueMethod != null
+        : "could not find " + primitiveType + " value method for " + wrapperType;
+    return new MethodInvocation(valueMethod, expr.copy());
+  }
+
   @Override
   public void endVisit(Assignment node) {
     Expression lhs = node.getLeftHandSide();
@@ -134,51 +146,63 @@ public class Autoboxer extends TreeVisitor {
     Expression rhs = node.getRightHandSide();
     ITypeBinding rhType = rhs.getTypeBinding();
     Assignment.Operator op = node.getOperator();
-    if (op != Assignment.Operator.ASSIGN && !lhType.isPrimitive()
-        && !lhType.equals(Types.resolveJavaType("java.lang.String"))) {
-      // Not a simple assignment; need to break the <operation>-WITH_ASSIGN
-      // assignment apart.
-      node.setOperator(Assignment.Operator.ASSIGN);
-      node.setRightHandSide(box(newInfixExpression(lhs, rhs, op, lhType)));
-    } else {
-      if (lhType.isPrimitive() && !rhType.isPrimitive()) {
-        node.setRightHandSide(unbox(rhs));
-      } else if (!lhType.isPrimitive() && rhType.isPrimitive()) {
-        node.setRightHandSide(boxWithType(rhs, lhType));
-      }
+    if (op != Assignment.Operator.ASSIGN && !lhType.isPrimitive()) {
+      rewriteBoxedAssignment(node);
+    } else if (lhType.isPrimitive() && !rhType.isPrimitive()) {
+      node.setRightHandSide(unbox(rhs));
+    } else if (!lhType.isPrimitive() && rhType.isPrimitive()) {
+      node.setRightHandSide(boxWithType(rhs, lhType));
     }
   }
 
-  private InfixExpression newInfixExpression(
-      Expression lhs, Expression rhs, Assignment.Operator op, ITypeBinding lhType) {
-    InfixExpression.Operator infixOp;
-    // op isn't an enum, so this can't be a switch.
-    if (op == Assignment.Operator.PLUS_ASSIGN) {
-      infixOp = InfixExpression.Operator.PLUS;
-    } else if (op == Assignment.Operator.MINUS_ASSIGN) {
-      infixOp = InfixExpression.Operator.MINUS;
-    } else if (op == Assignment.Operator.TIMES_ASSIGN) {
-      infixOp = InfixExpression.Operator.TIMES;
-    } else if (op == Assignment.Operator.DIVIDE_ASSIGN) {
-      infixOp = InfixExpression.Operator.DIVIDE;
-    } else if (op == Assignment.Operator.BIT_AND_ASSIGN) {
-      infixOp = InfixExpression.Operator.AND;
-    } else if (op == Assignment.Operator.BIT_OR_ASSIGN) {
-      infixOp = InfixExpression.Operator.OR;
-    } else if (op == Assignment.Operator.BIT_XOR_ASSIGN) {
-      infixOp = InfixExpression.Operator.XOR;
-    } else if (op == Assignment.Operator.REMAINDER_ASSIGN) {
-      infixOp = InfixExpression.Operator.REMAINDER;
-    } else if (op == Assignment.Operator.LEFT_SHIFT_ASSIGN) {
-      infixOp = InfixExpression.Operator.LEFT_SHIFT;
-    } else if (op == Assignment.Operator.RIGHT_SHIFT_SIGNED_ASSIGN) {
-      infixOp = InfixExpression.Operator.RIGHT_SHIFT_SIGNED;
-    } else if (op == Assignment.Operator.RIGHT_SHIFT_UNSIGNED_ASSIGN) {
-      infixOp = InfixExpression.Operator.RIGHT_SHIFT_UNSIGNED;
-    } else {
-      throw new IllegalArgumentException();
+  private void rewriteBoxedAssignment(Assignment node) {
+    Expression lhs = node.getLeftHandSide();
+    Expression rhs = node.getRightHandSide();
+    ITypeBinding type = lhs.getTypeBinding();
+    if (!typeEnv.isBoxedPrimitive(type)) {
+      return;
     }
-    return new InfixExpression(Types.getPrimitiveType(lhType), infixOp, unbox(lhs), unbox(rhs));
+    ITypeBinding primitiveType = typeEnv.getPrimitiveType(type);
+    ITypeBinding pointerType = typeEnv.getPointerType(type);
+    String funcName = "JreBoxed" + getAssignFunctionName(node.getOperator())
+        + TranslationUtil.getOperatorFunctionModifier(lhs)
+        + NameTable.capitalize(primitiveType.getName());
+    FunctionBinding binding = new FunctionBinding(funcName, type, type);
+    binding.addParameters(pointerType, primitiveType);
+    FunctionInvocation invocation = new FunctionInvocation(binding, type);
+    invocation.getArguments().add(new PrefixExpression(
+        pointerType, PrefixExpression.Operator.ADDRESS_OF, TreeUtil.remove(lhs)));
+    invocation.getArguments().add(unbox(rhs));
+    node.replaceWith(invocation);
+  }
+
+  private static String getAssignFunctionName(Assignment.Operator op) {
+    switch (op) {
+      case PLUS_ASSIGN:
+        return "PlusAssign";
+      case MINUS_ASSIGN:
+        return "MinusAssign";
+      case TIMES_ASSIGN:
+        return "TimesAssign";
+      case DIVIDE_ASSIGN:
+        return "DivideAssign";
+      case BIT_AND_ASSIGN:
+        return "BitAndAssign";
+      case BIT_OR_ASSIGN:
+        return "BitOrAssign";
+      case BIT_XOR_ASSIGN:
+        return "BitXorAssign";
+      case REMAINDER_ASSIGN:
+        return "ModAssign";
+      case LEFT_SHIFT_ASSIGN:
+        return "LShiftAssign";
+      case RIGHT_SHIFT_SIGNED_ASSIGN:
+        return "RShiftAssign";
+      case RIGHT_SHIFT_UNSIGNED_ASSIGN:
+        return "URShiftAssign";
+      default:
+        throw new IllegalArgumentException();
+    }
   }
 
   @Override
@@ -218,13 +242,21 @@ public class Autoboxer extends TreeVisitor {
     ITypeBinding type = node.getTypeBinding();
     Expression expr = node.getExpression();
     ITypeBinding exprType = expr.getTypeBinding();
+    Expression newExpr;
     if (type.isPrimitive() && !exprType.isPrimitive()) {
-      // Casting an object to a primitive. Convert the cast type to the wrapper
-      // so that we do a proper cast check, as Java would.
-      type = Types.getWrapperType(type);
-      node.setType(Type.newType(type));
+      if (exprType.isAssignmentCompatible(typeEnv.resolveJavaType("java.lang.Number"))) {
+        // Casting a Number object to a primitive, convert to value method.
+        newExpr = unbox(expr, type);
+      } else {
+        // Casting an object to a primitive. Convert the cast type to the wrapper
+        // so that we do a proper cast check, as Java would.
+        type = typeEnv.getWrapperType(type);
+        node.setType(Type.newType(type));
+        newExpr = boxOrUnboxExpression(expr, type);
+      }
+    } else {
+      newExpr = boxOrUnboxExpression(expr, type);
     }
-    Expression newExpr = boxOrUnboxExpression(expr, type);
     if (newExpr != expr) {
       TreeNode parent = node.getParent();
       if (parent instanceof ParenthesizedExpression) {
@@ -299,33 +331,24 @@ public class Autoboxer extends TreeVisitor {
   @Override
   public void endVisit(InfixExpression node) {
     ITypeBinding type = node.getTypeBinding();
-    Expression lhs = node.getLeftOperand();
-    ITypeBinding lhBinding = lhs.getTypeBinding();
-    Expression rhs = node.getRightOperand();
-    ITypeBinding rhBinding = rhs.getTypeBinding();
     InfixExpression.Operator op = node.getOperator();
+    List<Expression> operands = node.getOperands();
 
     // Don't unbox for equality tests where both operands are boxed types.
     if ((op == InfixExpression.Operator.EQUALS || op == InfixExpression.Operator.NOT_EQUALS)
-        && !lhBinding.isPrimitive() && !rhBinding.isPrimitive()) {
+        && !operands.get(0).getTypeBinding().isPrimitive()
+        && !operands.get(1).getTypeBinding().isPrimitive()) {
       return;
     }
     // Don't unbox for string concatenation.
-    if (op == InfixExpression.Operator.PLUS && Types.isJavaStringType(type)) {
+    if (op == InfixExpression.Operator.PLUS && typeEnv.isJavaStringType(type)) {
       return;
     }
 
-    if (!lhBinding.isPrimitive()) {
-      node.setLeftOperand(unbox(lhs));
-    }
-    if (!rhBinding.isPrimitive()) {
-      node.setRightOperand(unbox(rhs));
-    }
-    List<Expression> extendedOperands = node.getExtendedOperands();
-    for (int i = 0; i < extendedOperands.size(); i++) {
-      Expression expr = extendedOperands.get(i);
+    for (int i = 0; i < operands.size(); i++) {
+      Expression expr = operands.get(i);
       if (!expr.getTypeBinding().isPrimitive()) {
-        extendedOperands.set(i, unbox(expr));
+        operands.set(i, unbox(expr));
       }
     }
   }
@@ -358,16 +381,19 @@ public class Autoboxer extends TreeVisitor {
     }
   }
 
-  private void rewriteBoxedPrefixOrPostfix(
-      TreeNode node, Expression operand, String methodPrefix) {
+  private void rewriteBoxedPrefixOrPostfix(TreeNode node, Expression operand, String funcName) {
     ITypeBinding type = operand.getTypeBinding();
-    if (!Types.isBoxedPrimitive(type)) {
+    if (!typeEnv.isBoxedPrimitive(type)) {
       return;
     }
-    String funcName = methodPrefix + NameTable.capitalize(Types.getPrimitiveType(type).getName());
-    FunctionInvocation invocation = new FunctionInvocation(funcName, type, type, type);
+    ITypeBinding pointerType = typeEnv.getPointerType(type);
+    funcName = "JreBoxed" + funcName + TranslationUtil.getOperatorFunctionModifier(operand)
+        + NameTable.capitalize(typeEnv.getPrimitiveType(type).getName());
+    FunctionBinding binding = new FunctionBinding(funcName, type, type);
+    binding.addParameter(pointerType);
+    FunctionInvocation invocation = new FunctionInvocation(binding, type);
     invocation.getArguments().add(new PrefixExpression(
-        PrefixExpression.Operator.ADDRESS_OF, TreeUtil.remove(operand)));
+        pointerType, PrefixExpression.Operator.ADDRESS_OF, TreeUtil.remove(operand)));
     node.replaceWith(invocation);
   }
 
@@ -375,8 +401,7 @@ public class Autoboxer extends TreeVisitor {
   public void endVisit(ReturnStatement node) {
     Expression expr = node.getExpression();
     if (expr != null) {
-      MethodDeclaration methodDecl = TreeUtil.getOwningMethod(node);
-      ITypeBinding returnType = methodDecl.getMethodBinding().getReturnType();
+      ITypeBinding returnType = TreeUtil.getOwningReturnType(node);
       ITypeBinding exprType = expr.getTypeBinding();
       if (returnType.isPrimitive() && !exprType.isPrimitive()) {
         node.setExpression(unbox(expr));

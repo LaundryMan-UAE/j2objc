@@ -35,6 +35,7 @@
 APACHE_HARMONY_BASE = apache_harmony/classlib/modules
 JRE_ROOT = $(APACHE_HARMONY_BASE)/luni/src/main/java
 JRE_ARCHIVE_ROOT = $(APACHE_HARMONY_BASE)/archive/src/main/java
+JRE_BEANS_ROOT = $(APACHE_HARMONY_BASE)/beans/src/main/java
 JRE_CONCURRENT_ROOT = $(APACHE_HARMONY_BASE)/concurrent/src/main/java
 JRE_KERNEL_ROOT = $(APACHE_HARMONY_BASE)/luni-kernel/src/main/java
 JRE_MATH_ROOT = $(APACHE_HARMONY_BASE)/math/src/main/java
@@ -46,12 +47,15 @@ MATH_TEST_SUPPORT_ROOT = $(APACHE_HARMONY_BASE)/math/src/test/java/tests/api
 REGEX_TEST_ROOT = $(APACHE_HARMONY_BASE)/regex/src/test/java
 CONCURRENT_TEST_ROOT = $(APACHE_HARMONY_BASE)/concurrent/src/test/java
 ARCHIVE_TEST_ROOT = $(APACHE_HARMONY_BASE)/archive/src/test/java
+BEANS_TEST_ROOT = $(APACHE_HARMONY_BASE)/beans/src/test/java
+BEANS_TEST_SUPPORT_ROOT = $(APACHE_HARMONY_BASE)/beans/src/test/support/java
 LOGGING_TEST_ROOT = $(APACHE_HARMONY_BASE)/logging/src/test/java
 ICU4C_I18N_ROOT = icu4c/i18n
 ICU4C_COMMON_ROOT = icu4c/common
 J2OBJC_ANNOTATIONS_ROOT = ../annotations/src/main/java
 
 ANDROID_BASE = android
+ANDROID_PLATFORM = android/platform
 ANDROID_CORE_ROOT = $(ANDROID_BASE)/frameworks/base/core/java
 ANDROID_CORE_TESTS_ROOT = $(ANDROID_BASE)/frameworks/base/core/tests/coretests/src
 LIBCORE_BASE = $(ANDROID_BASE)/libcore
@@ -64,6 +68,8 @@ ANDROID_TEST_SUPPORT_ROOT = $(LIBCORE_BASE)/support/src/test/java
 ANDROID_XML_ROOT = $(LIBCORE_BASE)/xml/src/main/java
 ANDROID_APACHE_TEST_ROOT = $(LIBCORE_BASE)/harmony-tests/src/test/java
 ANDROID_TESTS_RUNNER_ROOT = $(ANDROID_BASE)/frameworks/base/tests-runner/src
+ANDROID_JSR166_TEST_ROOT = $(LIBCORE_BASE)/jsr166-tests/src/test/java
+MOCKWEBSERVER_ROOT = $(ANDROID_PLATFORM)/external/mockwebserver/src/main/java
 
 APPLE_ROOT = apple_apsl
 
@@ -77,26 +83,35 @@ include ../make/j2objc_deps.mk
 include ../java_deps/jars.mk
 
 CLASS_DIR = $(BUILD_DIR)/Classes
-EMULATION_STAGE = /tmp/jre_emul
 EMULATION_JAR = $(BUILD_DIR)/jre_emul.jar
 EMULATION_JAR_DIST = $(DIST_JAR_DIR)/jre_emul.jar
+EMULATION_SRC_JAR = $(BUILD_DIR)/jre_emul-src.jar
+EMULATION_SRC_JAR_DIST = $(DIST_JAR_DIR)/jre_emul-src.jar
 EMULATION_LIB_DIST = $(ARCH_LIB_DIR)/libjre_emul.a
 MAIN_LIB = $(BUILD_DIR)/libj2objc_main.a
-MAIN_LIB_DIST = $(DIST_LIB_DIR)/libj2objc_main.a
+MAIN_LIB_DIST = $(DIST_LIB_MACOSX_DIR)/libj2objc_main.a
 EMULATION_CLASS_DIR = Classes
 TESTS_DIR = $(BUILD_DIR)/tests
 RELATIVE_TESTS_DIR = $(BUILD_DIR_NAME)/tests
 STUBS_DIR = stub_classes
 ANDROID_NATIVE_DIR = $(LIBCORE_BASE)/luni/src/main/native
+ANDROID_NATIVE_TEST_DIR = $(LIBCORE_BASE)/luni/src/test/native
 
 ifndef TRANSLATED_SOURCE_DIR
 TRANSLATED_SOURCE_DIR = $(CLASS_DIR)
 endif
 
+ifdef CONFIGURATION_BUILD_DIR
+RESOURCES_DEST_DIR = $(CONFIGURATION_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)
+else
+RESOURCES_DEST_DIR = $(TESTS_DIR)
+endif
+
 JRE_SRC_ROOTS = $(JRE_ROOT) $(JRE_CONCURRENT_ROOT) $(JRE_KERNEL_ROOT) \
     $(JRE_MATH_ROOT) $(ANDROID_DALVIK_ROOT) $(ANDROID_LUNI_ROOT) \
     $(ANDROID_XML_ROOT) $(EMULATION_CLASS_DIR) $(JRE_ARCHIVE_ROOT) \
-    $(ANDROID_CORE_ROOT) $(ANDROID_JSON_ROOT) $(J2OBJC_ANNOTATIONS_ROOT)
+    $(ANDROID_CORE_ROOT) $(ANDROID_JSON_ROOT) $(J2OBJC_ANNOTATIONS_ROOT) \
+    $(JRE_BEANS_ROOT)
 JRE_SRC = $(subst $(eval) ,:,$(JRE_SRC_ROOTS))
 TEST_SRC_ROOTS = $(JRE_TEST_ROOT) $(JRE_MATH_TEST_ROOT) \
     $(TEST_SUPPORT_ROOT) $(MATH_TEST_SUPPORT_ROOT) $(REGEX_TEST_ROOT) \
@@ -104,12 +119,13 @@ TEST_SRC_ROOTS = $(JRE_TEST_ROOT) $(JRE_MATH_TEST_ROOT) \
     $(JRE_TEXT_TEST_ROOT) $(ANDROID_LUNI_TEST_ROOT) $(ARCHIVE_TEST_ROOT) \
     $(ANDROID_APACHE_TEST_ROOT) $(LOGGING_TEST_ROOT) \
     $(ANDROID_CORE_TESTS_ROOT) $(ANDROID_TESTS_RUNNER_ROOT) \
-    $(ANDROID_JSON_TEST_ROOT)
+    $(ANDROID_JSON_TEST_ROOT) $(BEANS_TEST_ROOT) $(BEANS_TEST_SUPPORT_ROOT) \
+    $(ANDROID_JSR166_TEST_ROOT) $(MOCKWEBSERVER_ROOT)
 TEST_SRC = $(subst $(eval) ,:,$(TEST_SRC_ROOTS))
 vpath %.java $(JRE_SRC):$(TEST_SRC):$(STUBS_DIR)
 
 # Clang warnings
-WARNINGS := $(WARNINGS) -Wall -Werror -Wshorten-64-to-32 -Wsign-compare
+WARNINGS := $(CC_WARNINGS) $(WARNINGS)
 
 ifeq ("$(strip $(XCODE_VERSION_MAJOR))", "0500")
 OBJCFLAGS += -DSET_MIN_IOS_VERSION
@@ -117,7 +133,7 @@ endif
 
 # The -fobjc flags match XCode (a link fails without them because of
 # missing symbols of the form OBJC_CLASS_$_[classname]).
-OBJCFLAGS += $(WARNINGS) -DU_DISABLE_RENAMING=1 -fno-strict-overflow \
+OBJCFLAGS += $(WARNINGS) -fno-strict-overflow \
   -fobjc-abi-version=2 -fobjc-legacy-dispatch $(DEBUGFLAGS) \
   -I/System/Library/Frameworks/ExceptionHandling.framework/Headers \
   -I/System/Library/Frameworks/Security.framework/Headers \
@@ -149,4 +165,11 @@ OBJCFLAGS += -std=c11
 
 ifeq ("$(strip $(CLANG_ENABLE_OBJC_ARC))", "YES")
 $(error The jre_emul build no longer supports an ARC build)
+endif
+
+# Specify bitcode flag if clang version 7 or greater. This is necessary to support
+# iOS 9 apps that have the 'Enable bitcode' option set, which is the default for
+# new apps in Xcode 7.
+ifeq ("$(XCODE_7_MINIMUM)", "YES")
+OBJCFLAGS += -fembed-bitcode
 endif

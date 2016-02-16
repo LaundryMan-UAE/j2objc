@@ -12,7 +12,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedDeque.Node;
 
 // BEGIN android-note
 // removed link to collections framework docs
@@ -32,10 +31,10 @@ import java.util.concurrent.ConcurrentLinkedDeque.Node;
  * Like most other concurrent collection implementations, this class
  * does not permit the use of {@code null} elements.
  *
- * <p>This implementation employs an efficient &quot;wait-free&quot;
- * algorithm based on one described in <a
- * href="http://www.cs.rochester.edu/u/michael/PODC96.html"> Simple,
- * Fast, and Practical Non-Blocking and Blocking Concurrent Queue
+ * <p>This implementation employs an efficient <em>non-blocking</em>
+ * algorithm based on one described in
+ * <a href="http://www.cs.rochester.edu/~scott/papers/1996_PODC_queues.pdf">
+ * Simple, Fast, and Practical Non-Blocking and Blocking Concurrent Queue
  * Algorithms</a> by Maged M. Michael and Michael L. Scott.
  *
  * <p>Iterators are <i>weakly consistent</i>, returning elements
@@ -70,7 +69,6 @@ import java.util.concurrent.ConcurrentLinkedDeque.Node;
  * @since 1.5
  * @author Doug Lea
  * @param <E> the type of elements held in this collection
- *
  */
 public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
         implements Queue<E>, java.io.Serializable {
@@ -191,6 +189,8 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
         }
     }
 
+    private final Node<E> SENTINEL = new Node<E>(null);
+
     /**
      * A node from which the first live (non-deleted) node (if any)
      * can be reached in O(1) time.
@@ -218,7 +218,6 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      * - tail.next may or may not be self-pointing to tail.
      */
     private transient volatile Node<E> tail;
-
 
     /**
      * Creates a {@code ConcurrentLinkedQueue} that is initially empty.
@@ -269,12 +268,12 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
     }
 
     /**
-     * Try to CAS head to p. If successful, repoint old head to itself
+     * Tries to CAS head to p. If successful, repoint old head to itself
      * as sentinel for succ(), below.
      */
     final void updateHead(Node<E> h, Node<E> p) {
         if (h != p && casHead(h, p))
-            h.lazySetNext(h);
+            h.lazySetNext(SENTINEL);
     }
 
     /**
@@ -284,7 +283,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      */
     final Node<E> succ(Node<E> p) {
         Node<E> next = p.next;
-        return (p == next) ? head : next;
+        return (SENTINEL == next) ? head : next;
     }
 
     /**
@@ -312,20 +311,15 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                 }
                 // Lost CAS race to another thread; re-read next
             }
-            else if (p == q) {
+            else if (SENTINEL == q)
                 // We have fallen off list.  If tail is unchanged, it
                 // will also be off-list, in which case we need to
                 // jump to head, from which all live nodes are always
                 // reachable.  Else the new tail is a better bet.
-                Node<E> oldT = t;
-                t = tail;
-                p = (t != oldT) ? t : head;
-            } else {
+                p = (t != (t = tail)) ? t : head;
+            else
                 // Check for tail updates after two hops.
-                Node<E> oldT = t;
-                t = tail;
-                p = (p != t && t != oldT) ? t : q;
-            }
+                p = (p != t && t != (t = tail)) ? t : q;
         }
     }
 
@@ -346,7 +340,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                     updateHead(h, p);
                     return null;
                 }
-                else if (p == q)
+                else if (SENTINEL == q)
                     continue restartFromHead;
                 else
                     p = q;
@@ -363,7 +357,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                     updateHead(h, p);
                     return item;
                 }
-                else if (p == q)
+                else if (SENTINEL == q)
                     continue restartFromHead;
                 else
                     p = q;
@@ -388,7 +382,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                     updateHead(h, p);
                     return hasItem ? p : null;
                 }
-                else if (p == q)
+                else if (SENTINEL == q)
                     continue restartFromHead;
                 else
                     p = q;
@@ -529,20 +523,15 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                 }
                 // Lost CAS race to another thread; re-read next
             }
-            else if (p == q) {
+            else if (SENTINEL == q)
                 // We have fallen off list.  If tail is unchanged, it
                 // will also be off-list, in which case we need to
                 // jump to head, from which all live nodes are always
                 // reachable.  Else the new tail is a better bet.
-                Node<E> oldT = t;
-                t = tail;
-                p = (t != oldT) ? t : head;
-            } else {
+                p = (t != (t = tail)) ? t : head;
+            else
                 // Check for tail updates after two hops.
-                Node<E> oldT = t;
-                t = tail;
-                p = (p != t && t != oldT) ? t : q;
-            }
+                p = (p != t && t != (t = tail)) ? t : q;
         }
     }
 
@@ -728,11 +717,10 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
     }
 
     /**
-     * Saves the state to a stream (that is, serializes it).
+     * Saves this queue to a stream (that is, serializes it).
      *
      * @serialData All of the elements (each an {@code E}) in
      * the proper order, followed by a null
-     * @param s the stream
      */
     private void writeObject(java.io.ObjectOutputStream s)
         throws java.io.IOException {
@@ -752,8 +740,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
     }
 
     /**
-     * Reconstitutes the instance from a stream (that is, deserializes it).
-     * @param s the stream
+     * Reconstitutes this queue from a stream (that is, deserializes it).
      */
     private void readObject(java.io.ObjectInputStream s)
         throws java.io.IOException, ClassNotFoundException {

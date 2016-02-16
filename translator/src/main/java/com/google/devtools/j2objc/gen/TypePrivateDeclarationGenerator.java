@@ -18,10 +18,8 @@ import com.google.common.collect.Iterables;
 import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.BodyDeclaration;
 import com.google.devtools.j2objc.ast.Expression;
-import com.google.devtools.j2objc.ast.FieldDeclaration;
 import com.google.devtools.j2objc.ast.FunctionDeclaration;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
-import com.google.devtools.j2objc.util.NameTable;
 
 import org.eclipse.jdt.core.dom.Modifier;
 
@@ -45,10 +43,19 @@ public class TypePrivateDeclarationGenerator extends TypeDeclarationGenerator {
     return true;
   }
 
-  // TODO(kstanger): Merge this with generate() in the superclass.
   private void generate() {
-    printConstantDefines();
+    pushNullabilityCompletenessPragma();
+    if (typeNode.hasPrivateDeclaration()) {
+      generateInitialDeclaration();
+    } else {
+      generateDeclarationExtension();
+    }
+    popNullabilityCompletenessPragma();
+  }
+
+  private void generateDeclarationExtension() {
     printClassExtension();
+    printCompanionClassDeclaration();
     printFieldSetters();
     printStaticFieldDeclarations();
     printOuterDeclarations();
@@ -58,23 +65,20 @@ public class TypePrivateDeclarationGenerator extends TypeDeclarationGenerator {
     if (isInterfaceType()) {
       return;
     }
-    Iterable<FieldDeclaration> privateFields = getInstanceFields();
-    boolean hasPrivateFields = !Iterables.isEmpty(privateFields);
+    boolean hasPrivateFields = !Iterables.isEmpty(getInstanceFields());
     Iterable<BodyDeclaration> privateDecls = getInnerDeclarations();
     if (!Iterables.isEmpty(privateDecls) || hasPrivateFields) {
-      String typeName = NameTable.getFullName(node.getTypeBinding());
       newline();
       printf("@interface %s ()", typeName);
-      if (hasPrivateFields) {
-        println(" {");
-        printInstanceVariables();
-        println("}");
-      } else {
-        newline();
-      }
+      printInstanceVariables();
       printDeclarations(privateDecls);
-      println("@end");
+      println("\n@end");
     }
+  }
+
+  @Override
+  protected void printStaticAccessors() {
+    // Static accessors are only needed by the public API.
   }
 
   @Override

@@ -14,14 +14,23 @@
 
 package com.google.devtools.j2objc.gen;
 
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.Javadoc;
+import com.google.devtools.j2objc.ast.Name;
+import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.TagElement;
 import com.google.devtools.j2objc.ast.TextElement;
 import com.google.devtools.j2objc.ast.TreeNode;
+import com.google.devtools.j2objc.util.NameTable;
+
+import org.eclipse.jdt.core.dom.IBinding;
+import org.eclipse.jdt.core.dom.IVariableBinding;
 
 import java.text.BreakIterator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Generates Javadoc comments.
@@ -29,6 +38,23 @@ import java.util.Locale;
  * @author Tom Ball, Keith Stanger
  */
 public class JavadocGenerator extends AbstractSourceGenerator {
+
+  // True when a <pre> tag is in a Javadoc comment, but not the closing </pre>.
+  boolean spanningPreTag = false;
+
+  // True with a <style> tag is in a Javadoc comment, but not the closing </style>.
+  boolean spanningStyleTag = false;
+
+  // All escapes are defined at "http://dev.w3.org/html5/html-author/charref".
+  private static final Map<Character, String> htmlEntities = new HashMap<>();
+  static {
+    htmlEntities.put('"',  "&quot;");
+    htmlEntities.put('\'', "&apos;");
+    htmlEntities.put('<',  "&lt;");
+    htmlEntities.put('>',  "&gt;");
+    htmlEntities.put('&',  "&amp;");
+    htmlEntities.put('@',  "&commat;");
+ }
 
   private JavadocGenerator(SourceBuilder builder) {
     super(builder);
@@ -38,13 +64,26 @@ public class JavadocGenerator extends AbstractSourceGenerator {
     new JavadocGenerator(builder).printDocComment(javadoc);
   }
 
+  public static String toString(Javadoc javadoc) {
+    SourceBuilder builder = new SourceBuilder(false);
+    printDocComment(builder, javadoc);
+    return builder.toString();
+  }
+
+  public static String toString(TagElement tag) {
+    SourceBuilder builder = new SourceBuilder(false);
+    return new JavadocGenerator(builder).printTag(tag);
+  }
+
   private void printDocComment(Javadoc javadoc) {
     if (javadoc != null) {
       printIndent();
-      println("/**");
+
+      // Use HeaderDoc doc-comment start, which is compatible with Xcode Quick Help and Doxygen.
+      println("/*!");
+
       List<TagElement> tags = javadoc.getTags();
       for (TagElement tag : tags) {
-
         if (tag.getTagName() == null) {
           // Description section.
           String description = printTagFragments(tag.getFragments());
@@ -57,16 +96,16 @@ public class JavadocGenerator extends AbstractSourceGenerator {
           if (end != BreakIterator.DONE) {
             // Print brief tag first, since Quick Help shows it first. This makes the
             // generated source easier to review.
-            printDocLine(String.format("@brief %s", description.substring(start, end).trim()));
-            String remainder = description.substring(end).trim();
+            printDocLine(String.format("@brief %s", description.substring(start, end)).trim());
+            String remainder = description.substring(end);
             if (!remainder.isEmpty()) {
               printDocLine(remainder);
             }
           } else {
-            printDocLine(description.trim());
+            printDocLine(description);
          }
         } else {
-          String doc = printJavadocTag(tag);
+          String doc = printTag(tag);
           if (!doc.isEmpty()) {
             printDocLine(doc);
           }
@@ -78,59 +117,248 @@ public class JavadocGenerator extends AbstractSourceGenerator {
   }
 
   private void printDocLine(String line) {
-    printIndent();
-    print(' ');
+    if (!spanningPreTag) {
+      printIndent();
+      print(' ');
+    }
     println(line);
   }
 
-  private String printJavadocTag(TagElement tag) {
+  private String printTag(TagElement tag) {
     String tagName = tag.getTagName();
-    // Xcode 5 compatible tags.
-    if (tagName.equals(TagElement.TAG_AUTHOR)
-        || tagName.equals(TagElement.TAG_EXCEPTION)
-        || tagName.equals(TagElement.TAG_PARAM)
-        || tagName.equals(TagElement.TAG_RETURN)
-        || tagName.equals(TagElement.TAG_SINCE)
-        || tagName.equals(TagElement.TAG_THROWS)
-        || tagName.equals(TagElement.TAG_VERSION)) {
-      return String.format("%s %s", tagName, printTagFragments(tag.getFragments()));
-    }
+    if (tagName != null) {
+      // Remove @param tags for parameterized types, such as "@param <T> the type".
+      // TODO(tball): update when (if) Xcode supports Objective C type parameter documenting.
+      if (tagName.equals(TagElement.TAG_PARAM) && hasTypeParam(tag.getFragments())) {
+        return "";
+      }
 
-    if (tagName.equals(TagElement.TAG_DEPRECATED)) {
-      // Deprecated annotation translated instead.
-      return "";
-    }
+      // Xcode 7 compatible tags.
+      if (tagName.equals(TagElement.TAG_AUTHOR)
+          || tagName.equals(TagElement.TAG_EXCEPTION)
+          || tagName.equals(TagElement.TAG_PARAM)
+          || tagName.equals(TagElement.TAG_RETURN)
+          || tagName.equals(TagElement.TAG_SINCE)
+          || tagName.equals(TagElement.TAG_THROWS)
+          || tagName.equals(TagElement.TAG_VERSION)) {
+        // Skip
+        String comment = printTagFragments(tag.getFragments()).trim();
+        return comment.isEmpty() ? "" : String.format("%s %s", tagName, comment);
+      }
 
-    if (tagName.equals(TagElement.TAG_SEE)) {
-      // TODO(tball): implement @see when Xcode quick help links are documented.
-      return "";
-    }
+      if (tagName.equals(TagElement.TAG_DEPRECATED)) {
+        // Deprecated annotation translated instead.
+        return "";
+      }
 
-    if (tagName.equals(TagElement.TAG_CODE)) {
-      return String.format("<code>%s</code>", printTagFragments(tag.getFragments()));
-    }
+      if (tagName.equals(TagElement.TAG_SEE)) {
+        String comment = printTagFragments(tag.getFragments()).trim();
+        return comment.isEmpty() ? "" : "- seealso: " + comment;
+      }
 
-    // Remove tag, but return any text it has.
+      if (tagName.equals(TagElement.TAG_CODE)) {
+        String text = printTagFragments(tag.getFragments());
+        if (spanningPreTag) {
+          return text;
+        }
+        return String.format("<code>%s</code>", text.trim());
+      }
+
+      if (tagName.equals(TagElement.TAG_LINK)) {
+        return formatLinkTag(tag, "<code>%s</code>");
+      }
+
+      if (tagName.equals(TagElement.TAG_LINKPLAIN)) {
+        return formatLinkTag(tag, "%s");
+      }
+
+      if (tagName.equals(TagElement.TAG_LITERAL)) {
+        String text = printTagFragments(tag.getFragments()).trim();
+        if (spanningPreTag) {
+          return text;
+        }
+        return escapeHtmlText(text);
+      }
+    }
     return printTagFragments(tag.getFragments());
   }
 
+  public String formatLinkTag(TagElement tag, String template) {
+    String text = printTagFragments(tag.getFragments()).trim();
+    int iLabel = text.indexOf(' ');
+    if (iLabel > 0) {
+      return String.format(template, text.substring(iLabel).trim());
+    }
+    // Delete leading '#' characters (method links), and change embedded ones
+    // (such as "class#method") to '.'.
+    if (text.indexOf('#') == 0) {
+      text = text.substring(1);
+    }
+    text = text.replace('#', '.');
+
+    return String.format(template, text);
+  }
+
+  private boolean hasTypeParam(List<TreeNode> fragments) {
+    // The format for a @param tag with a type parameter is:
+    // [ "<", Name, ">", comment ].
+    return fragments.size() >= 3
+        && "<".equals(fragments.get(0).toString())
+        && (fragments.get(1) instanceof SimpleName)
+        && ">".equals(fragments.get(2).toString());
+  }
+
   private String printTagFragments(List<TreeNode> fragments) {
+    if (fragments.isEmpty()) {
+      return "";
+    }
     StringBuilder sb = new StringBuilder();
+    int lineNo = fragments.get(0).getLineNumber();
     for (TreeNode fragment : fragments) {
-      sb.append(' ');
+      if (fragment.getLineNumber() > lineNo) {
+        sb.append("\n ");
+        lineNo = fragment.getLineNumber();
+      }
       if (fragment instanceof TextElement) {
+        if (spanningPreTag) {
+          sb.append(getSourceIndent(fragment));
+        }
         String text = escapeDocText(((TextElement) fragment).getText());
-        sb.append(text.trim());
+        sb.append(text);
       } else if (fragment instanceof TagElement) {
-        sb.append(printJavadocTag((TagElement) fragment));
+        sb.append(printTag((TagElement) fragment));
+      } else if (fragment instanceof SimpleName) {
+        IBinding binding = ((Name) fragment).getBinding();
+        if (binding instanceof IVariableBinding) {
+          sb.append(NameTable.getDocCommentVariableName(((IVariableBinding) binding)));
+        } else {
+          sb.append(fragment.toString());
+        }
       } else {
-        sb.append(escapeDocText(fragment.toString()).trim());
+        sb.append(fragment.toString().trim());
       }
     }
-    return sb.toString().trim();
+    return sb.toString();
+  }
+
+  /**
+   * If a string has a <pre> tag, or is continuing one from another
+   * tag, convert to @code/@endcode format.
+   */
+  private String escapeCodeText(String text) {
+    String lowerText = text.toLowerCase();
+    int preStart = lowerText.indexOf("<pre>");
+    int preEnd = lowerText.indexOf("</pre>");
+    if (preStart == -1 && preEnd == -1) {
+      return text;
+    }
+    if (preStart >= 0 && preEnd >= 0 && preEnd < preStart) {
+      // Bad code formatting, don't try to escape.
+      return text;
+    }
+
+    // Separately test begin and end tags, to support a span with multiple Javadoc tags.
+    StringBuffer sb = new StringBuffer();
+    if (preStart > -1 && preEnd > -1) {
+      // Both <pre> and </pre> are in the same text segment.
+      sb.append(text.substring(0, preStart));
+      if (preStart > 0) {
+        sb.append('\n');
+      }
+      sb.append("@code\n");
+      sb.append(text.substring(preStart + "<pre>".length(), preEnd));
+      sb.append("\n@endcode");
+      sb.append(text.substring(preEnd + "</pre>".length()));
+    } else if (preStart > -1) {
+      // The text has <pre> but not the </pre> should be in a following Javadoc tag.
+      sb.append(text.substring(0, preStart));
+      if (preStart > 0) {
+        sb.append('\n');
+      }
+      sb.append("@code\n");
+      sb.append(text.substring(preStart + "<pre>".length()));
+      spanningPreTag = true;
+    } else {
+      // The text just has a </pre>.
+      sb.append("\n@endcode");
+      sb.append(text.substring(preEnd + "</pre>".length()));
+      spanningPreTag = false;
+    }
+    return escapeCodeText(sb.toString());  // Allow for multiple <pre> spans in single text element.
   }
 
   private String escapeDocText(String text) {
-    return text.replace("@", "@@").replace("/*", "/\\*");
+    return skipStyleTag(escapeCodeText(text.replace("@", "@@").replace("/*", "/\\*")));
+  }
+
+  private String escapeHtmlText(String text) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < text.length(); i++) {
+      Character c = text.charAt(i);
+      if (htmlEntities.containsKey(c)) {
+        sb.append(htmlEntities.get(c));
+      } else {
+        sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+
+  /**
+   * Remove <style> tags and their content, as Quick Help displays them.
+   */
+  private String skipStyleTag(String text) {
+    int start = text.indexOf("<style");  // Leave open as it has attributes.
+    int end = text.indexOf("</style>");
+    if (start == -1 && end == -1) {
+      return spanningStyleTag ? "" : text;
+    }
+    if (start > -1 && end == -1) {
+      spanningStyleTag = true;
+      return text.substring(0, start);
+    }
+    if (start == -1 && end > -1) {
+      spanningStyleTag = false;
+      return text.substring(end + 8); // "</style>".length
+    }
+    return text.substring(0, start) + text.substring(end + 8);
+  }
+
+  /**
+   * Fetch the leading whitespace from the comment line. Since the JDT
+   * strips leading and trailing whitespace from lines, the original
+   * source is fetched and is walked backwards from the fragment's start
+   * until the previous new line, then moved forward if there is a leading
+   * "* ".
+   */
+  private String getSourceIndent(TreeNode fragment) {
+    int index = fragment.getStartPosition();
+    if (index < 1) {
+      return "";
+    }
+    TreeNode node = fragment.getParent();
+    while (node != null && node.getKind() != TreeNode.Kind.COMPILATION_UNIT) {
+      node = node.getParent();
+    }
+    if (node instanceof CompilationUnit) {
+      String source = ((CompilationUnit) node).getSource();
+      int i = index - 1;
+      char c;
+      while (i >= 0 && (c = source.charAt(i)) != '\n') {
+        if (c != '*' && !Character.isWhitespace(c)) {
+          // Pre tag embedded in other text, so no indent.
+          return "";
+        }
+        --i;
+      }
+      String lineStart = source.substring(i + 1, index);
+      i = lineStart.indexOf('*');
+      if (i == -1) {
+        return lineStart;
+      }
+      // Indent could end with '*' instead of "* ", if there's no text after it.
+      return (++i + 1) < lineStart.length() ? lineStart.substring(i + 1) : lineStart.substring(i);
+    }
+    return "";
   }
 }

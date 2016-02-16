@@ -14,6 +14,7 @@
 package com.google.devtools.j2objc.file;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Reader;
 
 /**
@@ -24,6 +25,8 @@ import java.io.Reader;
  */
 public interface InputFile {
   boolean exists() throws IOException;
+
+  InputStream getInputStream() throws IOException;
 
   /**
    * Opens a new reader for this SourceFile.
@@ -51,6 +54,13 @@ public interface InputFile {
    * a path relative to some base directory.
    */
   String getUnitName();
+
+  /**
+   * Gets name of the file stripped of any path components.
+   * For example, the basename of "package/path/SourceFile.java" is
+   * "SourceFile.java".
+   */
+  String getBasename();
 
   long lastModified();
 }

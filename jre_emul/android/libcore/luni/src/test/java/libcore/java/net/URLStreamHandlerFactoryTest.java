@@ -44,8 +44,8 @@ public final class URLStreamHandlerFactoryTest extends TestCase {
     }
 
     public void tearDown() throws IllegalAccessException {
-        factoryField.set(null, null);
-        URL.setURLStreamHandlerFactory(oldFactory);
+      factoryField.set(null, null);
+      URL.setURLStreamHandlerFactory(oldFactory);
     }
 
     public void testCreateURLStreamHandler() throws Exception {

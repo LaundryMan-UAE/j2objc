@@ -42,6 +42,7 @@ public class DeadCodeEliminatorTest extends GenerationTest {
         .build();
     setDeadCodeMap(map);
     String translation = translateSourceFile(source, "A", "A.m");
+    assertTranslation(translation, "@interface A_B");
     assertNotInTranslation(translation, "bar");
     assertTranslation(translation, "baz");
   }
@@ -68,7 +69,7 @@ public class DeadCodeEliminatorTest extends GenerationTest {
         + "  }\n"
         + "}\n";
     DeadCodeMap map = DeadCodeMap.builder()
-        .addDeadMethod("A$B", "A$B", "(I)V")
+        .addDeadMethod("A$B", "A$B", "(LA;I)V")
         .build();
     setDeadCodeMap(map);
     String translation = translateSourceFile(source, "A", "A.m");
@@ -97,9 +98,9 @@ public class DeadCodeEliminatorTest extends GenerationTest {
     assertNotInTranslation(translation, "baz");
     translation = getTranslatedFile("A.m");
     assertTranslation(translation, "#define A_foo 1");
-    assertTranslation(translation, "NSString *A_bar_ = @\"bar\";");
+    assertTranslation(translation, "NSString *A_bar = @\"bar\";");
     assertTranslation(translation, "abc_ = 9;");
-    assertTranslation(translation, "A_set_bah_(self, @\"123\");");
+    assertTranslation(translation, "JreStrongAssign(&self->bah_, @\"123\");");
     assertNotInTranslation(translation, "baz");
   }
 
@@ -156,9 +157,113 @@ public class DeadCodeEliminatorTest extends GenerationTest {
         + "  public A(int i) { super(i, true, \"foo\", new java.util.ArrayList()); }\n"
         + "}\n", "A", "A.m");
     assertNotInTranslation(translation, "initWithInt");
+    assertNotInTranslation(translation, "B_init");
     translation = translateSourceFile("class C extends B {\n"
         + "  public C(int i) { super(i, true, \"foo\", new java.util.ArrayList()); }\n"
         + "}\n", "C", "C.m");
     assertNotInTranslation(translation, "initWithInt");
+    assertNotInTranslation(translation, "B_init");
+  }
+
+  public void testDeadClass_FieldRemoval() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .build();
+    setDeadCodeMap(map);
+    String source = "class Foo {\n"
+        + "  static final int x = f();\n"
+        + "  static final int y = 0;\n"
+        + "  static int f() { return 0; }\n"
+        + "}\n";
+    String translation = translateSourceFile(source, "Foo", "Foo.h");
+    assertTranslation(translation, "#define Foo_y 0");
+    translation = getTranslatedFile("Foo.m");
+    assertNotInTranslation(translation, "jint Foo_x_");
+    assertNotInTranslation(translation, "Foo_x_ = Foo_f()");
+    assertNotInTranslation(translation, "+ (jint)f");
+    assertNotInTranslation(translation, "bar");
+  }
+
+  public void testDeadClass_StaticNestedClass() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .build();
+    setDeadCodeMap(map);
+    String source = "class Foo {\n"
+        + "  static class Bar {}\n"
+        + "}\n"
+        + "class Baz extends Foo.Bar {\n"
+        + "}\n";
+    String translation = translateSourceFile(source, "Foo", "Foo.h");
+    assertTranslation(translation, "@interface Foo_Bar : NSObject");
+    translation = getTranslatedFile("Foo.m");
+    assertTranslation(translation, "Foo_Bar_init");
+  }
+
+  public void testDeadClass_DeadStaticNestedClass() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .addDeadClass("Foo$Bar")
+        .addDeadMethod("Foo$Baz", "g", "()V")
+        .build();
+    setDeadCodeMap(map);
+    String source = "class Foo {\n"
+        + "  static class Bar { void f() {} }\n"
+        + "  static class Baz { void g() {} }\n"
+        + "}\n";
+    String translation = translateSourceFile(source, "Foo", "Foo.h");
+    assertTranslation(translation, "@interface Foo_Bar");
+    assertNotInTranslation(translation, "- (void)f");
+    assertTranslation(translation, "@interface Foo_Baz");
+    assertNotInTranslation(translation, "- (void)g");
+    translation = getTranslatedFile("Foo.m");
+    assertTranslation(translation, "Foo_Bar_init");
+    assertNotInTranslation(translation, "- (void)f");
+    assertTranslation(translation, "Foo_Baz_init");
+    assertNotInTranslation(translation, "- (void)g");
+  }
+
+  public void testDeadClass_DeadInnerClassConstructor() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadField("Foo$A", "z")
+        .addDeadField("Foo$A", "this$0")
+        .addDeadMethod("Foo$A", "Foo$A", "(LFoo;I)V")
+        .addDeadMethod("Foo$A", "f", "()I")
+        .build();
+    setDeadCodeMap(map);
+    String source = "public class Foo {\n"
+        + "  int y;\n"
+        + "  public Foo(int x) { y = x; }\n"
+        + "\n"
+        + "  class A {\n"
+        + "    int z;\n"
+        + "    A(int x) { z = x; }\n"
+        + "    int f() { return z + y; }\n"
+        + "  }\n"
+        + "}\n";
+    String translation = translateSourceFile(source, "Foo", "Foo.h");
+    assertTranslation(translation, "@interface Foo_A");
+    assertNotInTranslation(translation, "z_;");
+    translation = getTranslatedFile("Foo.m");
+    assertNotInTranslation(translation, "Foo *this$0_;");
+    assertNotInTranslation(translation, "JreStrongAssign(&self->this$0_, outer$");
+    assertNotInTranslation(translation, "self->z_ = x;");
+    assertNotInTranslation(translation, "- (jint)f");
+  }
+
+  // Verify that annotation bodies aren't stripped when specified in a dead code report.
+  public void testDeadAnnotation() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .build();
+    setDeadCodeMap(map);
+    String source = "import java.lang.annotation.Retention;\n"
+        + "import java.lang.annotation.RetentionPolicy;\n"
+        + "@Retention(RetentionPolicy.RUNTIME)\n"
+        + "public @interface Foo {\n"
+        + "  String value() default \"\";\n"
+        + "}\n";
+    String translation = translateSourceFile(source, "Foo", "Foo.h");
+    assertTranslation(translation, "@property (readonly) NSString *value;");
   }
 }

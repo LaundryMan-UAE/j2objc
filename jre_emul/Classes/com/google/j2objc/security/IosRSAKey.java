@@ -63,6 +63,10 @@ public abstract class IosRSAKey implements RSAKey, Key {
     return modulus;
   }
 
+  long getSecKeyRef() {
+    return iosSecKey;
+  }
+
   protected abstract void decodeParameters();
 
   public static class IosRSAPublicKey extends IosRSAKey implements RSAPublicKey {
@@ -81,14 +85,14 @@ public abstract class IosRSAKey implements RSAKey, Key {
     @Override
     public native byte[] getEncoded() /*-[
       NSData *publicKey = nil;
-      NSData *publicTag = [ComGoogleJ2objcSecurityIosRSAKey_PUBLIC_KEY_TAG_
+      NSData *publicTag = [ComGoogleJ2objcSecurityIosRSAKey_PUBLIC_KEY_TAG
                            dataUsingEncoding:NSUTF8StringEncoding];
 
       NSMutableDictionary *publicKeyQuery = [[NSMutableDictionary alloc] init];
       [publicKeyQuery setObject:(id)kSecClassKey forKey:(id)kSecClass];
       [publicKeyQuery setObject:publicTag forKey:(id)kSecAttrApplicationTag];
       [publicKeyQuery setObject:(id)kSecAttrKeyTypeRSA forKey:(id)kSecAttrKeyType];
-      [publicKeyQuery setObject:[NSNumber numberWithBool:YES] forKey:(id)kSecReturnData];
+      [publicKeyQuery setObject:[NSNumber numberWithBool:true] forKey:(id)kSecReturnData];
       OSStatus result =
           SecItemCopyMatching((CFDictionaryRef)publicKeyQuery, (CFTypeRef *)&publicKey);
       [publicKeyQuery release];
@@ -119,10 +123,8 @@ public abstract class IosRSAKey implements RSAKey, Key {
         DerInputStream in = new DerInputStream(bytes);
         in.readBitString(); // Ignore: bitstring of mod + exp.
         in.readBitString();
-        BitString b = (BitString) in.content;
         modulus = new BigInteger(((BitString) in.content).bytes);
         in.readBitString();
-        b = (BitString) in.content;
         publicExponent = new BigInteger(((BitString) in.content).bytes);
       } catch (IOException e) {
         // Should never happen, since bytes are extracted from a valid iOS secKeyRef.
@@ -147,14 +149,14 @@ public abstract class IosRSAKey implements RSAKey, Key {
     @Override
     public native byte[] getEncoded() /*-[
       NSData *privateKey = nil;
-      NSData *privateTag = [ComGoogleJ2objcSecurityIosRSAKey_PRIVATE_KEY_TAG_
+      NSData *privateTag = [ComGoogleJ2objcSecurityIosRSAKey_PRIVATE_KEY_TAG
                            dataUsingEncoding:NSUTF8StringEncoding];
 
       NSMutableDictionary *privateKeyQuery = [[NSMutableDictionary alloc] init];
       [privateKeyQuery setObject:(id)kSecClassKey forKey:(id)kSecClass];
       [privateKeyQuery setObject:privateTag forKey:(id)kSecAttrApplicationTag];
       [privateKeyQuery setObject:(id)kSecAttrKeyTypeRSA forKey:(id)kSecAttrKeyType];
-      [privateKeyQuery setObject:[NSNumber numberWithBool:YES] forKey:(id)kSecReturnData];
+      [privateKeyQuery setObject:[NSNumber numberWithBool:true] forKey:(id)kSecReturnData];
       OSStatus result =
           SecItemCopyMatching((CFDictionaryRef)privateKeyQuery, (CFTypeRef *)&privateKey);
       [privateKeyQuery release];
@@ -184,10 +186,8 @@ public abstract class IosRSAKey implements RSAKey, Key {
         DerInputStream in = new DerInputStream(bytes);
         in.readBitString(); // Ignore: bitstring of mod + exp.
         in.readBitString();
-        BitString b = (BitString) in.content;
         modulus = new BigInteger(((BitString) in.content).bytes);
         in.readBitString();
-        b = (BitString) in.content;
         privateExponent = new BigInteger(((BitString) in.content).bytes);
       } catch (IOException e) {
         // Should never happen, since bytes are extracted from a valid iOS secKeyRef.

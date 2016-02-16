@@ -17,26 +17,25 @@
 package com.google.devtools.j2objc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import com.google.common.io.Files;
-import com.google.devtools.j2objc.types.Types;
+import com.google.devtools.j2objc.pipeline.AnnotationPreProcessor;
+import com.google.devtools.j2objc.pipeline.GenerationBatch;
+import com.google.devtools.j2objc.pipeline.InputFilePreprocessor;
+import com.google.devtools.j2objc.pipeline.ProcessingContext;
+import com.google.devtools.j2objc.pipeline.TranslationProcessor;
 import com.google.devtools.j2objc.util.DeadCodeMap;
 import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
 import com.google.devtools.j2objc.util.JdtParser;
-import com.google.devtools.j2objc.util.NameTable;
-import com.google.devtools.j2objc.util.PathClassLoader;
 import com.google.devtools.j2objc.util.ProGuardUsageParser;
+import com.google.devtools.j2objc.util.UnicodeUtils;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.lang.reflect.Constructor;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.List;
-import java.util.jar.JarEntry;
-import java.util.jar.JarInputStream;
-import java.util.logging.Logger;
 
 /**
  * Translation tool for generating Objective C source files from Java sources.
@@ -57,54 +56,8 @@ public class J2ObjC {
     }
   }
 
-  private static final Logger logger = Logger.getLogger(J2ObjC.class.getName());
-
   public static String getFileHeader(String sourceFileName) {
-    return String.format(Options.getFileHeader(), sourceFileName);
-  }
-
-  private static void initPlugins(String[] pluginPaths, String pluginOptionString)
-      throws IOException {
-    @SuppressWarnings("resource")
-    PathClassLoader classLoader = new PathClassLoader();
-    for (String path : pluginPaths) {
-      if (path.endsWith(".jar")) {
-        JarInputStream jarStream = null;
-        try {
-          jarStream = new JarInputStream(new FileInputStream(path));
-          classLoader.addPath(path);
-
-          JarEntry entry;
-          while ((entry = jarStream.getNextJarEntry()) != null) {
-            String entryName = entry.getName();
-            if (!entryName.endsWith(".class")) {
-              continue;
-            }
-
-            String className = entryName.replaceAll("/", "\\.").substring(
-                0, entryName.length() - ".class".length());
-
-            try {
-              Class<?> clazz = classLoader.loadClass(className);
-              if (Plugin.class.isAssignableFrom(clazz)) {
-                Constructor<?> cons = clazz.getDeclaredConstructor();
-                Plugin plugin = (Plugin) cons.newInstance();
-                plugin.initPlugin(pluginOptionString);
-                Options.getPlugins().add(plugin);
-              }
-            } catch (Exception e) {
-              throw new IOException("plugin exception: ", e);
-            }
-          }
-        } finally {
-          if (jarStream != null) {
-            jarStream.close();
-          }
-        }
-      } else {
-        logger.warning("Don't understand plugin path entry: " + path);
-      }
-    }
+    return UnicodeUtils.format(Options.getFileHeader(), sourceFileName);
   }
 
   private static void checkErrors() {
@@ -147,17 +100,21 @@ public class J2ObjC {
    */
   public static void run(List<String> fileArgs) {
     File preProcessorTempDir = null;
+    File strippedSourcesDir = null;
     try {
       JdtParser parser = createParser();
 
+      List<ProcessingContext> inputs = Lists.newArrayList();
       GenerationBatch batch = new GenerationBatch();
       batch.processFileArgs(fileArgs);
+      inputs.addAll(batch.getInputs());
       if (ErrorUtil.errorCount() > 0) {
         return;
       }
 
-      AnnotationPreProcessor preProcessor = new AnnotationPreProcessor(batch);
+      AnnotationPreProcessor preProcessor = new AnnotationPreProcessor();
       preProcessor.process(fileArgs);
+      preProcessor.collectInputs(inputs);
       preProcessorTempDir = preProcessor.getTemporaryDirectory();
       if (ErrorUtil.errorCount() > 0) {
         return;
@@ -166,34 +123,30 @@ public class J2ObjC {
         parser.addSourcepathEntry(preProcessorTempDir.getAbsolutePath());
       }
 
-      PackageInfoPreProcessor packageInfoPreProcessor = new PackageInfoPreProcessor(parser);
-      packageInfoPreProcessor.processBatch(batch);
+      InputFilePreprocessor inputFilePreprocessor = new InputFilePreprocessor(parser);
+      inputFilePreprocessor.processInputs(inputs);
       if (ErrorUtil.errorCount() > 0) {
         return;
       }
-
-      if (Options.shouldPreProcess()) {
-        HeaderMappingPreProcessor headerMappingPreProcessor = new HeaderMappingPreProcessor(parser);
-        headerMappingPreProcessor.processBatch(batch);
-        if (ErrorUtil.errorCount() > 0) {
-          return;
-        }
+      strippedSourcesDir = inputFilePreprocessor.getStrippedSourcesDir();
+      if (strippedSourcesDir != null) {
+        parser.prependSourcepathEntry(strippedSourcesDir.getPath());
       }
 
-      TranslationProcessor translationProcessor
-          = new TranslationProcessor(parser, loadDeadCodeMap());
-      translationProcessor.processBatch(batch);
+      Options.getHeaderMap().loadMappings();
+      TranslationProcessor translationProcessor =
+          new TranslationProcessor(parser, loadDeadCodeMap());
+      translationProcessor.processInputs(inputs);
+      translationProcessor.processBuildClosureDependencies();
       if (ErrorUtil.errorCount() > 0) {
         return;
       }
       translationProcessor.postProcess();
+
+      Options.getHeaderMap().printMappings();
     } finally {
-      NameTable.cleanup();
-      Types.cleanup();
-      if (preProcessorTempDir != null) {
-        FileUtil.deleteTempDir(preProcessorTempDir);
-      }
-      Options.deleteTemporaryDirectory();
+      FileUtil.deleteTempDir(preProcessorTempDir);
+      FileUtil.deleteTempDir(strippedSourcesDir);
     }
   }
 
@@ -213,13 +166,6 @@ public class J2ObjC {
       if (files.length == 0) {
         Options.usage("no source files");
       }
-    } catch (IOException e) {
-      ErrorUtil.error(e.getMessage());
-      System.exit(1);
-    }
-
-    try {
-      initPlugins(Options.getPluginPathEntries(), Options.getPluginOptionString());
     } catch (IOException e) {
       ErrorUtil.error(e.getMessage());
       System.exit(1);

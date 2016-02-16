@@ -12,6 +12,7 @@
 
 #include "java/lang/AbstractStringBuilder.h"
 
+#include "J2ObjC_source.h"
 #include "java/io/InvalidObjectException.h"
 #include "java/lang/ArrayIndexOutOfBoundsException.h"
 #include "java/lang/Character.h"
@@ -59,7 +60,7 @@ static JavaLangStringIndexOutOfBoundsException *StartEndAndLength(
 - (void)setWithCharArray:(IOSCharArray *)val
                  withInt:(jint)len {
   if (val == nil) {
-    val = LibcoreUtilEmptyArray_get_CHAR_();
+    val = LibcoreUtilEmptyArray_get_CHAR();
   }
   if (((IOSCharArray *) nil_chk(val))->size_ < len) {
     @throw [[[JavaIoInvalidObjectException alloc] initWithNSString:@"count out of range"]
@@ -395,7 +396,7 @@ void JreStringBuilder_reverse(JreStringBuilder *sb) {
   jint end = sb->count_ - 1;
   jchar frontHigh = buf[0];
   jchar endLow = buf[end];
-  jboolean allowFrontSur = YES, allowEndSur = YES;
+  jboolean allowFrontSur = true, allowEndSur = true;
   for (jint i = 0, mid = sb->count_ / 2; i < mid; i++, --end) {
     jchar frontLow = buf[i + 1];
     jchar endHigh = buf[end - 1];
@@ -406,7 +407,7 @@ void JreStringBuilder_reverse(JreStringBuilder *sb) {
     }
     jboolean surAtEnd = allowEndSur && endHigh >= (jint)0xd800 && endHigh <= (jint)0xdbff
         && endLow >= (jint)0xdc00 && endLow <= (jint)0xdfff;
-    allowFrontSur = allowEndSur = YES;
+    allowFrontSur = allowEndSur = true;
     if (surAtFront == surAtEnd) {
       if (surAtFront) {
         buf[end] = frontLow;
@@ -428,12 +429,12 @@ void JreStringBuilder_reverse(JreStringBuilder *sb) {
         buf[end] = frontLow;
         buf[i] = endLow;
         endLow = endHigh;
-        allowFrontSur = NO;
+        allowFrontSur = false;
       } else {
         buf[end] = frontHigh;
         buf[i] = endHigh;
         frontHigh = frontLow;
-        allowEndSur = NO;
+        allowEndSur = false;
       }
     }
   }
@@ -511,7 +512,8 @@ NSString *JreStringBuilder_toStringAndDealloc(JreStringBuilder *sb) {
     free(sb->buffer_);
   } else {
     // Don't free the buffer because we're passing it off to the CFString constructor.
-    result = (NSString *)CFStringCreateWithCharactersNoCopy(NULL, sb->buffer_, sb->count_, NULL);
+    result = (NSString *)CFStringCreateWithCharactersNoCopy(
+        NULL, sb->buffer_, sb->count_, kCFAllocatorMalloc);
   }
   return [result autorelease];
 }
@@ -537,12 +539,12 @@ NSString *JreStringBuilder_toStringAndDealloc(JreStringBuilder *sb) {
       return -1;
     }
     jchar firstChar = [subString characterAtIndex:0];
-    while (YES) {
+    while (true) {
       jint i = start;
-      jboolean found = NO;
+      jboolean found = false;
       for (; i < delegate_.count_; i++) {
         if (delegate_.buffer_[i] == firstChar) {
-          found = YES;
+          found = true;
           break;
         }
       }
@@ -575,12 +577,12 @@ NSString *JreStringBuilder_toStringAndDealloc(JreStringBuilder *sb) {
         start = delegate_.count_ - subCount;
       }
       jchar firstChar = [subString characterAtIndex:0];
-      while (YES) {
+      while (true) {
         jint i = start;
-        jboolean found = NO;
+        jboolean found = false;
         for (; i >= 0; --i) {
           if (delegate_.buffer_[i] == firstChar) {
-            found = YES;
+            found = true;
             break;
           }
         }
@@ -650,40 +652,59 @@ jint JavaLangCharacter_offsetByCodePointsRaw(
   [super dealloc];
 }
 
-+ (J2ObjcClassInfo *)__metadata {
-  static J2ObjcMethodInfo methods[] = {
-    { "getValue", NULL, "[C", 0x10, NULL },
-    { "setWithCharArray:withInt:", "set", "V", 0x10, "Ljava.io.InvalidObjectException;" },
-    { "init", "AbstractStringBuilder", NULL, 0x0, NULL },
-    { "initWithInt:", "AbstractStringBuilder", NULL, 0x0, NULL },
-    { "initWithNSString:", "AbstractStringBuilder", NULL, 0x0, NULL },
-    { "capacity", NULL, "I", 0x1, NULL },
-    { "charAtWithInt:", "charAt", "C", 0x1, NULL },
-    { "ensureCapacityWithInt:", "ensureCapacity", "V", 0x1, NULL },
-    { "getCharsWithInt:withInt:withCharArray:withInt:", "getChars", "V", 0x1, NULL },
-    { "length", NULL, "I", 0x1, NULL },
-    { "setCharAtWithInt:withChar:", "setCharAt", "V", 0x1, NULL },
-    { "setLengthWithInt:", "setLength", "V", 0x1, NULL },
-    { "substringWithInt:", "substring", "Ljava.lang.String;", 0x1, NULL },
-    { "substringWithInt:withInt:", "substring", "Ljava.lang.String;", 0x1, NULL },
-    { "description", "toString", "Ljava.lang.String;", 0x1, NULL },
-    { "subSequenceFrom:to:", "subSequence", "Ljava.lang.CharSequence;", 0x1, NULL },
-    { "indexOfWithNSString:", "indexOf", "I", 0x1, NULL },
-    { "indexOfWithNSString:withInt:", "indexOf", "I", 0x1, NULL },
-    { "lastIndexOfWithNSString:", "lastIndexOf", "I", 0x1, NULL },
-    { "lastIndexOfWithNSString:withInt:", "lastIndexOf", "I", 0x1, NULL },
-    { "trimToSize", NULL, "V", 0x1, NULL },
-    { "codePointAtWithInt:", "codePointAt", "I", 0x1, NULL },
-    { "codePointBeforeWithInt:", "codePointBefore", "I", 0x1, NULL },
-    { "codePointCountWithInt:withInt:", "codePointCount", "I", 0x1, NULL },
-    { "offsetByCodePointsWithInt:withInt:", "offsetByCodePoints", "I", 0x1, NULL },
++ (const J2ObjcClassInfo *)__metadata {
+  static const J2ObjcMethodInfo methods[] = {
+    { "getValue", NULL, "[C", 0x10, NULL, NULL },
+    { "shareValue", NULL, "[C", 0x10, NULL, NULL },
+    { "setWithCharArray:withInt:", "set", "V", 0x10, "Ljava.io.InvalidObjectException;", NULL },
+    { "init", "AbstractStringBuilder", NULL, 0x0, NULL, NULL },
+    { "initWithInt:", "AbstractStringBuilder", NULL, 0x0, NULL, NULL },
+    { "initWithNSString:", "AbstractStringBuilder", NULL, 0x0, NULL, NULL },
+    { "appendNull", NULL, "V", 0x10, NULL, NULL },
+    { "append0WithCharArray:", "append0", "V", 0x10, NULL, NULL },
+    { "append0WithCharArray:withInt:withInt:", "append0", "V", 0x10, NULL, NULL },
+    { "append0WithChar:", "append0", "V", 0x10, NULL, NULL },
+    { "append0WithNSString:", "append0", "V", 0x10, NULL, NULL },
+    { "append0WithJavaLangCharSequence:withInt:withInt:", "append0", "V", 0x10, NULL, NULL },
+    { "capacity", NULL, "I", 0x1, NULL, NULL },
+    { "charAtWithInt:", "charAt", "C", 0x1, NULL, NULL },
+    { "delete0WithInt:withInt:", "delete0", "V", 0x10, NULL, NULL },
+    { "deleteCharAt0WithInt:", "deleteCharAt0", "V", 0x10, NULL, NULL },
+    { "ensureCapacityWithInt:", "ensureCapacity", "V", 0x1, NULL, NULL },
+    { "getCharsWithInt:withInt:withCharArray:withInt:", "getChars", "V", 0x1, NULL, NULL },
+    { "insert0WithInt:withCharArray:", "insert0", "V", 0x10, NULL, NULL },
+    { "insert0WithInt:withCharArray:withInt:withInt:", "insert0", "V", 0x10, NULL, NULL },
+    { "insert0WithInt:withChar:", "insert0", "V", 0x10, NULL, NULL },
+    { "insert0WithInt:withNSString:", "insert0", "V", 0x10, NULL, NULL },
+    { "insert0WithInt:withJavaLangCharSequence:withInt:withInt:", "insert0", "V", 0x10, NULL,
+      NULL },
+    { "length", NULL, "I", 0x1, NULL, NULL },
+    { "replace0WithInt:withInt:withNSString:", "replace0", "V", 0x10, NULL, NULL },
+    { "reverse0", NULL, "V", 0x10, NULL, NULL },
+    { "setCharAtWithInt:withChar:", "setCharAt", "V", 0x1, NULL, NULL },
+    { "setLengthWithInt:", "setLength", "V", 0x1, NULL, NULL },
+    { "substringWithInt:", "substring", "Ljava.lang.String;", 0x1, NULL, NULL },
+    { "substringWithInt:withInt:", "substring", "Ljava.lang.String;", 0x1, NULL, NULL },
+    { "description", "toString", "Ljava.lang.String;", 0x1, NULL, NULL },
+    { "toString0", NULL, "Ljava.lang.String;", 0x4, NULL, NULL },
+    { "subSequenceFrom:to:", "subSequence", "Ljava.lang.CharSequence;", 0x1, NULL, NULL },
+    { "indexOfWithNSString:", "indexOf", "I", 0x1, NULL, NULL },
+    { "indexOfWithNSString:withInt:", "indexOf", "I", 0x1, NULL, NULL },
+    { "lastIndexOfWithNSString:", "lastIndexOf", "I", 0x1, NULL, NULL },
+    { "lastIndexOfWithNSString:withInt:", "lastIndexOf", "I", 0x1, NULL, NULL },
+    { "trimToSize", NULL, "V", 0x1, NULL, NULL },
+    { "codePointAtWithInt:", "codePointAt", "I", 0x1, NULL, NULL },
+    { "codePointBeforeWithInt:", "codePointBefore", "I", 0x1, NULL, NULL },
+    { "codePointCountWithInt:withInt:", "codePointCount", "I", 0x1, NULL, NULL },
+    { "offsetByCodePointsWithInt:withInt:", "offsetByCodePoints", "I", 0x1, NULL, NULL },
   };
-  static J2ObjcFieldInfo fields[] = {
-    { "INITIAL_CAPACITY_", NULL, 0x18, "I", NULL, .constantValue.asInt = INITIAL_CAPACITY },
-    { "count_", NULL, 0x2, "I", NULL,  },
+  static const J2ObjcFieldInfo fields[] = {
+    { "INITIAL_CAPACITY", "INITIAL_CAPACITY", 0x18, "I", NULL, NULL,
+      .constantValue.asInt = INITIAL_CAPACITY },
   };
-  static J2ObjcClassInfo _JavaLangAbstractStringBuilder = {
-    1, "AbstractStringBuilder", "java.lang", NULL, 0x400, 46, methods, 4, fields, 0, NULL
+  static const J2ObjcClassInfo _JavaLangAbstractStringBuilder = {
+    2, "AbstractStringBuilder", "java.lang", NULL, 0x400, 42, methods, 1, fields, 0, NULL, 0,
+    NULL, NULL, NULL
   };
   return &_JavaLangAbstractStringBuilder;
 }

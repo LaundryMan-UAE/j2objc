@@ -14,12 +14,14 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.gen.JavadocGenerator;
 import com.google.devtools.j2objc.gen.SourceBuilder;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.UnicodeUtils;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
+import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
 import java.util.Iterator;
@@ -36,9 +38,16 @@ public class DebugASTPrinter extends TreeVisitor {
   private boolean inIfStatement = false;
 
   public static String toString(TreeNode node) {
-    DebugASTPrinter printer = new DebugASTPrinter();
-    node.accept(printer);
-    return printer.sb.toString();
+// Uncomment to debug print failures.
+//    try {
+      DebugASTPrinter printer = new DebugASTPrinter();
+      node.accept(printer);
+      return printer.sb.toString();
+//    } catch (Throwable t) {
+//      System.err.println("toString(" + node.getClass().getSimpleName() + ") failure");
+//      t.printStackTrace();
+//      throw t;
+//    }
   }
 
   @Override
@@ -61,6 +70,7 @@ public class DebugASTPrinter extends TreeVisitor {
   @Override
   public boolean visit(AnnotationTypeMemberDeclaration node) {
     sb.printIndent();
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     node.getType().accept(this);
     sb.print(' ');
@@ -223,7 +233,7 @@ public class DebugASTPrinter extends TreeVisitor {
     node.getType().accept(this);
     sb.print("(");
     for (Iterator<Expression> it = node.getArguments().iterator(); it.hasNext(); ) {
-      Expression e = (Expression) it.next();
+      Expression e = it.next();
       e.accept(this);
       if (it.hasNext()) {
         sb.print(',');
@@ -233,6 +243,20 @@ public class DebugASTPrinter extends TreeVisitor {
     if (node.getAnonymousClassDeclaration() != null) {
       node.getAnonymousClassDeclaration().accept(this);
     }
+    return false;
+  }
+
+  @Override
+  public boolean visit(CommaExpression node) {
+    sb.print('(');
+    for (Iterator<Expression> it = node.getExpressions().iterator(); it.hasNext(); ) {
+      Expression e = it.next();
+      e.accept(this);
+      if (it.hasNext()) {
+        sb.print(", ");
+      }
+    }
+    sb.print(')');
     return false;
   }
 
@@ -285,6 +309,32 @@ public class DebugASTPrinter extends TreeVisitor {
   }
 
   @Override
+  public boolean visit(CreationReference node) {
+    node.getType().accept(this);
+    sb.print("::new");
+    return false;
+  }
+
+  @Override
+  public boolean visit(CStringLiteral node) {
+    sb.print(node.getLiteralValue());
+    return false;
+  }
+
+  @Override
+  public boolean visit(Dimension node) {
+    if (!node.annotations().isEmpty()) {
+      sb.append(' ');
+    }
+    for (Annotation x : node.annotations()) {
+      x.accept(this);
+      sb.append(' ');
+    }
+    sb.append("[]");
+    return false;
+  }
+
+  @Override
   public boolean visit(DoStatement node) {
     sb.printIndent();
     sb.print("do ");
@@ -317,6 +367,7 @@ public class DebugASTPrinter extends TreeVisitor {
   @Override
   public boolean visit(EnumConstantDeclaration node) {
     sb.printIndent();
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     node.getName().accept(this);
     if (!node.getArguments().isEmpty()) {
@@ -339,6 +390,7 @@ public class DebugASTPrinter extends TreeVisitor {
   @Override
   public boolean visit(EnumDeclaration node) {
     sb.printIndent();
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     sb.print("enum ");
     node.getName().accept(this);
@@ -359,6 +411,14 @@ public class DebugASTPrinter extends TreeVisitor {
       }
     }
     sb.println('}');
+    return false;
+  }
+
+  @Override
+  public boolean visit(ExpressionMethodReference node) {
+    node.getExpression().accept(this);
+    sb.print("::");
+    node.getName().accept(this);
     return false;
   }
 
@@ -384,6 +444,7 @@ public class DebugASTPrinter extends TreeVisitor {
       node.getJavadoc().accept(this);
     }
     sb.printIndent();
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     node.getType().accept(this);
     sb.print(' ');
@@ -427,6 +488,7 @@ public class DebugASTPrinter extends TreeVisitor {
   @Override
   public boolean visit(FunctionDeclaration node) {
     sb.printIndent();
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     node.getReturnType().accept(this);
     sb.print(' ');
@@ -439,7 +501,11 @@ public class DebugASTPrinter extends TreeVisitor {
       }
     }
     sb.print(')');
-    node.getBody().accept(this);
+    if (node.getBody() == null) {
+      sb.print(';');
+    } else {
+      node.getBody().accept(this);
+    }
     return false;
   }
 
@@ -479,25 +545,21 @@ public class DebugASTPrinter extends TreeVisitor {
 
   @Override
   public boolean visit(InfixExpression node) {
-    node.getLeftOperand().accept(this);
-    sb.print(' ');
-    sb.print(node.getOperator().toString());
-    sb.print(' ');
-    node.getRightOperand().accept(this);
-    final List<Expression> extendedOperands = node.getExtendedOperands();
-    if (!extendedOperands.isEmpty()) {
-      sb.print(' ');
-      for (Iterator<Expression> it = extendedOperands.iterator(); it.hasNext(); ) {
-        sb.print(node.getOperator().toString());
-        sb.print(' ');
-        it.next().accept(this);
+    boolean isFirst = true;
+    String op = ' ' + node.getOperator().toString() + ' ';
+    for (Expression operand : node.getOperands()) {
+      if (!isFirst) {
+        sb.print(op);
       }
+      isFirst = false;
+      operand.accept(this);
     }
     return false;
   }
 
   @Override
   public boolean visit(Initializer node) {
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     node.getBody().accept(this);
     return false;
@@ -512,10 +574,56 @@ public class DebugASTPrinter extends TreeVisitor {
   }
 
   @Override
+  public boolean visit(IntersectionType node) {
+    sb.print('(');
+    boolean delimiterFlag = false;
+    for (Type t : node.types()) {
+      if (delimiterFlag) {
+        sb.print(" & ");
+      } else {
+        delimiterFlag = true;
+      }
+      t.accept(this);
+    }
+    sb.print(')');
+    return false;
+  }
+
+  @Override
+  public boolean visit(Javadoc node) {
+    sb.println(JavadocGenerator.toString(node));
+    return false;
+  }
+
+  @Override
   public boolean visit(LabeledStatement node) {
     sb.printIndent();
     node.getLabel().accept(this);
     sb.print(": ");
+    node.getBody().accept(this);
+    return false;
+  }
+
+  @Override
+  public boolean visit(LambdaExpression node) {
+    IMethodBinding methodBinding = node.getMethodBinding();
+    sb.print(methodBinding.getReturnType().getName());
+    sb.print(" ");
+    sb.print(methodBinding.getName());
+    sb.print(" (");
+    boolean delimiterFlag = false;
+    for (VariableDeclaration x : node.getParameters()) {
+      IVariableBinding variableBinding = x.getVariableBinding();
+      if (delimiterFlag) {
+        sb.print(", ");
+      } else {
+        delimiterFlag = true;
+      }
+      sb.print(variableBinding.getType().getName());
+      sb.print(" ");
+      sb.print(variableBinding.getName());
+    }
+    sb.print(") -> ");
     node.getBody().accept(this);
     return false;
   }
@@ -538,6 +646,7 @@ public class DebugASTPrinter extends TreeVisitor {
   @Override
   public boolean visit(MethodDeclaration node) {
     sb.printIndent();
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     IMethodBinding meth = node.getMethodBinding();
     printTypeParameters(meth.getTypeParameters());
@@ -591,6 +700,18 @@ public class DebugASTPrinter extends TreeVisitor {
       }
     }
     sb.print(')');
+    return false;
+  }
+
+  @Override
+  public boolean visit(NameQualifiedType node) {
+    node.getQualifier().accept(this);
+    sb.print('.');
+    for (Annotation x : node.annotations()) {
+      x.accept(this);
+      sb.print(' ');
+    }
+    node.getName().accept(this);
     return false;
   }
 
@@ -689,6 +810,13 @@ public class DebugASTPrinter extends TreeVisitor {
   }
 
   @Override
+  public boolean visit(PropertyAnnotation node) {
+    String attributeString = PropertyAnnotation.toAttributeString(node.getPropertyAttributes());
+    sb.print("@Property(\"" + attributeString + "\")");
+    return false;
+  }
+
+  @Override
   public boolean visit(QualifiedName node) {
     node.getQualifier().accept(this);
     sb.print(".");
@@ -758,7 +886,7 @@ public class DebugASTPrinter extends TreeVisitor {
 
   @Override
   public boolean visit(StringLiteral node) {
-    sb.print(UnicodeUtils.escapeStringLiteral(node.getLiteralValue()));
+    sb.printf("\"%s\"", UnicodeUtils.escapeStringLiteral(node.getLiteralValue()));
     return false;
   }
 
@@ -813,7 +941,20 @@ public class DebugASTPrinter extends TreeVisitor {
   }
 
   @Override
+  public boolean visit(SuperMethodReference node) {
+    if (node.getQualifier() != null) {
+      node.getQualifier().accept(this);
+      sb.print(".");
+    }
+    sb.print("super::");
+    sb.print(node.getName().toString());
+    return false;
+  }
+
+  @Override
   public boolean visit(SwitchCase node) {
+    sb.unindent();
+    sb.printIndent();
     if (node.isDefault()) {
       sb.println("default :");
     } else {
@@ -827,15 +968,17 @@ public class DebugASTPrinter extends TreeVisitor {
 
   @Override
   public boolean visit(SwitchStatement node) {
+    sb.printIndent();
     sb.print("switch (");
     node.getExpression().accept(this);
     sb.print(") ");
     sb.println("{");
     sb.indent();
+    sb.indent();
     for (Iterator<Statement> it = node.getStatements().iterator(); it.hasNext(); ) {
       it.next().accept(this);
-      sb.unindent();
     }
+    sb.unindent();
     sb.unindent();
     sb.printIndent();
     sb.println("}");
@@ -848,6 +991,12 @@ public class DebugASTPrinter extends TreeVisitor {
     node.getExpression().accept(this);
     sb.print(") ");
     node.getBody().accept(this);
+    return false;
+  }
+
+  @Override
+  public boolean visit(TagElement node) {
+    sb.print(JavadocGenerator.toString(node));
     return false;
   }
 
@@ -902,6 +1051,7 @@ public class DebugASTPrinter extends TreeVisitor {
     if (node.getJavadoc() != null) {
       node.getJavadoc().accept(this);
     }
+    printAnnotations(node.getAnnotations());
     printModifiers(node.getModifiers());
     sb.print(node.isInterface() ? "interface " : "class ");
     node.getName().accept(this);
@@ -937,6 +1087,27 @@ public class DebugASTPrinter extends TreeVisitor {
   public boolean visit(TypeLiteral node) {
     node.getType().accept(this);
     sb.print(".class");
+    return false;
+  }
+
+  @Override
+  public boolean visit(TypeMethodReference node) {
+    node.getType().accept(this);
+    sb.print("::");
+    if (!node.getTypeArguments().isEmpty()) {
+      sb.print('<');
+      boolean delimiterFlag = false;
+      for (Type t : node.getTypeArguments()) {
+        if (delimiterFlag) {
+          sb.print(", ");
+        } else {
+          delimiterFlag = true;
+        }
+        t.accept(this);
+      }
+      sb.print('>');
+    }
+    node.getName().accept(this);
     return false;
   }
 

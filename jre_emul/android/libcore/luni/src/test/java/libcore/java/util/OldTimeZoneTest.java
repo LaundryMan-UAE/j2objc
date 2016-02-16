@@ -24,6 +24,7 @@ import junit.framework.TestCase;
 import tests.support.Support_Locale;
 
 /*-[
+#include "java/lang/System.h"
 #include <sys/utsname.h>
 ]-*/
 
@@ -97,8 +98,7 @@ public class OldTimeZoneTest extends TestCase {
         TimeZone tz = TimeZone.getTimeZone("America/Los_Angeles");
         assertEquals("Pacific Standard Time", tz.getDisplayName(new Locale("US")));
         if (Support_Locale.isLocaleAvailable(Locale.FRANCE)) {
-            // BEGIN android-note: RI has "Heure", CLDR/ICU has "heure".
-            assertEquals("heure normale du Pacifique", tz.getDisplayName(Locale.FRANCE));
+            assertTrue(tz.getDisplayName(Locale.FRANCE).startsWith("heure normale du Pacifique"));
         }
     }
 
@@ -118,13 +118,11 @@ public class OldTimeZoneTest extends TestCase {
             assertEquals("Pacific Standard Time", tz.getDisplayName(false, 1, Locale.UK));
         }
         if (Support_Locale.isLocaleAvailable(Locale.FRANCE)) {
-            if (onMavericks()) {
-                assertEquals("UTC−8", tz.getDisplayName(false, 0, Locale.FRANCE));
-            } else {
-                assertEquals("UTC-08:00", tz.getDisplayName(false, 0, Locale.FRANCE));
-            }
-            assertEquals("heure avanc\u00e9e du Pacifique", tz.getDisplayName(true,  1, Locale.FRANCE));
-            assertEquals("heure normale du Pacifique", tz.getDisplayName(false, 1, Locale.FRANCE));
+            assertEquals("UTC−8", tz.getDisplayName(false, 0, Locale.FRANCE));
+            String expected = preElCapitan()
+                ? "heure avancée du Pacifique" : "heure d’été du Pacifique";
+            assertEquals(expected, tz.getDisplayName(true,  1, Locale.FRANCE));
+            assertTrue(tz.getDisplayName(Locale.FRANCE).startsWith("heure normale du Pacifique"));
         }
     }
 
@@ -157,10 +155,14 @@ public class OldTimeZoneTest extends TestCase {
         assertEquals("New ID for GMT-6", tz.getID());
     }
 
-    private static native boolean onMavericks() /*-[
+    // Running on an OS X version less than 10.11?
+    private static native boolean preElCapitan() /*-[
+      if (![JavaLangSystem_getPropertyWithNSString_(@"os.name") isEqual:@"Mac OS X"]) {
+        return NO;
+      }
       struct utsname uts;
       if (uname(&uts) == 0) {
-        return atoi(uts.release) >= 13;
+        return atoi(uts.release) < 15;
       }
       return NO;
     ]-*/;

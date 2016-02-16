@@ -17,12 +17,7 @@
 
 package java.util;
 
-import org.xml.sax.Attributes;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
-import org.xml.sax.XMLReader;
-import org.xml.sax.helpers.DefaultHandler;
-import org.xml.sax.helpers.XMLReaderFactory;
+import com.google.j2objc.LibraryNotLinkedError;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -569,38 +564,30 @@ public class Properties extends Hashtable<Object, Object> {
      */
     public synchronized void loadFromXML(InputStream in) throws IOException,
             InvalidPropertiesFormatException {
-        if (in == null) {
-            throw new NullPointerException("in == null");
-        }
-        
-        try {
-            XMLReader reader = XMLReaderFactory.createXMLReader();
-            reader.setContentHandler(new DefaultHandler() {
-                private String key;
-                
-                @Override
-                public void startElement(String uri, String localName,
-                        String qName, Attributes attributes) throws SAXException {
-            	key = null;
-                    if (qName.equals("entry")) {
-                        key = attributes.getValue("key");
-                    }
-                }
-                
-                @Override
-                public void characters(char[] ch, int start, int length)
-                        throws SAXException {
-                    if (key != null) {
-                        String value = new String(ch, start, length);
-                        put(key, value);
-                        key = null;
-                    }
-                }
-            });
-            reader.parse(new InputSource(in));
-        } catch (SAXException e) {
-            throw new InvalidPropertiesFormatException(e);
-        }
+      XmlLoader loader = XmlLoader.INSTANCE;
+      if (loader == null) {
+        throw new LibraryNotLinkedError("XML support", "jre_xml", "JavaUtilPropertiesXmlLoader");
+      }
+      loader.load(this, in);
+    }
+
+    /**
+     * Creates a dynamic dependency on XML support so that XML support can be excluded from the
+     * application binary without incurring link errors.
+     */
+    static interface XmlLoader {
+      void load(Properties p, InputStream in) throws IOException, InvalidPropertiesFormatException;
+
+      static final XmlLoader INSTANCE = getXmlLoader();
+    }
+
+    private static XmlLoader getXmlLoader() {
+      try {
+        Class<?> loaderClass = Class.forName("java.util.PropertiesXmlLoader");
+        return (XmlLoader) loaderClass.newInstance();
+      } catch (Exception e) {
+        return null;
+      }
     }
 
     /**

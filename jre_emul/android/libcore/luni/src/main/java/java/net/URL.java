@@ -17,8 +17,8 @@
 
 package java.net;
 
+import com.google.j2objc.LibraryNotLinkedError;
 import com.google.j2objc.net.IosHttpHandler;
-import com.google.j2objc.net.IosHttpsHandler;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,8 +63,6 @@ import libcore.net.url.UrlUtils;
  *     Transfer Protocol</a>
  * <li><strong>https</strong>: <a href="http://www.ietf.org/rfc/rfc2818.txt">HTTP
  *     over TLS</a>
- * <li><strong>jar</strong>: read {@link JarFile Jar files} from the
- *     filesystem</li>
  * </ul>
  * In general, attempts to create URLs with any other protocol will fail with a
  * {@link MalformedURLException}. Applications may install handlers for other
@@ -424,22 +422,15 @@ public final class URL implements Serializable {
         if (protocol.equals("file")) {
             streamHandler = new FileHandler();
         } else if (protocol.equals("http")) {
-            try {
-                streamHandler = new IosHttpHandler();
-            } catch (Exception e) {
-                throw new AssertionError(e);
-            }
+            streamHandler = new IosHttpHandler();
         } else if (protocol.equals("https")) {
             try {
-              streamHandler = new IosHttpsHandler();
+                String name = "com.google.j2objc.net.IosHttpsHandler";
+                streamHandler = (URLStreamHandler) Class.forName(name).newInstance();
             } catch (Exception e) {
-                throw new AssertionError(e);
+                throw new LibraryNotLinkedError("Https support", "jre_ssl",
+                    "JavaxNetSslHttpsURLConnection");
             }
-        // TODO(tball): enable as other stream handlers are implemented.
-//      } else if (protocol.equals("ftp")) {
-//          streamHandler = new FtpHandler();
-//      } else if (protocol.equals("jar")) {
-//          streamHandler = new JarHandler();
         }
         if (streamHandler != null) {
             streamHandlers.put(protocol, streamHandler);
@@ -458,7 +449,7 @@ public final class URL implements Serializable {
     /**
      * Equivalent to {@code openConnection().getContent(types)}.
      */
-    @SuppressWarnings("unchecked") // Param not generic in spec
+    @SuppressWarnings("rawtypes") // Param not generic in spec
     public final Object getContent(Class[] types) throws IOException {
         return openConnection().getContent(types);
     }

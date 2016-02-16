@@ -39,6 +39,9 @@ Specify where to place generated Objective\-C files
 .BI \-encoding " encoding "
 Specify character encoding used by source files
 .TP
+.BI \-source " release "
+Provide source compatibility with specified release
+.TP
 .BI \-g
 Generate debugging support
 .TP
@@ -54,7 +57,7 @@ Make all warnings into errors
 \fB\-h\fR, \fB\-\-help\fR
 Print this message.
 
-.SH OTHER OPTIONS
+.SH TRANSLATION OPTIONS
 .TP
 \fB\-batch-translate-max\fR\=\fIn\fR
 The maximum number of source files that are translated together. Batching
@@ -65,6 +68,9 @@ Translate dependent classes if out-of-date.
 .TP
 .BI \-\-dead\-code\-report " file "
 Specify a ProGuard usage report for dead code elimination.
+.TP
+.BI \-\-disallow\-inherited\-constructors
+Issue compiler warnings when native code accesses inherited constructors.
 .TP
 .BI \-\-doc\-comments
 Translate Javadoc comments into Xcode-compatible comments.
@@ -82,26 +88,32 @@ Add a method mapping file.
 Don't emit class methods for static Java methods.
 (static methods are converted to functions)
 .TP
-.BI \-\-no\-final\-methods\-as\-functions
-Disable generating functions for final methods.
-.TP
-.BI \-\-no\-hide\-private\-members
-Includes private fields and methods in header file.
+.BI \-\-nullability
+Converts Nullable and Nonnull annotations to Objective-C.
 .TP
 .BI \-\-no\-package\-directories
-Generate output files to specified directory, without creating package sub-directories
-.TP
-.BI -pluginpath " path "
-Specify where to find plugin class files
-.TP
-.BI \-pluginoptions " options "
-Comma separated key=value pairs passed to all plugins
+Generate output files to specified directory, without creating package sub-directories.
 .TP
 .BI \-\-prefix " package=prefix "
 Substitute a specified prefix for a package name.
 .TP
 .BI \-\-prefixes " file "
 Specify a properties file with prefix definitions.
+.TP
+.BI \-\-preserve\-full\-paths
+Generates output files with the same relative paths as the input files.
+.TP
+.BI \-processor " class"[, "class..."]
+Names of the annotation processors to run; bypasses default discovery process.
+.TP
+.BI \-processorpath " path "
+Specify where to find annotation processors.
+.TP
+\fB\-\-no\-segmented\-headers\fR
+Do not generate headers with guards around each declared type.
+.TP
+.BI \-\-static\-accessor\-methods
+Generates accessor methods for static variables and enum constants.
 .TP
 .BI \-\-strip\-gwt\-incompatible
 Removes methods that are marked with a GwtIncompatible
@@ -110,8 +122,8 @@ annotation, unless its value is known to be compatible.
 .BI \-\-strip\-reflection
 Do not generate metadata needed for Java reflection.
 .TP
-\fB\-\-segmented\-headers\fR
-Generates headers with guards around each declared type. Useful for breaking import cycles.
+.BI \-\-swift\-friendly
+Generate code that facilitates Swift importing.
 .TP
 \fB\-t\fR, \fB\-\-timing\-info\fR
 Print time spent in translation steps.
@@ -126,15 +138,74 @@ libjre_emul.a rebuild).
 .BI \-use\-reference\-counting
 Generate Objective\-C code to support iOS manual reference counting (default).
 .TP
+\fB-version\fR
+Version information.
+.TP
 .BI \-x " language "
 Specify what language to output.  Possible values are objective\-c (default)
 and objective\-c++.
 .TP
+.BI \-X
+Displays information about nonstandard options and exits.
+
+.SH NONSTANDARD OPTIONS
+.TP
 .BI \-Xbootclasspath\fR:\fIpath
 Boot path used by translation (not the tool itself).
 .TP
+.BI \-Xlint
+Enable recommended warnings. In this release, all available warnings are recommended.
+.TP
+.BI \-Xlint:none
+Disable all warnings not mandated by the Java Language Specification.
+.TP
+.BI \-Xlint:- xxx
+Disable warning \f2xxx\fR, where \f2xxx\fR is one of the warning 
+names supported for \f3\-Xlint:\f2xxx\fR, below.
+.TP
+.B \-Xlint:cast 
+Warn about unnecessary and redundant cast expressions.
+.TP
+.B \-Xlint:deprecation
+Warn about the use of deprecated items. 
+.TP
+.B \-Xlint:dep-ann
+Warn about items that are documented with an @deprecated Javadoc comment, 
+but do not have a @Deprecated annotation.
+.TP
+.B \-Xlint:empty
+Warn about empty statements. 
+.TP
+.B \-Xlint:fallthrough 
+Check switch blocks for fall-through cases and provide a 
+warning message for any that are
+found. 
+.TP
+.B \-Xlint:finally
+Warn about finally clauses that cannot complete normally. 
+.TP
+.B \-Xlint:rawtypes
+Warn about unchecked operations on raw types. 
+.TP
+.B \-Xlint:serial
+Warn about missing serialVersionUID definitions on serializable classes. 
+.TP
+.B \-Xlint:static
+Warn about serial methods called on instances. 
+.TP
+.B \-Xlint:unchecked 
+Give more detail for unchecked conversion warnings 
+that are mandated by the Java Language Specification. 
+.TP
+.B \-Xlint:varargs
+Warn about unsafe usages of variable arguments (varargs) methods, 
+in particular, those that contain non-reifiable arguments.
+.TP
 .BI \-Xno\-jsni\-warnings
 Warn if JSNI (GWT) native code delimiters are used instead of OCNI delimiters.
+.TP
+.BI \-\J<flag>
+Pass <flag> directly to the Java runtime.
 
 .SH "SEE ALSO"
 .BR j2objcc (1)
@@ -143,4 +214,3 @@ The full documentation for
 .B j2objc
 is maintained on the project site at
 \fIhttp://j2objc.org/\fR.
-

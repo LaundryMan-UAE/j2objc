@@ -18,8 +18,6 @@
 //
 //
 
-#import "JreEmulation.h"
-
 #import "IOSClass.h"
 #import "IOSObjectArray.h"
 #import "java/lang/Double.h"
@@ -38,7 +36,7 @@
   IOSClass *arraysClass = JavaUtilArrays_class_();
   IOSObjectArray *argTypes =
       [IOSObjectArray arrayWithObjects:
-          (id[]){ IOSClass_doubleArray(1), JavaLangDouble_get_TYPE_() }
+          (id[]){ IOSClass_doubleArray(1), JavaLangDouble_get_TYPE() }
                                  count:2
                                   type:IOSClass_class_()];
   id method = [arraysClass getMethod:@"binarySearch" parameterTypes:argTypes];

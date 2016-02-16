@@ -7,6 +7,7 @@
 //
 
 #import "NSDictionaryMap.h"
+#import "java/util/Iterator.h"
 #import "java/util/LinkedHashSet.h"
 #import "java/util/LinkedList.h"
 
@@ -30,8 +31,8 @@
 
 #if ! __has_feature(objc_arc)
 - (void)dealloc {
-  [dictionary_ autorelease];
-  [key_ autorelease];
+  [dictionary_ release];
+  [key_ release];
   [super dealloc];
 }
 #endif
@@ -67,7 +68,7 @@
 
 #if ! __has_feature(objc_arc)
 - (void)dealloc {
-  [dictionary_ autorelease];
+  [dictionary_ release];
   [super dealloc];
 }
 #endif
@@ -76,7 +77,7 @@
   if ((self = [super init])) {
     dictionary_ = dictionary ?
         [dictionary mutableCopy] :
-        [NSMutableDictionary dictionary];
+        [[NSMutableDictionary alloc] init];
   }
   return self;
 }
@@ -111,11 +112,11 @@
 
 - (jboolean)isEqual:(id)object {
   if (!object) {
-    return NO;
+    return false;
   }
 
   if (![object conformsToProtocol:@protocol(JavaUtilMap)]) {
-    return NO;
+    return false;
   }
 
   if ([object isKindOfClass:[NSDictionaryMap class]]) {

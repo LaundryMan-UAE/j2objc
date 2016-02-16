@@ -6,10 +6,6 @@
 
 package java.util.concurrent.atomic;
 
-/*-[
-#include <libkern/OSAtomic.h>
-]-*/
-
 /**
  * An {@code AtomicMarkableReference} maintains an object reference
  * along with a mark bit, that can be updated atomically.
@@ -72,7 +68,7 @@ public class AtomicMarkableReference<V> {
      * Typical usage is {@code boolean[1] holder; ref = v.get(holder); }.
      *
      * @param markHolder an array of size of at least one. On return,
-     * {@code markholder[0]} will hold the value of the mark.
+     * {@code markHolder[0]} will hold the value of the mark.
      * @return the current value of the reference
      */
     public V get(boolean[] markHolder) {
@@ -87,9 +83,9 @@ public class AtomicMarkableReference<V> {
      * current reference is {@code ==} to the expected reference
      * and the current mark is equal to the expected mark.
      *
-     * <p>May <a href="package-summary.html#Spurious">fail spuriously</a>
-     * and does not provide ordering guarantees, so is only rarely an
-     * appropriate alternative to {@code compareAndSet}.
+     * <p><a href="package-summary.html#weakCompareAndSet">May fail
+     * spuriously and does not provide ordering guarantees</a>, so is
+     * only rarely an appropriate alternative to {@code compareAndSet}.
      *
      * @param expectedReference the expected value of the reference
      * @param newReference the new value for the reference
@@ -164,17 +160,6 @@ public class AtomicMarkableReference<V> {
     }
 
     private native boolean casPair(Pair<V> cmp, Pair<V> val) /*-[
-#if __has_feature(objc_arc)
-      void * volatile tmp = (__bridge void * volatile) self->pair_;
-      return OSAtomicCompareAndSwapPtrBarrier((__bridge void *) cmp, (__bridge void *) val, &tmp);
-#else
-      id tmp = self->pair_;
-      if (OSAtomicCompareAndSwapPtrBarrier(cmp, val, (void * volatile *) &self->pair_)) {
-        [self->pair_ retain];
-        [tmp autorelease];
-        return YES;
-      }
-      return NO;
-#endif
+      return JreCompareAndSwapVolatileStrongId(&self->pair_, cmp, val);
     ]-*/;
 }

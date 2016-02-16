@@ -27,12 +27,6 @@ import java.io.IOException;
  */
 public class JavaCloneWriterTest extends GenerationTest {
 
-  @Override
-  protected void tearDown() throws Exception {
-    Options.resetMemoryManagementOption();
-    super.tearDown();
-  }
-
   // Make sure __javaClone is not emitted unless there is a weak field.
   public void testNoJavaCloneMethod() throws IOException {
     String translation = translateSourceFile(
@@ -45,8 +39,8 @@ public class JavaCloneWriterTest extends GenerationTest {
         "import com.google.j2objc.annotations.Weak;"
         + " class Test { @Weak Object foo; }", "Test", "Test.m");
     assertTranslatedLines(translation,
-        "- (void)__javaClone {",
-        "  [super __javaClone];",
+        "- (void)__javaClone:(Test *)original {",
+        "  [super __javaClone:original];",
         "  [foo_ release];",
         "}");
   }
@@ -57,9 +51,21 @@ public class JavaCloneWriterTest extends GenerationTest {
         "import com.google.j2objc.annotations.Weak;"
         + " class Test { @Weak Object foo; }", "Test", "Test.m");
     assertTranslatedLines(translation,
-        "- (void)__javaClone {",
-        "  [super __javaClone];",
+        "- (void)__javaClone:(Test *)original {",
+        "  [super __javaClone:original];",
         "  JreRelease(foo_);",
+        "}");
+  }
+
+  public void testVolatileObjectFields() throws IOException {
+    String translation = translateSourceFile(
+        "import com.google.j2objc.annotations.Weak;"
+        + " class Test { volatile Object foo; @Weak volatile Object bar; }", "Test", "Test.m");
+    assertTranslatedLines(translation,
+        "- (void)__javaClone:(Test *)original {",
+        "  [super __javaClone:original];",
+        "  JreCloneVolatileStrong(&foo_, &original->foo_);",
+        "  JreCloneVolatile(&bar_, &original->bar_);",
         "}");
   }
 }
