@@ -15,6 +15,11 @@ Pod::Spec.new do |s|
   # Top level attributes can't be specified by subspecs.
   s.header_mappings_dir = 'dist/include'
 
+  s.prepare_command = <<-CMD
+    scripts/download_distribution.sh
+  CMD
+
+
   s.subspec 'lib' do |lib|
     lib.frameworks = 'Security'
     lib.osx.frameworks = 'ExceptionHandling'
