@@ -20,6 +20,7 @@ import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.GenerationTest;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.util.HeaderMap;
+import com.google.devtools.j2objc.util.SourceVersion;
 
 import java.io.File;
 import java.io.IOException;
@@ -354,7 +355,7 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "package unit.test; public interface Example extends Bar {} interface Bar {}",
         "Example", "unit/test/Example.h");
     assertTranslation(translation,
-        "@protocol UnitTestExample < UnitTestBar, NSObject, JavaObject >");
+        "@protocol UnitTestExample < UnitTestBar, JavaObject >");
   }
 
   public void testConstTranslation() throws IOException {
@@ -534,6 +535,14 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "Color_initWithInt_withNSString_withInt_(e, (jint) 0x0000ff, @\"BLUE\", 2);");
   }
 
+  // Verify that the "init" enum constant name is properly declared: b/27352834
+  public void testInitEnumConstant() throws IOException {
+    String translation = translateSourceFile(
+      "public enum Test { init }", "Test", "Test.h");
+    assertTranslation(translation, "Test_Enum_init_ = 0,");
+    assertNotInTranslation(translation, "Test_Enum_init ");
+  }
+
   public void testArrayFieldDeclaration() throws IOException {
     String translation = translateSourceFile(
       "public class Example { char[] before; char after[]; }",
@@ -561,14 +570,16 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
     assertTranslation(translation, "@interface FooCompatible : NSObject < FooCompatible >");
 
     // Verify that the value is defined as a property instead of a method.
-    assertTranslation(translation, "@private\n  jboolean fooable_;");
+    assertTranslation(translation, "@public\n  jboolean fooable_;");
     assertTranslation(translation, "@property (readonly) jboolean fooable;");
 
-    // Verify default value accessor is generated for property.
-    assertTranslation(translation, "+ (jboolean)fooableDefault;");
-
     // Check that constructor was created with the property as parameter.
-    assertTranslation(translation, "- (instancetype)initWithFooable:(jboolean)fooable__;");
+    assertTranslation(translation,
+        "FOUNDATION_EXPORT id<FooCompatible> create_FooCompatible(jboolean fooable);");
+
+    translation = getTranslatedFile("foo/Compatible.m");
+    // Verify default value accessor is generated for property.
+    assertTranslation(translation, "+ (jboolean)fooableDefault {");
   }
 
   public void testCharacterEdgeValues() throws IOException {
@@ -758,10 +769,11 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "Bar", "foo/Bar.h");
     assertTranslation(translation, "@property (readonly) NSString *namespace__;");
     assertTranslatedLines(translation,
-        "@interface FooBar : NSObject < FooBar > {", "@private", "NSString *namespace___;", "}");
+        "@interface FooBar : NSObject < FooBar > {", "@public", "NSString *namespace___;", "}");
     assertTranslation(translation,
-        "- (instancetype)initWithNamespace__:(NSString *)namespace____;");
-    assertTranslation(translation, "+ (NSString *)namespace__Default;");
+        "FOUNDATION_EXPORT id<FooBar> create_FooBar(NSString *namespace__);");
+    translation = getTranslatedFile("foo/Bar.m");
+    assertTranslation(translation, "+ (NSString *)namespace__Default {");
   }
 
   public void testMethodSorting() throws IOException {
@@ -836,5 +848,23 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "withNSException:(NSException *)arg1",
         "withBoolean:(jboolean)arg2",
         "withBoolean:(jboolean)arg3 NS_UNAVAILABLE;");
+  }
+
+  public void testStaticInterfaceMethodDeclaredInCompanionClass() throws IOException {
+    Options.setSourceVersion(SourceVersion.JAVA_8);
+    createParser();
+
+    String source = "interface Foo { static void f() {} }"
+        + "class Bar implements Foo { void g() { Foo.f(); } }";
+    String header = translateSourceFile(source, "Test", "Test.h");
+    String impl =  getTranslatedFile("Test.m");
+
+    assertTranslation(header, "@protocol Foo < JavaObject >");
+    assertTranslatedSegments(header, "@interface Foo : NSObject", "+ (void)f;", "@end");
+    // Should only have one occurrence from the companion class.
+    assertOccurrences(header, "+ (void)f;", 1);
+
+    // The companion class of Foo still has the class method +[Foo f].
+    assertTranslatedLines(impl, "+ (void)f {", "Foo_f();", "}");
   }
 }

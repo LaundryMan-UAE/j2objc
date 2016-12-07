@@ -15,11 +15,9 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.common.collect.Maps;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
-
 import java.util.Map;
+import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Postfix expression node type.
@@ -51,9 +49,8 @@ public class PostfixExpression extends Expression {
       return opString;
     }
 
-    public static Operator fromJdtOperator(
-        org.eclipse.jdt.core.dom.PostfixExpression.Operator jdtOperator) {
-      Operator result = stringLookup.get(jdtOperator.toString());
+    public static Operator parse(String op) {
+      Operator result = stringLookup.get(op);
       assert result != null;
       return result;
     }
@@ -62,11 +59,7 @@ public class PostfixExpression extends Expression {
   private Operator operator = null;
   private ChildLink<Expression> operand = ChildLink.create(Expression.class, this);
 
-  public PostfixExpression(org.eclipse.jdt.core.dom.PostfixExpression jdtNode) {
-    super(jdtNode);
-    operator = Operator.fromJdtOperator(jdtNode.getOperator());
-    operand.set((Expression) TreeConverter.convert(jdtNode.getOperand()));
-  }
+  public PostfixExpression() {}
 
   public PostfixExpression(PostfixExpression other) {
     super(other);
@@ -74,7 +67,7 @@ public class PostfixExpression extends Expression {
     operand.copyFrom(other.getOperand());
   }
 
-  public PostfixExpression(IVariableBinding var, Operator op) {
+  public PostfixExpression(VariableElement var, Operator op) {
     operator = op;
     operand.set(new SimpleName(var));
   }
@@ -85,21 +78,27 @@ public class PostfixExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
+  public TypeMirror getTypeMirror() {
     Expression operandNode = operand.get();
-    return operandNode != null ? operandNode.getTypeBinding() : null;
+    return operand != null ? operandNode.getTypeMirror() : null;
   }
 
   public Operator getOperator() {
     return operator;
   }
 
+  public PostfixExpression setOperator(Operator newOp) {
+    operator = newOp;
+    return this;
+  }
+
   public Expression getOperand() {
     return operand.get();
   }
 
-  public void setOperand(Expression newOperand) {
+  public PostfixExpression setOperand(Expression newOperand) {
     operand.set(newOperand);
+    return this;
   }
 
   @Override

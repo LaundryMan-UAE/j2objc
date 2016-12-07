@@ -195,8 +195,6 @@
  */
 - (void)setStackTraceWithJavaLangStackTraceElementArray:(IOSObjectArray *)trace;
 
-- (NSString *)description;
-
 #pragma mark Protected
 
 /*!
@@ -218,51 +216,44 @@
 
 J2OBJC_EMPTY_STATIC_INIT(NSException)
 
-FOUNDATION_EXPORT void NSException_init(NSException *self);
+CF_EXTERN_C_BEGIN
 
-FOUNDATION_EXPORT NSException *new_NSException_init() NS_RETURNS_RETAINED;
+void NSException_init(NSException *self);
+NSException *new_NSException_init() NS_RETURNS_RETAINED;
+NSException *create_NSException_init();
 
-FOUNDATION_EXPORT void NSException_initWithNSString_(
-    NSException *self, NSString *detailMessage);
+void NSException_initWithNSString_(NSException *self, NSString *detailMessage);
+NSException *new_NSException_initWithNSString_(NSString *detailMessage) NS_RETURNS_RETAINED;
+NSException *create_NSException_initWithNSString_(NSString *detailMessage);
 
-FOUNDATION_EXPORT NSException *new_NSException_initWithNSString_(
-     NSString *detailMessage) NS_RETURNS_RETAINED;
+void NSException_initWithNSString_withNSException_(
+    NSException *self, NSString *detailMessage, NSException *cause);
+NSException *new_NSException_initWithNSString_withNSException_(
+    NSString *detailMessage, NSException *cause) NS_RETURNS_RETAINED;
+NSException *create_NSException_initWithNSString_withNSException_(
+    NSString *detailMessage, NSException *cause);
 
-FOUNDATION_EXPORT void NSException_initWithNSString_withNSException_(
-     NSException *self, NSString *detailMessage, NSException *cause);
+void NSException_initWithNSException_(NSException *self, NSException *cause);
+NSException *new_NSException_initWithNSException_(NSException *cause) NS_RETURNS_RETAINED;
+NSException *create_NSException_initWithNSException_(NSException *cause);
 
-FOUNDATION_EXPORT NSException *new_NSException_initWithNSString_withNSException_(
-     NSString *detailMessage, NSException *cause) NS_RETURNS_RETAINED;
-
-FOUNDATION_EXPORT void NSException_initWithNSException_(
-     NSException *self, NSException *cause);
-
-FOUNDATION_EXPORT NSException *new_NSException_initWithNSException_(
-     NSException *cause) NS_RETURNS_RETAINED;
-
-FOUNDATION_EXPORT void
-NSException_initWithNSString_withNSException_withBoolean_withBoolean_(
-    NSException *self, NSString *detailMessage, NSException *cause,
-    jboolean enableSuppression, jboolean writableStackTrace);
-
-FOUNDATION_EXPORT NSException *
-new_NSException_initWithNSString_withNSException_withBoolean_withBoolean_(
+void NSException_initWithNSString_withNSException_withBoolean_withBoolean_(
+    NSException *self, NSString *detailMessage, NSException *cause, jboolean enableSuppression,
+    jboolean writableStackTrace);
+NSException *new_NSException_initWithNSString_withNSException_withBoolean_withBoolean_(
     NSString *detailMessage, NSException *cause, jboolean enableSuppression,
     jboolean writableStackTrace) NS_RETURNS_RETAINED;
+NSException *create_NSException_initWithNSString_withNSException_withBoolean_withBoolean_(
+    NSString *detailMessage, NSException *cause, jboolean enableSuppression,
+    jboolean writableStackTrace);
+
+CF_EXTERN_C_END
 
 J2OBJC_TYPE_LITERAL_HEADER(NSException)
 
 // Empty class to force category to be loaded.
 @interface JreThrowableCategoryDummy : NSObject
 @end
-
-//TODO(tball): remove when clients have updated to new mapping.
-#ifdef J2OBJC_RENAME_ALIASES
-#define withJavaLangThrowable withNSException
-#define initWithJavaLangThrowable initWithNSException
-#define addSuppressedWithJavaLangThrowable addSuppressedWithNSException
-#define initCauseWithJavaLangThrowable initCauseWithNSException
-#endif // J2OBJC_RENAME_ALIASES
 
 #pragma clang diagnostic pop
 #endif // _NSException_JavaThrowable_H_

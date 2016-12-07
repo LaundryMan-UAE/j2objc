@@ -14,9 +14,9 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Collection of variable declaration fragments. Mainly used as the initializer
@@ -28,14 +28,7 @@ public class VariableDeclarationExpression extends Expression {
   private ChildList<VariableDeclarationFragment> fragments =
       ChildList.create(VariableDeclarationFragment.class, this);
 
-  public VariableDeclarationExpression(
-      org.eclipse.jdt.core.dom.VariableDeclarationExpression jdtNode) {
-    super(jdtNode);
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-    for (Object fragment : jdtNode.fragments()) {
-      fragments.add((VariableDeclarationFragment) TreeConverter.convert(fragment));
-    }
-  }
+  public VariableDeclarationExpression() {}
 
   public VariableDeclarationExpression(VariableDeclarationExpression other) {
     super(other);
@@ -49,17 +42,31 @@ public class VariableDeclarationExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
+  public TypeMirror getTypeMirror() {
     Type typeNode = type.get();
-    return typeNode != null ? typeNode.getTypeBinding() : null;
+    return typeNode != null ? BindingConverter.getType(typeNode.getTypeBinding()) : null;
   }
 
   public Type getType() {
     return type.get();
   }
 
+  public VariableDeclarationExpression setType(Type newType) {
+    type.set(newType);
+    return this;
+  }
+
+  public VariableDeclarationFragment getFragment(int index) {
+    return fragments.get(index);
+  }
+
   public List<VariableDeclarationFragment> getFragments() {
     return fragments;
+  }
+
+  public VariableDeclarationExpression addFragment(VariableDeclarationFragment fragment) {
+    fragments.add(fragment);
+    return this;
   }
 
   @Override

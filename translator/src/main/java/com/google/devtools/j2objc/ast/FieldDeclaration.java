@@ -14,9 +14,10 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IVariableBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.VariableElement;
+import org.eclipse.jdt.core.dom.IVariableBinding;
 
 /**
  * Node for a field declaration.
@@ -27,13 +28,7 @@ public class FieldDeclaration extends BodyDeclaration {
   private ChildList<VariableDeclarationFragment> fragments =
       ChildList.create(VariableDeclarationFragment.class, this);
 
-  public FieldDeclaration(org.eclipse.jdt.core.dom.FieldDeclaration jdtNode) {
-    super(jdtNode);
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-    for (Object fragment : jdtNode.fragments()) {
-      fragments.add((VariableDeclarationFragment) TreeConverter.convert(fragment));
-    }
-  }
+  public FieldDeclaration() {}
 
   public FieldDeclaration(FieldDeclaration other) {
     super(other);
@@ -47,10 +42,15 @@ public class FieldDeclaration extends BodyDeclaration {
     fragments.add(fragment);
   }
 
+  // TODO(tball): remove when javac migration is complete.
   public FieldDeclaration(IVariableBinding variableBinding, Expression initializer) {
-    super(variableBinding);
-    type.set(Type.newType(variableBinding.getType()));
-    fragments.add(new VariableDeclarationFragment(variableBinding, initializer));
+    this((VariableElement) BindingConverter.getElement(variableBinding), initializer);
+  }
+
+  public FieldDeclaration(VariableElement variableElement, Expression initializer) {
+    super(variableElement);
+    type.set(Type.newType(variableElement.asType()));
+    fragments.add(new VariableDeclarationFragment(variableElement, initializer));
   }
 
   @Override
@@ -62,8 +62,22 @@ public class FieldDeclaration extends BodyDeclaration {
     return type.get();
   }
 
+  public FieldDeclaration setType(Type newType) {
+    type.set(newType);
+    return this;
+  }
+
+  public VariableDeclarationFragment getFragment(int index) {
+    return fragments.get(index);
+  }
+
   public List<VariableDeclarationFragment> getFragments() {
     return fragments;
+  }
+
+  public FieldDeclaration addFragment(VariableDeclarationFragment f) {
+    fragments.add(f);
+    return this;
   }
 
   @Override

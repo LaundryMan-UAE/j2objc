@@ -129,7 +129,7 @@ public class DeadCodeEliminatorTest extends GenerationTest {
     setDeadCodeMap(map);
     String source = "class A {\n"
         + "  private static void foo() {}\n"
-        + "  public enum Thing {\n"
+        + "  public enum Thing implements java.io.Serializable {\n"
         + "    THING1(27),\n"
         + "    THING2(89) { void bar() {} },\n"
         + "    THING3 { void bar() { foo(); } };\n"
@@ -142,6 +142,8 @@ public class DeadCodeEliminatorTest extends GenerationTest {
     assertNotInTranslation(translation, "THING1");
     assertNotInTranslation(translation, "THING2");
     assertNotInTranslation(translation, "THING3");
+    String header = getTranslatedFile("A.h");
+    assertNotInTranslation(header, "Serializable");
   }
 
   public void testConstructorGeneration() throws IOException {
@@ -217,7 +219,7 @@ public class DeadCodeEliminatorTest extends GenerationTest {
     assertTranslation(translation, "@interface Foo_Baz");
     assertNotInTranslation(translation, "- (void)g");
     translation = getTranslatedFile("Foo.m");
-    assertTranslation(translation, "Foo_Bar_init");
+    assertNotInTranslation(translation, "Foo_Bar_init");
     assertNotInTranslation(translation, "- (void)f");
     assertTranslation(translation, "Foo_Baz_init");
     assertNotInTranslation(translation, "- (void)g");
@@ -251,6 +253,21 @@ public class DeadCodeEliminatorTest extends GenerationTest {
     assertNotInTranslation(translation, "- (jint)f");
   }
 
+  public void testDeadClass_SupertypeRemoval() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .build();
+    setDeadCodeMap(map);
+    addSourceFile("class SuperClass {}", "SuperClass.java");
+    addSourceFile("interface SuperI { void f(); }", "SuperI.java");
+    String source = "class Foo extends SuperClass implements SuperI {\n"
+        + "  public void f() {}\n"
+        + "}\n";
+    String translation = translateSourceFile(source, "Foo", "Foo.h");
+    assertNotInTranslation(translation, "SuperClass");
+    assertNotInTranslation(translation, "SuperI");
+  }
+
   // Verify that annotation bodies aren't stripped when specified in a dead code report.
   public void testDeadAnnotation() throws IOException {
     DeadCodeMap map = DeadCodeMap.builder()
@@ -265,5 +282,88 @@ public class DeadCodeEliminatorTest extends GenerationTest {
         + "}\n";
     String translation = translateSourceFile(source, "Foo", "Foo.h");
     assertTranslation(translation, "@property (readonly) NSString *value;");
+  }
+
+  public void testDeadDefaultConstructor() throws IOException {
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadMethod("Test", "Test", "()V")
+        .build();
+    setDeadCodeMap(map);
+    String translation = translateSourceFile("class Test {}", "Test", "Test.h");
+    // Make sure the default constructor is not added.
+    assertNotInTranslation(translation, "init");
+  }
+
+  public void testDeadFastEnumerationImplementation() throws IOException {
+    String source = "import java.util.Iterator;\n"
+        + "interface SomeInterface extends Iterable<String> {}\n"
+        + "class Base {}\n"
+        + "class Foo extends Base implements SomeInterface {\n"
+        + "  @Override\n"
+        + "  public Iterator<String> iterator() { return null; }\n"
+        + "}";
+
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .build();
+    setDeadCodeMap(map);
+
+    String header = translateSourceFile(source, "Foo", "Foo.h");
+    String impl = getTranslatedFile("Foo.m");
+
+    assertNotInTranslation(header, "@interface Foo : Base < SomeInterface >");
+    assertTranslation(header, "@interface Foo : NSObject");
+    assertNotInTranslation(impl, "countByEnumeratingWithState:");
+  }
+
+  public void testTypeNarrowingMethodsNotShowingInDeadClasses() throws IOException {
+    String source = "class Base<T> { \n"
+        + "  T someMethod() { return null; }\n"
+        + "}\n"
+        + "class Foo extends Base<String> {}";
+
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .build();
+    setDeadCodeMap(map);
+
+    String header = translateSourceFile(source, "Foo", "Foo.h");
+    assertNotInTranslation(header, "@interface Foo : Base");
+    assertTranslation(header, "@interface Foo : NSObject");
+    assertTranslation(header, "- (id)someMethod;");
+    assertNotInTranslation(header, "- (NSString *)someMethod;");
+  }
+
+  public void testDeadMethodInBaseClassNotShowingInChildClasses() throws IOException {
+    String source = "class Base<T> { \n"
+        + "  T someDeadMethod() { return null; }\n"
+        + "}\n"
+        + "class Foo extends Base<String> {}";
+
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadMethod("Base", "someDeadMethod", "()Ljava/lang/Object;")
+        .build();
+    setDeadCodeMap(map);
+
+    String header = translateSourceFile(source, "Foo", "Foo.h");
+    assertNotInTranslation(header, "- (id)someDeadMethod;");
+    assertNotInTranslation(header, "- (NSString *)someDeadMethod;");
+  }
+
+  public void testDeadMethodInBaseClassNotShowingInDeadChildClasses() throws IOException {
+    String source = "class Base<T> { \n"
+        + "  T someDeadMethod() { return null; }\n"
+        + "}\n"
+        + "class Foo extends Base<String> {}";
+
+    DeadCodeMap map = DeadCodeMap.builder()
+        .addDeadClass("Foo")
+        .addDeadMethod("Base", "someDeadMethod", "()Ljava/lang/Object;")
+        .build();
+    setDeadCodeMap(map);
+
+    String header = translateSourceFile(source, "Foo", "Foo.h");
+    assertNotInTranslation(header, "- (id)someDeadMethod;");
+    assertNotInTranslation(header, "- (NSString *)someDeadMethod;");
   }
 }

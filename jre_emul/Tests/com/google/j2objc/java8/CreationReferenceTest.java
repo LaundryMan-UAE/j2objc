@@ -121,4 +121,46 @@ public class CreationReferenceTest extends TestCase {
     f.apply(12, 22, "42");
     f2.apply(10, 20, "20", "10");
   }
+
+  // Test and helper function to make sure that constructor method references
+  // use capturing lambdas when necessary.
+  static Lambdas.Zero<Lambdas.Zero<String>> closes(String toClose) {
+    class Closer implements Lambdas.Zero<String> {
+      public String apply() {
+        return toClose;
+      };
+    };
+    return Closer::new;
+  }
+
+  public void testCapturingConstructorMethodReferences() throws Exception {
+    Lambdas.Zero<Lambdas.Zero<String>> gen1 = closes("Works!");
+    Lambdas.Zero<String> fun1 = gen1.apply();
+    assertEquals(fun1.apply(), "Works!");
+  }
+
+  static class StatefulOuter {
+    int state;
+
+    class Inner {
+      int getOuterState() {
+        return state;
+      }
+    }
+
+    interface Provider {
+      Inner get();
+    }
+
+    Provider innerProvider() {
+      return Inner::new;
+    }
+  }
+
+  public void testCreationReferenceOfClassWithOuterScope() throws Exception {
+    StatefulOuter o = new StatefulOuter();
+    o.state = 9876;
+    StatefulOuter.Provider p = o.innerProvider();
+    assertEquals(9876, p.get().getOuterState());
+  }
 }

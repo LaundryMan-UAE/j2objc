@@ -1,6 +1,9 @@
 TYPE java.util.logging.LogManager  # Long lived.
 TYPE java.security.Provider        # Long lived.
 
+# There is only one ClassLoader instance on iOS.
+TYPE java.lang.ClassLoader
+
 # Breaks several false cycles.
 FIELD java.lang.Throwable.suppressedExceptions
 
@@ -9,9 +12,10 @@ FIELD java.io.ObjectOutputStream.currentPutField
 TYPE java.net.InetAddress.isReachable.$
 FIELD java.net.NetworkInterface.children
 
-FIELD java.util.HashSet.backingMap
-FIELD java.util.TreeSet.backingMap
+FIELD java.util.HashSet.map
+FIELD java.util.TreeSet.m
 
+FIELD java.util.concurrent.ConcurrentHashMap.CollectionView.map
 FIELD java.util.concurrent.ConcurrentSkipListSet.m
 FIELD java.util.concurrent.ForkJoinWorkerThread.pool
 FIELD java.util.concurrent.Phaser.QNode.phaser
@@ -20,13 +24,25 @@ FIELD java.util.concurrent.ThreadPoolExecutor.workQueue
 
 FIELD java.util.logging.Logger.children
 
+FIELD java.util.stream.AbstractTask.leftChild
+FIELD java.util.stream.AbstractTask.rightChild
+# Tasks remove themself from completionMap upon completion.
+FIELD java.util.stream.ForEachOps.ForEachOrderedTask.completionMap
+# Spliterators use a chaining pattern which causes plenty of false cycles.
+FIELD java.util.stream.StreamSpliterators.DelegatingSpliterator.s
+FIELD java.util.stream.StreamSpliterators.SliceSpliterator.s
+FIELD java.util.stream.StreamSpliterators.UnorderedSliceSpliterator.s
+FIELD java.util.stream.Streams.ConcatSpliterator.aSpliterator
+FIELD java.util.stream.Streams.ConcatSpliterator.bSpliterator
+
 FIELD android.os.AsyncTask.mFuture
 FIELD android.os.AsyncTask.mWorker
 FIELD android.os.AsyncTask.SerialExecutor.mActive
 FIELD android.os.AsyncTask.SerialExecutor.mTasks
 
-# This thread field is cleared when the thread finishes, regardless of any exceptions.
+# These thread fields are cleared when the thread finishes, regardless of any exceptions.
 FIELD java.lang.Thread.interruptActions
+FIELD java.lang.Thread.uncaughtExceptionHandler
 
 # libcore.reflect false positives.
 FIELD libcore.reflect.ParameterizedTypeImpl.args
@@ -49,3 +65,9 @@ TYPE sun.misc.URLClassPath
 
 # TODO(kstanger,tball): Resolve these cycles.
 NAMESPACE org.xml
+
+# TODO(kstanger,tball): OpenJDK cycles to be resolved.
+FIELD java.io.PrintStream.formatter
+FIELD java.io.PrintWriter.formatter
+FIELD java.io.PrintWriter.psOut
+FIELD java.io.OutputStreamWriter.out

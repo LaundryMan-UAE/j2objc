@@ -14,33 +14,24 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.ExecutableElement;
+import org.eclipse.jdt.core.dom.IMethodBinding;
 
 /**
  * Node for a alternate constructor invocation. (i.e. "this(...);")
  */
 public class ConstructorInvocation extends Statement {
 
-  private IMethodBinding methodBinding = null;
+  private ExecutableElement method = null;
   private ChildList<Expression> arguments = ChildList.create(Expression.class, this);
 
-  public ConstructorInvocation(IMethodBinding methodBinding) {
-    setMethodBinding(methodBinding);
-  }
-
-  public ConstructorInvocation(org.eclipse.jdt.core.dom.ConstructorInvocation jdtNode) {
-    super(jdtNode);
-    methodBinding = jdtNode.resolveConstructorBinding();
-    for (Object argument : jdtNode.arguments()) {
-      arguments.add((Expression) TreeConverter.convert(argument));
-    }
-  }
+  public ConstructorInvocation() {}
 
   public ConstructorInvocation(ConstructorInvocation other) {
     super(other);
-    methodBinding = other.getMethodBinding();
+    method = other.getExecutableElement();
     arguments.copyFrom(other.getArguments());
   }
 
@@ -50,15 +41,29 @@ public class ConstructorInvocation extends Statement {
   }
 
   public IMethodBinding getMethodBinding() {
-    return methodBinding;
+    return (IMethodBinding) BindingConverter.unwrapElement(method);
   }
 
   public void setMethodBinding(IMethodBinding methodBinding) {
-    this.methodBinding = methodBinding;
+    method = BindingConverter.getExecutableElement(methodBinding);
+  }
+
+  public ExecutableElement getExecutableElement() {
+    return method;
+  }
+  
+  public ConstructorInvocation setExecutableElement(ExecutableElement newMethod) {
+    method = newMethod;
+    return this;
   }
 
   public List<Expression> getArguments() {
     return arguments;
+  }
+
+  public ConstructorInvocation addArgument(Expression arg) {
+    arguments.add(arg);
+    return this;
   }
 
   @Override

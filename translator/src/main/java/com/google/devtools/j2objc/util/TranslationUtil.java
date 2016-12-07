@@ -16,15 +16,16 @@ package com.google.devtools.j2objc.util;
 
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
-import com.google.devtools.j2objc.ast.Annotation;
 import com.google.devtools.j2objc.ast.ArrayAccess;
 import com.google.devtools.j2objc.ast.ArrayCreation;
 import com.google.devtools.j2objc.ast.Assignment;
 import com.google.devtools.j2objc.ast.CastExpression;
 import com.google.devtools.j2objc.ast.ClassInstanceCreation;
 import com.google.devtools.j2objc.ast.ConditionalExpression;
+import com.google.devtools.j2objc.ast.EnumDeclaration;
 import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.FieldAccess;
+import com.google.devtools.j2objc.ast.FunctionInvocation;
 import com.google.devtools.j2objc.ast.InfixExpression;
 import com.google.devtools.j2objc.ast.MethodInvocation;
 import com.google.devtools.j2objc.ast.PackageDeclaration;
@@ -33,15 +34,26 @@ import com.google.devtools.j2objc.ast.PostfixExpression;
 import com.google.devtools.j2objc.ast.PrefixExpression;
 import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
+import com.google.devtools.j2objc.ast.Type;
+import com.google.devtools.j2objc.ast.TypeDeclaration;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.GeneratedMethodBinding;
 import com.google.devtools.j2objc.types.IOSMethodBinding;
 import com.google.devtools.j2objc.types.Types;
 import com.google.j2objc.annotations.ReflectionSupport;
 
-import org.eclipse.jdt.core.dom.IAnnotationBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import javax.lang.model.element.AnnotationMirror;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.VariableElement;
 
 /**
  * General collection of utility methods.
@@ -50,18 +62,54 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
  */
 public final class TranslationUtil {
 
+  public static ITypeBinding getSuperType(AbstractTypeDeclaration node) {
+    // Use the AST as the source of truth where possible.
+    if (node instanceof TypeDeclaration) {
+      Type superType = ((TypeDeclaration) node).getSuperclassType();
+      if (superType != null) {
+        return superType.getTypeBinding();
+      }
+      return null;
+    } else {
+      return node.getTypeBinding().getSuperclass();
+    }
+  }
+
+  public static List<ITypeBinding> getInterfaceTypes(AbstractTypeDeclaration node) {
+    // Use the AST as the source of truth where possible.
+    List<Type> astInterfaces = null;
+    if (node instanceof TypeDeclaration) {
+      astInterfaces = ((TypeDeclaration) node).getSuperInterfaceTypes();
+    } else if (node instanceof EnumDeclaration) {
+      astInterfaces = ((EnumDeclaration) node).getSuperInterfaceTypes();
+    }
+    if (astInterfaces == null) {  // AnnotationTypeDeclaration
+      return Arrays.asList(node.getTypeBinding().getInterfaces());
+    }
+    List<ITypeBinding> result = new ArrayList<>();
+    for (Type type : astInterfaces) {
+      result.add(type.getTypeBinding());
+    }
+    return result;
+  }
+
   public static boolean needsReflection(AbstractTypeDeclaration node) {
     return needsReflection(node.getTypeBinding());
   }
 
   public static boolean needsReflection(PackageDeclaration node) {
-    return needsReflection(getReflectionSupportLevel(getAnnotation(node, ReflectionSupport.class)));
+    return needsReflection(getReflectionSupportLevel(
+        getAnnotation(node.getPackageElement(), ReflectionSupport.class)));
   }
 
   public static boolean needsReflection(ITypeBinding type) {
+    if (BindingUtil.isLambda(type)) {
+      return false;
+    }
     while (type != null) {
+      TypeElement element = (TypeElement) BindingConverter.getElement(type);
       ReflectionSupport.Level level = getReflectionSupportLevel(
-          BindingUtil.getAnnotation(type, ReflectionSupport.class));
+          getAnnotation(element, ReflectionSupport.class));
       if (level != null) {
         return level == ReflectionSupport.Level.FULL;
       }
@@ -79,27 +127,22 @@ public final class TranslationUtil {
   }
 
   public static ReflectionSupport.Level getReflectionSupportLevel(
-      IAnnotationBinding reflectionSupport) {
+      AnnotationMirror reflectionSupport) {
     if (reflectionSupport == null) {
       return null;
     }
-    Object level = BindingUtil.getAnnotationValue(reflectionSupport, "value");
-    if (level instanceof IVariableBinding) {
-      return ReflectionSupport.Level.valueOf(((IVariableBinding) level).getName());
-    }
-    return null;
+    VariableElement level = (VariableElement)
+        ElementUtil.getAnnotationValue(reflectionSupport, "value");
+    return level != null
+        ? ReflectionSupport.Level.valueOf(level.getSimpleName().toString()) : null;
   }
 
-  /**
-   * The IPackageBinding does not provide the annotations so we must iterate the
-   * annotation from the tree.
-   */
-  private static IAnnotationBinding getAnnotation(
-      PackageDeclaration node, Class<?> annotationClass) {
-    for (Annotation annotation : node.getAnnotations()) {
-      IAnnotationBinding binding = annotation.getAnnotationBinding();
-      if (BindingUtil.typeEqualsClass(binding.getAnnotationType(), annotationClass)) {
-        return binding;
+  private static AnnotationMirror getAnnotation(Element element, Class<?> annotationClass) {
+    String className = annotationClass.getName();
+    for (AnnotationMirror mirror : element.getAnnotationMirrors()) {
+      TypeElement type = (TypeElement) mirror.getAnnotationType().asElement();
+      if (type.getQualifiedName().toString().equals(className)) {
+        return mirror;
       }
     }
     return null;
@@ -120,7 +163,15 @@ public final class TranslationUtil {
       case CLASS_INSTANCE_CREATION:
         ((ClassInstanceCreation) node).setHasRetainedResult(true);
         return TreeUtil.remove(node);
-      case METHOD_INVOCATION:
+      case FUNCTION_INVOCATION: {
+        FunctionInvocation invocation = (FunctionInvocation) node;
+        if (invocation.getFunctionBinding().getRetainedResultName() != null) {
+          invocation.setHasRetainedResult(true);
+          return TreeUtil.remove(node);
+        }
+        return null;
+      }
+      case METHOD_INVOCATION: {
         MethodInvocation invocation = (MethodInvocation) node;
         Expression expr = invocation.getExpression();
         IMethodBinding method = invocation.getMethodBinding();
@@ -128,7 +179,8 @@ public final class TranslationUtil {
             && ((IOSMethodBinding) method).getSelector().equals(NameTable.AUTORELEASE_METHOD)) {
           return TreeUtil.remove(expr);
         }
-        // else fall-through
+        return null;
+      }
       default:
         return null;
     }

@@ -14,7 +14,8 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import javax.lang.model.type.ArrayType;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Array access node type.
@@ -24,11 +25,7 @@ public class ArrayAccess extends Expression {
   private final ChildLink<Expression> array = ChildLink.create(Expression.class, this);
   private final ChildLink<Expression> index = ChildLink.create(Expression.class, this);
 
-  public ArrayAccess(org.eclipse.jdt.core.dom.ArrayAccess jdtNode) {
-    super(jdtNode);
-    array.set((Expression) TreeConverter.convert(jdtNode.getArray()));
-    index.set((Expression) TreeConverter.convert(jdtNode.getIndex()));
-  }
+  public ArrayAccess() {}
 
   public ArrayAccess(ArrayAccess other) {
     super(other);
@@ -42,22 +39,28 @@ public class ArrayAccess extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
+  public TypeMirror getTypeMirror() {
     Expression arrayNode = array.get();
-    ITypeBinding arrayType = arrayNode != null ? arrayNode.getTypeBinding() : null;
-    return arrayType != null ? arrayType.getComponentType() : null;
+    TypeMirror arrayType = arrayNode != null ? arrayNode.getTypeMirror() : null;
+    return arrayType != null ? ((ArrayType) arrayType).getComponentType() : null;
   }
 
   public Expression getArray() {
     return array.get();
   }
 
+  public ArrayAccess setArray(Expression newArray) {
+    array.set(newArray);
+    return this;
+  }
+
   public Expression getIndex() {
     return index.get();
   }
 
-  public void setIndex(Expression newIndex) {
+  public ArrayAccess setIndex(Expression newIndex) {
     index.set(newIndex);
+    return this;
   }
 
   @Override

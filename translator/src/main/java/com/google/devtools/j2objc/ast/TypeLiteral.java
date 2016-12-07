@@ -14,8 +14,9 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.Types;
-
+import javax.lang.model.type.TypeMirror;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 
 /**
@@ -23,23 +24,21 @@ import org.eclipse.jdt.core.dom.ITypeBinding;
  */
 public class TypeLiteral extends Expression {
 
-  private final ITypeBinding typeBinding;
+  private final TypeMirror typeMirror;
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
 
-  public TypeLiteral(org.eclipse.jdt.core.dom.TypeLiteral jdtNode) {
-    super(jdtNode);
-    typeBinding = jdtNode.resolveTypeBinding();
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
+  public TypeLiteral(TypeMirror typeMirror) {
+    this.typeMirror = typeMirror;
   }
 
   public TypeLiteral(TypeLiteral other) {
     super(other);
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
     type.copyFrom(other.getType());
   }
 
   public TypeLiteral(ITypeBinding literalType, Types typeEnv) {
-    typeBinding = typeEnv.resolveJavaType("java.lang.Class");
+    typeMirror = BindingConverter.getType(typeEnv.resolveJavaType("java.lang.Class"));
     type.set(Type.newType(literalType));
   }
 
@@ -49,12 +48,17 @@ public class TypeLiteral extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
   }
 
   public Type getType() {
     return type.get();
+  }
+
+  public TypeLiteral setType(Type newType) {
+    type.set(newType);
+    return this;
   }
 
   @Override

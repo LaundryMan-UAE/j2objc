@@ -14,9 +14,10 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
 import java.util.List;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Node type for a class or interface declaration.
@@ -24,34 +25,31 @@ import java.util.List;
 public class TypeDeclaration extends AbstractTypeDeclaration {
 
   private boolean isInterface = false;
-  private ChildLink<Type> superclassType = ChildLink.create(Type.class, this);
-  private ChildList<Type> superInterfaceTypes = ChildList.create(Type.class, this);
+  private final ChildLink<Type> superclassType = ChildLink.create(Type.class, this);
+  private final ChildList<Type> superInterfaceTypes = ChildList.create(Type.class, this);
+  private final ChildLink<Expression> superOuter = ChildLink.create(Expression.class, this);
+  private final ChildList<Expression> superCaptureArgs = ChildList.create(Expression.class, this);
 
-  public TypeDeclaration(org.eclipse.jdt.core.dom.TypeDeclaration jdtNode) {
-    super(jdtNode);
-    superclassType.set((Type) TreeConverter.convert(jdtNode.getSuperclassType()));
-    isInterface = jdtNode.isInterface();
-    for (Object superInterface : jdtNode.superInterfaceTypes()) {
-      superInterfaceTypes.add((Type) TreeConverter.convert(superInterface));
-    }
-  }
+  public TypeDeclaration() {}
 
   public TypeDeclaration(TypeDeclaration other) {
     super(other);
     isInterface = other.isInterface();
     superclassType.copyFrom(other.getSuperclassType());
     superInterfaceTypes.copyFrom(other.getSuperInterfaceTypes());
+    superOuter.copyFrom(other.getSuperOuter());
+    superCaptureArgs.copyFrom(other.getSuperCaptureArgs());
   }
 
-  public TypeDeclaration(ITypeBinding typeBinding) {
-    super(typeBinding);
-    isInterface = typeBinding.isInterface();
-    ITypeBinding superclassTypeBinding = typeBinding.getSuperclass();
-    if (superclassTypeBinding != null) {
-      superclassType.set(Type.newType(superclassTypeBinding));
+  public TypeDeclaration(TypeElement typeElement) {
+    super(typeElement);
+    isInterface = typeElement.getKind().isInterface();
+    TypeMirror superclassMirror = typeElement.getSuperclass();
+    if (superclassMirror != null && superclassMirror.getKind() != TypeKind.NONE) {
+      superclassType.set(Type.newType(superclassMirror));
     }
-    for (ITypeBinding interfaceTypeBinding : typeBinding.getInterfaces()) {
-      superInterfaceTypes.add(Type.newType(interfaceTypeBinding));
+    for (TypeMirror interfaceMirror : typeElement.getInterfaces()) {
+      superInterfaceTypes.add(Type.newType(interfaceMirror));
     }
   }
 
@@ -64,16 +62,43 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
     return isInterface;
   }
 
+  public TypeDeclaration setInterface(boolean b) {
+    isInterface = b;
+    return this;
+  }
+
   public Type getSuperclassType() {
     return superclassType.get();
   }
 
-  public void setSuperclassType(Type newSuperclassType) {
+  public TypeDeclaration setSuperclassType(Type newSuperclassType) {
     superclassType.set(newSuperclassType);
+    return this;
   }
 
   public List<Type> getSuperInterfaceTypes() {
     return superInterfaceTypes;
+  }
+
+  public TypeDeclaration addSuperInterfaceType(Type type) {
+    superInterfaceTypes.add(type);
+    return this;
+  }
+
+  @Override
+  public Expression getSuperOuter() {
+    return superOuter.get();
+  }
+
+  @Override
+  public TypeDeclaration setSuperOuter(Expression newSuperOuter) {
+    superOuter.set(newSuperOuter);
+    return this;
+  }
+
+  @Override
+  public List<Expression> getSuperCaptureArgs() {
+    return superCaptureArgs;
   }
 
   @Override
@@ -86,6 +111,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
       superInterfaceTypes.accept(visitor);
       bodyDeclarations.accept(visitor);
       classInitStatements.accept(visitor);
+      superOuter.accept(visitor);
+      superCaptureArgs.accept(visitor);
     }
     visitor.endVisit(this);
   }

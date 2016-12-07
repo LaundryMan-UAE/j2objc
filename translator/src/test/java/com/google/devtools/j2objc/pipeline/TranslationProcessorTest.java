@@ -58,7 +58,7 @@ public class TranslationProcessorTest extends GenerationTest {
     GenerationBatch batch = new GenerationBatch();
     batch.addSource(new JarredInputFile(getTempDir() + "/test.jar", "mypkg/Foo.java"));
     batch.addSource(new JarredInputFile(getTempDir() + "/test.jar", "mypkg/Bar.java"));
-    TranslationProcessor processor = new TranslationProcessor(J2ObjC.createParser(), null);
+    TranslationProcessor processor = new TranslationProcessor(J2ObjC.createParser(), null, null);
     processor.processInputs(batch.getInputs());
 
     assertEquals(0, ErrorUtil.errorCount());
@@ -71,7 +71,7 @@ public class TranslationProcessorTest extends GenerationTest {
 
     GenerationBatch batch = new GenerationBatch();
     batch.addSource(new RegularInputFile(getTempDir() + "/Test.java", "Test.java"));
-    TranslationProcessor processor = new TranslationProcessor(J2ObjC.createParser(), null);
+    TranslationProcessor processor = new TranslationProcessor(J2ObjC.createParser(), null, null);
     processor.processInputs(batch.getInputs());
     processor.processBuildClosureDependencies();
 
@@ -83,6 +83,9 @@ public class TranslationProcessorTest extends GenerationTest {
 
   public void testDuplicateSourceFileOnSourcepath() throws IOException {
     Options.setBuildClosure(true);
+
+    // Have src/main/java precede tmp dir in source path.
+    Options.insertSourcePath(0, getTempDir() + "/src/main/java");
     Options.appendSourcePath(getTempDir());
 
     addSourceFile("class Test { Foo f; }", "Test.java");
@@ -92,7 +95,7 @@ public class TranslationProcessorTest extends GenerationTest {
     GenerationBatch batch = new GenerationBatch();
     batch.addSource(new RegularInputFile(getTempDir() + "/Test.java", "Test.java"));
     batch.addSource(new RegularInputFile(getTempDir() + "/src/main/java/Foo.java", "Foo.java"));
-    TranslationProcessor processor = new TranslationProcessor(J2ObjC.createParser(), null);
+    TranslationProcessor processor = new TranslationProcessor(J2ObjC.createParser(), null, null);
     processor.processInputs(batch.getInputs());
     processor.processBuildClosureDependencies();
 

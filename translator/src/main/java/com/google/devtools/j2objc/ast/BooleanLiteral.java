@@ -15,8 +15,7 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.devtools.j2objc.types.Types;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Either "true" or "false".
@@ -24,23 +23,21 @@ import org.eclipse.jdt.core.dom.ITypeBinding;
 public class BooleanLiteral extends Expression {
 
   private boolean booleanValue = false;
-  private final ITypeBinding typeBinding;
-
-  public BooleanLiteral(org.eclipse.jdt.core.dom.BooleanLiteral jdtNode) {
-    super(jdtNode);
-    booleanValue = jdtNode.booleanValue();
-    typeBinding = jdtNode.resolveTypeBinding();
-  }
+  private final TypeMirror typeMirror;
 
   public BooleanLiteral(BooleanLiteral other) {
     super(other);
     booleanValue = other.booleanValue();
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
   }
 
   public BooleanLiteral(boolean booleanValue, Types typeEnv) {
+    this(booleanValue, typeEnv.resolveJavaTypeMirror("boolean"));
+  }
+
+  public BooleanLiteral(boolean booleanValue, TypeMirror typeMirror) {
     this.booleanValue = booleanValue;
-    typeBinding = typeEnv.resolveJavaType("boolean");
+    this.typeMirror = typeMirror;
   }
 
   @Override
@@ -49,10 +46,9 @@ public class BooleanLiteral extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
   }
-
   public boolean booleanValue() {
     return booleanValue;
   }

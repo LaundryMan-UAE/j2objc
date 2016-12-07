@@ -29,20 +29,31 @@ public class OuterReferenceFixerTest extends GenerationTest {
     addSourceFile("class A { class Inner { } }", "A.java");
     String translation = translateSourceFile(
         "class B extends A.Inner { B(A a) { a.super(); } }", "B", "B.m");
-    assertTranslation(translation, "A_Inner_initWithA_(self, a);");
+    assertTranslation(translation, "A_Inner_initWithA_(self, nil_chk(a));");
   }
 
   public void testLocalClassCaptureVariablesInsideGenericClass() throws IOException {
     String translation = translateSourceFile(
         "class Test<T> { void test() { final Object o = null; class Inner { "
         + "public void foo() { o.toString(); } } new Inner(); } }", "Test", "Test.m");
-    assertTranslation(translation, "new_Test_1Inner_initWithId_(o)");
+    assertTranslation(translation, "create_Test_1Inner_initWithId_(o)");
   }
 
   public void testRecursiveConstructionOfLocalClass() throws IOException {
     String translation = translateSourceFile(
         "public class Test { void test(final Object bar) { "
         + "class Foo { void foo() { bar.toString(); new Foo(); } } } }", "Test", "Test.m");
-    assertTranslation(translation, "new_Test_1Foo_initWithTest_withId_(this$0_, val$bar_)");
+    assertTranslation(translation, "create_Test_1Foo_initWithId_(val$bar_)");
+  }
+
+  public void testLocalClassExtendsLocalClassCapturesVariables() throws IOException {
+    String translation = translateSourceFile(
+        "public class Test { void test(final int i, final int j) { "
+        + "class A { int sum() { return i + j; } }; class B extends A {} } }", "Test", "Test.m");
+    // Local class B must also capture the locals and pass them to A's constructor.
+    assertTranslatedLines(translation,
+        "void Test_1B_initWithInt_withInt_(Test_1B *self, jint capture$0, jint capture$1) {",
+        "  Test_1A_initWithInt_withInt_(self, capture$0, capture$1);",
+        "}");
   }
 }

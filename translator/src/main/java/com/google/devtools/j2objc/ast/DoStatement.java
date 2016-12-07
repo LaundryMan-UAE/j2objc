@@ -22,11 +22,7 @@ public class DoStatement extends Statement {
   private ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
   private ChildLink<Statement> body = ChildLink.create(Statement.class, this);
 
-  public DoStatement(org.eclipse.jdt.core.dom.DoStatement jdtNode) {
-    super(jdtNode);
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-    body.set((Statement) TreeConverter.convert(jdtNode.getBody()));
-  }
+  public DoStatement() {}
 
   public DoStatement(DoStatement other) {
     super(other);
@@ -43,12 +39,18 @@ public class DoStatement extends Statement {
     return expression.get();
   }
 
-  public void setExpression(Expression newExpression) {
+  public DoStatement setExpression(Expression newExpression) {
     expression.set(newExpression);
+    return this;
   }
 
   public Statement getBody() {
     return body.get();
+  }
+  
+  public DoStatement setBody(Statement newBody) {
+    body.set(newBody);
+    return this;
   }
 
   @Override

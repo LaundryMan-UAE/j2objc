@@ -47,6 +47,7 @@ public class ImplementationImportCollectorTest extends GenerationTest {
     assertTranslation(translation, "#include \"FooException.h\"");
   }
 
+  // http://b/7073329
   public void testVarargsMethodNoActualArguments() throws IOException {
     translateSourceFile(
         "class Test { Test(String ... values) { } Test test = new Test(); }",
@@ -61,6 +62,7 @@ public class ImplementationImportCollectorTest extends GenerationTest {
     // Nothing to do; Successful translation is the test.
   }
 
+  // http://b/7106570
   public void testVarargsMethodManyArguments() throws IOException {
     translateSourceFile(
         "class Test { Test(int... values) { } Test test = new Test(1,2,3); }",
@@ -200,5 +202,12 @@ public class ImplementationImportCollectorTest extends GenerationTest {
     String translation = translateSourceFile("class Test { void test() { "
         + "java.util.Collection c = null; c = Foo.list; }}", "Test", "Test.m");
     assertTranslation(translation, "#include \"java/util/List.h\"");
+  }
+
+  public void testNoImportsForAbstractMethod() throws IOException {
+    String translation = translateSourceFile(
+        "interface Test { java.util.Map foo(java.util.List l); }", "Test", "Test.m");
+    assertNotInTranslation(translation, "Map.h");
+    assertNotInTranslation(translation, "List.h");
   }
 }

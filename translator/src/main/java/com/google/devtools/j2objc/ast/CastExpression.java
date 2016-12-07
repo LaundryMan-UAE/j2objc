@@ -14,7 +14,7 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Node type for a type cast.
@@ -24,22 +24,18 @@ public class CastExpression extends Expression {
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
   private ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
 
-  public CastExpression(org.eclipse.jdt.core.dom.CastExpression jdtNode) {
-    super(jdtNode);
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-  }
-
   public CastExpression(CastExpression other) {
     super(other);
     type.copyFrom(other.getType());
     expression.copyFrom(other.getExpression());
   }
 
-  public CastExpression(ITypeBinding typeBinding, Expression expression) {
-    type.set(Type.newType(typeBinding));
+  public CastExpression(TypeMirror typeMirror, Expression expression) {
+    type.set(Type.newType(typeMirror));
     this.expression.set(expression);
   }
+  
+  public CastExpression() {}
 
   @Override
   public Kind getKind() {
@@ -47,25 +43,27 @@ public class CastExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
+  public TypeMirror getTypeMirror() {
     Type typeNode = type.get();
-    return typeNode != null ? typeNode.getTypeBinding() : null;
+    return typeNode != null ? typeNode.getTypeMirror() : null;
   }
 
   public Type getType() {
     return type.get();
   }
 
-  public void setType(Type newType) {
+  public CastExpression setType(Type newType) {
     type.set(newType);
+    return this;
   }
 
   public Expression getExpression() {
     return expression.get();
   }
 
-  public void setExpression(Expression newExpression) {
+  public CastExpression setExpression(Expression newExpression) {
     expression.set(newExpression);
+    return this;
   }
 
   @Override

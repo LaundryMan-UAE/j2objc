@@ -21,26 +21,37 @@
 
 #import "J2ObjC_source.h"
 
-#define JavaLangNumber_serialVersionUID -8742448824652078965LL
+#define NSNumber_serialVersionUID -8742448824652078965LL
 
 @implementation NSNumber (JavaNumber)
 
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "init", "Number", NULL, 0x1, NULL, NULL },
-    { "charValue", "byteValue", "B", 0x1, NULL, NULL },
-    { "doubleValue", NULL, "D", 0x401, NULL, NULL },
-    { "floatValue", NULL, "F", 0x401, NULL, NULL },
-    { "intValue", NULL, "I", 0x401, NULL, NULL },
-    { "longLongValue", "longValue", "J", 0x401, NULL, NULL },
-    { "shortValue", NULL, "S", 0x1, NULL, NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, NULL, 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "B", 0x1, 0, -1, -1, -1, -1, -1 },
+    { NULL, "D", 0x401, -1, -1, -1, -1, -1, -1 },
+    { NULL, "F", 0x401, -1, -1, -1, -1, -1, -1 },
+    { NULL, "I", 0x401, -1, -1, -1, -1, -1, -1 },
+    { NULL, "J", 0x401, 1, -1, -1, -1, -1, -1 },
+    { NULL, "S", 0x1, -1, -1, -1, -1, -1, -1 },
   };
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(init);
+  methods[1].selector = @selector(charValue);
+  methods[2].selector = @selector(doubleValue);
+  methods[3].selector = @selector(floatValue);
+  methods[4].selector = @selector(intValue);
+  methods[5].selector = @selector(longLongValue);
+  methods[6].selector = @selector(shortValue);
+  #pragma clang diagnostic pop
   static const J2ObjcFieldInfo fields[] = {
-    { "serialVersionUID", "serialVersionUID", 0x1a, "J", NULL, NULL,
-      .constantValue.asLong = JavaLangNumber_serialVersionUID },
+    { "serialVersionUID", "J", .constantValue.asLong = NSNumber_serialVersionUID, 0x1a, -1, -1, -1,
+      -1 },
   };
+  static const void *ptrTable[] = { "byteValue", "longValue" };
   static const J2ObjcClassInfo _NSNumber = {
-    2, "Number", "java.lang", NULL, 0x401, 7, methods, 1, fields, 0, NULL, 0, NULL, NULL, NULL };
+    "Number", "java.lang", ptrTable, methods, fields, 7, 0x401, 7, 1, -1, -1, -1, -1, -1 };
   return &_NSNumber;
 }
 

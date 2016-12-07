@@ -22,6 +22,7 @@ import com.google.devtools.j2objc.gen.ObjectiveCHeaderGenerator;
 import com.google.devtools.j2objc.gen.ObjectiveCImplementationGenerator;
 import com.google.devtools.j2objc.gen.ObjectiveCSegmentedHeaderGenerator;
 import com.google.devtools.j2objc.translate.AbstractMethodRewriter;
+import com.google.devtools.j2objc.translate.AnnotationRewriter;
 import com.google.devtools.j2objc.translate.AnonymousClassConverter;
 import com.google.devtools.j2objc.translate.ArrayRewriter;
 import com.google.devtools.j2objc.translate.Autoboxer;
@@ -29,6 +30,8 @@ import com.google.devtools.j2objc.translate.CastResolver;
 import com.google.devtools.j2objc.translate.ComplexExpressionExtractor;
 import com.google.devtools.j2objc.translate.ConstantBranchPruner;
 import com.google.devtools.j2objc.translate.DeadCodeEliminator;
+import com.google.devtools.j2objc.translate.DefaultConstructorAdder;
+import com.google.devtools.j2objc.translate.DefaultMethodShimGenerator;
 import com.google.devtools.j2objc.translate.DestructorGenerator;
 import com.google.devtools.j2objc.translate.EnhancedForRewriter;
 import com.google.devtools.j2objc.translate.EnumRewriter;
@@ -38,24 +41,31 @@ import com.google.devtools.j2objc.translate.InitializationNormalizer;
 import com.google.devtools.j2objc.translate.InnerClassExtractor;
 import com.google.devtools.j2objc.translate.JavaCloneWriter;
 import com.google.devtools.j2objc.translate.JavaToIOSMethodTranslator;
+import com.google.devtools.j2objc.translate.LabelRewriter;
+import com.google.devtools.j2objc.translate.LambdaRewriter;
+import com.google.devtools.j2objc.translate.LambdaTypeElementAdder;
+import com.google.devtools.j2objc.translate.MetadataWriter;
 import com.google.devtools.j2objc.translate.NilCheckResolver;
 import com.google.devtools.j2objc.translate.OcniExtractor;
 import com.google.devtools.j2objc.translate.OperatorRewriter;
 import com.google.devtools.j2objc.translate.OuterReferenceFixer;
 import com.google.devtools.j2objc.translate.OuterReferenceResolver;
+import com.google.devtools.j2objc.translate.PackageInfoRewriter;
 import com.google.devtools.j2objc.translate.PrivateDeclarationResolver;
 import com.google.devtools.j2objc.translate.Rewriter;
 import com.google.devtools.j2objc.translate.StaticVarRewriter;
 import com.google.devtools.j2objc.translate.SuperMethodInvocationRewriter;
+import com.google.devtools.j2objc.translate.SwitchRewriter;
 import com.google.devtools.j2objc.translate.UnsequencedExpressionRewriter;
 import com.google.devtools.j2objc.translate.VarargsRewriter;
 import com.google.devtools.j2objc.translate.VariableRenamer;
 import com.google.devtools.j2objc.types.HeaderImportCollector;
 import com.google.devtools.j2objc.types.ImplementationImportCollector;
 import com.google.devtools.j2objc.types.Import;
+import com.google.devtools.j2objc.util.CaptureInfo;
 import com.google.devtools.j2objc.util.DeadCodeMap;
 import com.google.devtools.j2objc.util.ErrorUtil;
-import com.google.devtools.j2objc.util.JdtParser;
+import com.google.devtools.j2objc.util.Parser;
 import com.google.devtools.j2objc.util.TimeTracker;
 
 import java.util.Set;
@@ -73,12 +83,14 @@ public class TranslationProcessor extends FileProcessor {
   private static final Logger logger = Logger.getLogger(TranslationProcessor.class.getName());
 
   private final DeadCodeMap deadCodeMap;
+  private final DeadCodeMap treeShakerMap;
 
   private int processedCount = 0;
 
-  public TranslationProcessor(JdtParser parser, DeadCodeMap deadCodeMap) {
+  public TranslationProcessor(Parser parser, DeadCodeMap deadCodeMap, DeadCodeMap treeShakerMap) {
     super(parser);
     this.deadCodeMap = deadCodeMap;
+    this.treeShakerMap = treeShakerMap;
   }
 
   @Override
@@ -87,8 +99,8 @@ public class TranslationProcessor extends FileProcessor {
     if (logger.isLoggable(Level.INFO)) {
       System.out.println("translating " + unitName);
     }
-    TimeTracker ticker = getTicker(unitName);
-    applyMutations(unit, deadCodeMap, ticker);
+    TimeTracker ticker = TimeTracker.getTicker(unitName);
+    applyMutations(unit, deadCodeMap, treeShakerMap, ticker);
     ticker.tick("Tree mutations");
     ticker.printResults(System.out);
     processedCount++;
@@ -114,139 +126,187 @@ public class TranslationProcessor extends FileProcessor {
    * also modified to add support for iOS memory management, extract inner
    * classes, etc.
    */
-  public static void applyMutations(
-      CompilationUnit unit, DeadCodeMap deadCodeMap, TimeTracker ticker) {
+  public static void applyMutations(CompilationUnit unit, DeadCodeMap deadCodeMap,
+      DeadCodeMap treeShakerMap, TimeTracker ticker) {
     ticker.push();
 
+    CaptureInfo captureInfo = new CaptureInfo();
+
+    // Before: OuterReferenceResolver - OuterReferenceResolver needs the bindings fixed.
+    new LambdaTypeElementAdder(unit).run();
+    ticker.tick("LambdaTypeElementAdder");
+
+    // Adds implicit default constructors, like javac does.
+    unit.accept(new DefaultConstructorAdder());
+    ticker.tick("DefaultConstructorAdder");
+
     if (deadCodeMap != null) {
-      new DeadCodeEliminator(unit, deadCodeMap).run(unit);
+      new DeadCodeEliminator(unit, deadCodeMap).run();
       ticker.tick("DeadCodeEliminator");
     }
 
-    OuterReferenceResolver outerResolver = new OuterReferenceResolver();
-    outerResolver.run(unit);
+    if (treeShakerMap != null) {
+//    TODO(user): Add algorithm step, report step, and elimination step to treeshaker
+      ticker.tick("TreeShaker");
+    }
+
+    new OuterReferenceResolver(unit, captureInfo).run();
     ticker.tick("OuterReferenceResolver");
 
     // Update code that has GWT references.
-    new GwtConverter().run(unit);
+    new GwtConverter(unit).run();
     ticker.tick("GwtConverter");
 
     // Before: Rewriter - Pruning unreachable statements must happen before
     //   rewriting labeled break statements.
     // Before: AnonymousClassConverter - Removes unreachable local classes.
-    new ConstantBranchPruner().run(unit);
+    new ConstantBranchPruner(unit).run();
     ticker.tick("ConstantBranchPruner");
 
     // Modify AST to be more compatible with Objective C
-    new Rewriter(outerResolver).run(unit);
+    new Rewriter(unit).run();
     ticker.tick("Rewriter");
 
     // Add abstract method stubs.
-    new AbstractMethodRewriter(unit).run(unit);
+    new AbstractMethodRewriter(unit, deadCodeMap).run();
     ticker.tick("AbstractMethodRewriter");
 
-    new VariableRenamer().run(unit);
+    new VariableRenamer(unit).run();
     ticker.tick("VariableRenamer");
 
     // Rewrite enhanced for loops into correct C code.
-    new EnhancedForRewriter().run(unit);
+    new EnhancedForRewriter(unit).run();
     ticker.tick("EnhancedForRewriter");
 
+    // Before: Autoboxer - Must generate implementations so autoboxing can be applied to result.
+    new LambdaRewriter(unit, captureInfo).run();
+    ticker.tick("LambdaRewriter");
+
     // Add auto-boxing conversions.
-    new Autoboxer().run(unit);
+    new Autoboxer(unit).run();
     ticker.tick("Autoboxer");
 
     // Extract inner and anonymous classes
-    new AnonymousClassConverter().run(unit);
+    new AnonymousClassConverter(unit).run();
     ticker.tick("AnonymousClassConverter");
 
-    new InnerClassExtractor(outerResolver, unit).run(unit);
+    new InnerClassExtractor(unit, captureInfo).run();
     ticker.tick("InnerClassExtractor");
 
+    // Generate method shims for classes implementing interfaces that have default methods
+    new DefaultMethodShimGenerator(unit).run();
+    ticker.tick("DefaultMethodShimGenerator");
+
     // Normalize init statements
-    new InitializationNormalizer(deadCodeMap).run(unit);
+    new InitializationNormalizer(unit).run();
     ticker.tick("InitializationNormalizer");
 
+    // Adds nil_chk calls wherever an expression is dereferenced.
+    // After: InnerClassExtractor - Cannot handle local classes.
+    // After: InitializationNormalizer
+    // Before: OuterReferenceFixer - Must resolve before outer references are substituted.
+    // Before: LabelRewriter - Control flow analysis requires original Java
+    //   labels.
+    new NilCheckResolver(unit).run();
+    ticker.tick("NilCheckResolver");
+
     // Fix references to outer scope and captured variables.
-    new OuterReferenceFixer(outerResolver).run(unit);
+    unit.accept(new OuterReferenceFixer(captureInfo));
     ticker.tick("OuterReferenceFixer");
 
     // Rewrites expressions that would cause unsequenced compile errors.
     if (Options.extractUnsequencedModifications()) {
-      new UnsequencedExpressionRewriter().run(unit);
+      new UnsequencedExpressionRewriter(unit).run();
       ticker.tick("UnsequencedExpressionRewriter");
     }
 
-    // Adds nil_chk calls wherever an expression is dereferenced.
-    new NilCheckResolver().run(unit);
-    ticker.tick("NilCheckResolver");
+    // Rewrites labeled break and continue statements.
+    unit.accept(new LabelRewriter());
+    ticker.tick("LabelRewriter");
 
     // Before: ArrayRewriter - Adds ArrayCreation nodes.
     // Before: Functionizer - Can't rewrite function arguments.
-    new VarargsRewriter().run(unit);
+    new VarargsRewriter(unit).run();
     ticker.tick("VarargsRewriter");
+
+    new JavaCloneWriter(unit).run();
+    ticker.tick("JavaCloneWriter");
+
+    new OcniExtractor(unit, deadCodeMap).run();
+    ticker.tick("OcniExtractor");
+
+    // Before: AnnotationRewriter - Needs AnnotationRewriter to add the
+    //   annotation metadata to the generated package-info type.
+    PackageInfoRewriter.run(unit);
+    ticker.tick("PackageInfoRewriter");
+
+    // Before: DestructorGenerator - Annotation types need a destructor to
+    //   release the added fields.
+    new AnnotationRewriter(unit).run();
+    ticker.tick("AnnotationRewriter");
+
+    // Before: Functionizer - Edits constructor invocations before they are
+    //   functionized.
+    new EnumRewriter(unit).run();
+    ticker.tick("EnumRewriter");
 
     // Add dealloc/finalize method(s), if necessary.  This is done
     // after inner class extraction, so that each class releases
     // only its own instance variables.
-    new DestructorGenerator().run(unit);
+    new DestructorGenerator(unit).run();
     ticker.tick("DestructorGenerator");
 
-    new JavaCloneWriter().run(unit);
-    ticker.tick("JavaCloneWriter");
-
-    new OcniExtractor(unit).run(unit);
-    ticker.tick("OcniExtractor");
-
-    // Before: Functionizer - Edits constructor invocations before they are
-    //   functionized.
-    new EnumRewriter().run(unit);
-    ticker.tick("EnumRewriter");
+    // Before: StaticVarRewriter - Generates static variable access expressions.
+    new MetadataWriter(unit).run();
+    ticker.tick("MetadataWriter");
 
     // Before: Functionizer - Needs to rewrite some ClassInstanceCreation nodes
     //   before Functionizer does.
     // Before: StaticVarRewriter, OperatorRewriter - Doesn't know how to handle
     //   the hasRetainedResult flag on ClassInstanceCreation nodes.
-    new JavaToIOSMethodTranslator().run(unit);
+    new JavaToIOSMethodTranslator(unit).run();
     ticker.tick("JavaToIOSMethodTranslator");
 
     // After: OcniExtractor - So that native methods can be correctly
     //   functionized.
-    new Functionizer().run(unit);
+    new Functionizer(unit).run();
     ticker.tick("Functionizer");
 
     // After: OuterReferenceFixer, Functionizer - Those passes edit the
     //   qualifier on SuperMethodInvocation nodes.
-    new SuperMethodInvocationRewriter().run(unit);
+    new SuperMethodInvocationRewriter(unit).run();
     ticker.tick("SuperMethodInvocationRewriter");
 
-    new OperatorRewriter().run(unit);
+    new OperatorRewriter(unit).run();
     ticker.tick("OperatorRewriter");
 
     // After: OperatorRewriter - Static load rewriting needs to happen after
     //   operator rewriting.
-    new StaticVarRewriter().run(unit);
+    new StaticVarRewriter(unit).run();
     ticker.tick("StaticVarRewriter");
 
     // After: StaticVarRewriter, OperatorRewriter - They set the
     //   hasRetainedResult on ArrayCreation nodes.
-    new ArrayRewriter().run(unit);
+    new ArrayRewriter(unit).run();
     ticker.tick("ArrayRewriter");
+
+    new SwitchRewriter(unit).run();
+    ticker.tick("SwitchRewriter");
 
     // Breaks up deeply nested expressions such as chained method calls.
     // Should be one of the last translations because other mutations will
     // affect how deep the expressions are.
-    new ComplexExpressionExtractor().run(unit);
+    unit.accept(new ComplexExpressionExtractor());
     ticker.tick("ComplexExpressionExtractor");
 
     // Should be one of the last translations because methods and functions
     // added in other phases may need added casts.
-    new CastResolver().run(unit);
+    new CastResolver(unit).run();
     ticker.tick("CastResolver");
 
     // After: InnerClassExtractor, Functionizer - Expects all types to be
     //   top-level and functionizing to have occured.
-    new PrivateDeclarationResolver().run(unit);
+    new PrivateDeclarationResolver(unit).run();
     ticker.tick("PrivateDeclarationResolver");
 
     // Make sure we still have a valid AST.
@@ -259,7 +319,7 @@ public class TranslationProcessor extends FileProcessor {
   public static void generateObjectiveCSource(GenerationUnit unit) {
     assert unit.getOutputPath() != null;
     assert unit.isFullyParsed();
-    TimeTracker ticker = getTicker(unit.getOutputPath());
+    TimeTracker ticker = TimeTracker.getTicker(unit.getSourceName());
     logger.fine("Generating " + unit.getOutputPath());
     logger.finest("writing output file(s) to " + Options.getOutputDirectory().getAbsolutePath());
     ticker.push();
@@ -282,6 +342,7 @@ public class TranslationProcessor extends FileProcessor {
     ticker.printResults(System.out);
   }
 
+  @Override
   protected void handleError(ProcessingContext input) {
     // Causes the generation unit to release any trees it was holding.
     input.getGenerationUnit().failed();
@@ -303,10 +364,10 @@ public class TranslationProcessor extends FileProcessor {
 
   private void checkDependencies(CompilationUnit unit) {
     HeaderImportCollector hdrCollector =
-        new HeaderImportCollector(HeaderImportCollector.Filter.INCLUDE_ALL);
-    hdrCollector.collect(unit);
-    ImplementationImportCollector implCollector = new ImplementationImportCollector();
-    implCollector.collect(unit);
+        new HeaderImportCollector(unit, HeaderImportCollector.Filter.INCLUDE_ALL);
+    hdrCollector.run();
+    ImplementationImportCollector implCollector = new ImplementationImportCollector(unit);
+    implCollector.run();
     Set<Import> imports = hdrCollector.getForwardDeclarations();
     imports.addAll(hdrCollector.getSuperTypes());
     imports.addAll(implCollector.getImports());
@@ -315,14 +376,6 @@ public class TranslationProcessor extends FileProcessor {
       if (qualifiedName != null) {
         closureQueue.addName(qualifiedName);
       }
-    }
-  }
-
-  private static TimeTracker getTicker(String name) {
-    if (logger.isLoggable(Level.FINEST)) {
-      return TimeTracker.start(name);
-    } else {
-      return TimeTracker.noop();
     }
   }
 }

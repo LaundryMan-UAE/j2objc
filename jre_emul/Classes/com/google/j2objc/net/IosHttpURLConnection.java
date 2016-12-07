@@ -17,6 +17,8 @@
 
 package com.google.j2objc.net;
 
+import com.google.j2objc.annotations.Weak;
+
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,11 +34,13 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /*-[
 #include "NSDataInputStream.h"
@@ -65,11 +69,39 @@ public class IosHttpURLConnection extends HttpURLConnection {
   // Cache response failure, so multiple requests to a bad response throw the same exception.
   private IOException responseException;
 
+  // Delegate to handle native security data, to avoid a direct dependency on jre_security.
+  @Weak
+  private final SecurityDataHandler securityDataHandler;
+
   private static final String HTTP_DATE_FORMAT = "EEE, dd MMM yyyy HH:mm:ss zzz";
   private static final Map<Integer,String> RESPONSE_CODES = new HashMap<Integer,String>();
 
+  // A case-insensitive comparator that supports a null key, so headers with
+  // keys that only differ by case can be coalesced using a TreeMap.
+  private static final Comparator<String> HEADER_KEY_COMPARATOR =
+      new Comparator<String>() {
+        @Override
+        public int compare(String lhs, String rhs) {
+          if (lhs == null || rhs == null) {
+            if (rhs != null) {
+              return -1;
+            }
+            if (lhs != null) {
+              return 1;
+            }
+            return 0;
+          }
+          return String.CASE_INSENSITIVE_ORDER.compare(lhs, rhs);
+        }
+      };
+
   public IosHttpURLConnection(URL url) {
+    this(url, null);
+  }
+
+  IosHttpURLConnection(URL url, SecurityDataHandler handler) {
     super(url);
+    securityDataHandler = handler;
   }
 
   @Override
@@ -115,7 +147,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
   }
 
   private Map<String, List<String>> getHeaderFieldsDoNotForceResponse() {
-    Map<String, List<String>> map = new HashMap<String, List<String>>();
+    Map<String, List<String>> map = new TreeMap<String, List<String>>(HEADER_KEY_COMPARATOR);
     for (HeaderEntry entry : headers) {
       String k = entry.getKey();
       String v = entry.getValue();
@@ -126,7 +158,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
       }
       values.add(v);
     }
-    return map;
+    return Collections.unmodifiableMap(map);
   }
 
   private List<HeaderEntry> getResponseHeaders() throws IOException {
@@ -169,7 +201,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
         }
         continue;
       }
-      if (key.equals(entry.getKey())) {
+      if (entry.getKey() != null && key.equalsIgnoreCase(entry.getKey())) {
         return entry.getValue();
       }
     }
@@ -380,7 +412,6 @@ public class IosHttpURLConnection extends HttpURLConnection {
       NSMutableURLRequest *request =
           [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self->url_ toExternalForm]]];
       request.HTTPShouldHandleCookies = false;
-      request.HTTPMethod = self->method_;
       request.cachePolicy = self->useCaches_ ?
           NSURLRequestUseProtocolCachePolicy : NSURLRequestReloadIgnoringLocalCacheData;
       int readTimeout = [self getReadTimeout];
@@ -408,6 +439,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
           request.HTTPBody = [(NSDataOutputStream *) self->nativeRequestData_ data];
         }
       }
+      request.HTTPMethod = self->method_;
 
       __block NSError *error;
       __block NSURLResponse *urlResponse;
@@ -533,18 +565,42 @@ public class IosHttpURLConnection extends HttpURLConnection {
     }
   }
 
-  /*-[- (void)URLSession:(NSURLSession *)session
-              task:(NSURLSessionTask *)task
-              willPerformHTTPRedirection:(NSHTTPURLResponse *)response
-              newRequest:(NSURLRequest *)request
-              completionHandler:(void (^)(NSURLRequest *))completionHandler {
+  /*-[
+  - (void)URLSession:(NSURLSession *)session
+                task:(NSURLSessionTask *)task
+willPerformHTTPRedirection:(NSHTTPURLResponse *)response
+          newRequest:(NSURLRequest *)request
+   completionHandler:(void (^)(NSURLRequest *))completionHandler {
     if (self->instanceFollowRedirects_
         && [response.URL.scheme isEqualToString:request.URL.scheme]) {
       completionHandler(request);
     } else {
       completionHandler(nil);
     }
-  }]-*/
+  }
+  ]-*/
+
+  /*-[
+  - (void)URLSession:(NSURLSession *)session
+ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+   completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition,
+       NSURLCredential *credential))completionHandler {
+    if (securityDataHandler_) {
+      SecTrustRef serverTrust = challenge.protectionSpace.serverTrust;
+      CFIndex count = SecTrustGetCertificateCount(serverTrust);
+
+      for (CFIndex i = 0; i < count; i++) {
+        SecCertificateRef certificate = SecTrustGetCertificateAtIndex(serverTrust, i);
+        NSData* remoteCertificateData = (__bridge NSData *) SecCertificateCopyData(certificate);
+        IOSByteArray* rawCert = [IOSByteArray arrayWithNSData:remoteCertificateData];
+        [securityDataHandler_ handleSecCertificateDataWithByteArray:rawCert];
+      }
+
+      completionHandler(NSURLSessionAuthChallengeUseCredential,
+          [NSURLCredential credentialForTrust:serverTrust]);
+    }
+  }
+  ]-*/
 
   private void addHeader(String k, String v) {
     headers.add(new HeaderEntry(k, v));
@@ -563,7 +619,7 @@ public class IosHttpURLConnection extends HttpURLConnection {
 
   private void setHeader(String k, String v) {
     for (HeaderEntry entry : headers) {
-      if (entry.key == k) {
+      if (entry.key == k || (entry.key != null && k != null && k.equalsIgnoreCase(entry.key))) {
         headers.remove(entry);
         break;
       }

@@ -15,7 +15,8 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.common.base.Preconditions;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import javax.lang.model.element.Element;
 import org.eclipse.jdt.core.dom.IBinding;
 
 /**
@@ -25,10 +26,7 @@ public class SimpleName extends Name {
 
   private String identifier;
 
-  public SimpleName(org.eclipse.jdt.core.dom.SimpleName jdtNode) {
-    super(jdtNode);
-    identifier = jdtNode.getIdentifier();
-  }
+  public SimpleName() {}
 
   public SimpleName(SimpleName other) {
     super(other);
@@ -36,12 +34,17 @@ public class SimpleName extends Name {
   }
 
   public SimpleName(IBinding binding) {
-    super(binding);
+    super(BindingConverter.getElement(binding));
     identifier = binding.getName();
   }
 
+  public SimpleName(Element element) {
+    super(element);
+    identifier = element.getSimpleName().toString();
+  }
+
   public SimpleName(String identifier) {
-    super((IBinding) null);
+    super((Element) null);
     this.identifier = identifier;
   }
 
@@ -54,10 +57,12 @@ public class SimpleName extends Name {
     return identifier;
   }
 
-  public void setIdentifier(String identifier) {
+  public SimpleName setIdentifier(String identifier) {
     this.identifier = identifier;
+    return this;
   }
 
+  @Override
   public String getFullyQualifiedName() {
     return identifier;
   }

@@ -16,50 +16,70 @@ package com.google.devtools.j2objc.translate;
 
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.Assignment;
+import com.google.devtools.j2objc.ast.Block;
 import com.google.devtools.j2objc.ast.ClassInstanceCreation;
 import com.google.devtools.j2objc.ast.CommaExpression;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.ConstructorInvocation;
 import com.google.devtools.j2objc.ast.EnumConstantDeclaration;
 import com.google.devtools.j2objc.ast.EnumDeclaration;
+import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.ExpressionStatement;
+import com.google.devtools.j2objc.ast.ForStatement;
 import com.google.devtools.j2objc.ast.FunctionInvocation;
+import com.google.devtools.j2objc.ast.InfixExpression;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.NativeDeclaration;
 import com.google.devtools.j2objc.ast.NativeExpression;
 import com.google.devtools.j2objc.ast.NativeStatement;
 import com.google.devtools.j2objc.ast.NumberLiteral;
+import com.google.devtools.j2objc.ast.PostfixExpression;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
 import com.google.devtools.j2objc.ast.Statement;
 import com.google.devtools.j2objc.ast.StringLiteral;
 import com.google.devtools.j2objc.ast.SuperConstructorInvocation;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
+import com.google.devtools.j2objc.ast.Type;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
+import com.google.devtools.j2objc.ast.VariableDeclarationExpression;
+import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.ast.VariableDeclarationStatement;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.FunctionBinding;
 import com.google.devtools.j2objc.types.GeneratedMethodBinding;
+import com.google.devtools.j2objc.types.GeneratedTypeBinding;
 import com.google.devtools.j2objc.types.GeneratedVariableBinding;
+import com.google.devtools.j2objc.types.GeneratedVariableElement;
 import com.google.devtools.j2objc.util.BindingUtil;
+import com.google.devtools.j2objc.util.ElementUtil;
 import com.google.devtools.j2objc.util.NameTable;
 import com.google.devtools.j2objc.util.UnicodeUtils;
-
+import com.google.j2objc.annotations.ObjectiveCName;
+import java.util.ArrayList;
+import java.util.List;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeMirror;
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Modifies enum types for Objective C.
  *
  * @author Keith Stanger
  */
-public class EnumRewriter extends TreeVisitor {
+public class EnumRewriter extends UnitTreeVisitor {
 
   private GeneratedVariableBinding nameVar = null;
   private GeneratedVariableBinding ordinalVar = null;
+
+  public EnumRewriter(CompilationUnit unit) {
+    super(unit);
+  }
 
   private GeneratedMethodBinding addEnumConstructorParams(IMethodBinding method) {
     GeneratedMethodBinding newMethod = new GeneratedMethodBinding(method);
@@ -71,6 +91,8 @@ public class EnumRewriter extends TreeVisitor {
   @Override
   public void endVisit(EnumDeclaration node) {
     addEnumInitialization(node);
+    addValuesMethod(node);
+    addValueOfMethod(node);
     addExtraNativeDecls(node);
   }
 
@@ -81,9 +103,81 @@ public class EnumRewriter extends TreeVisitor {
     if (Options.useARC()) {
       addArcInitialization(node);
     } else {
-      addNonArcInitialization(node);
+      if (isSimpleEnum(node)) {
+        addSimpleNonArcInitialization(node);
+      } else {
+        addNonArcInitialization(node);
+      }
     }
   }
+
+  /**
+   * Returns true if an enum doesn't have custom or renamed constructors,
+   * vararg constructors or constants with anonymous class extensions.
+   */
+  private boolean isSimpleEnum(EnumDeclaration node) {
+    TypeElement type = node.getTypeElement();
+    for (EnumConstantDeclaration constant : node.getEnumConstants()) {
+      ExecutableElement method = constant.getExecutableElement();
+      if (method.getParameters().size() > 0 || method.isVarArgs()) {
+        return false;
+      }
+      if (ElementUtil.hasAnnotation(method, ObjectiveCName.class)) {
+        return false;
+      }
+      TypeElement valueType = ElementUtil.getDeclaringClass(method);
+      if (valueType != type) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private void addSimpleNonArcInitialization(EnumDeclaration node) {
+    List<EnumConstantDeclaration> constants = node.getEnumConstants();
+    List<Statement> stmts = node.getClassInitStatements().subList(0, 0);
+    stmts.add(new NativeStatement("size_t objSize = class_getInstanceSize(self);"));
+    stmts.add(new NativeStatement(UnicodeUtils.format(
+        "size_t allocSize = %s * objSize;", constants.size())));
+    stmts.add(new NativeStatement("uintptr_t ptr = (uintptr_t)calloc(allocSize, 1);"));
+    GeneratedVariableBinding localEnum =
+        new GeneratedVariableBinding("e", 0, typeEnv.getIdType(), false, false, null, null);
+    stmts.add(new VariableDeclarationStatement(localEnum, null));
+
+    StringBuffer sb = new StringBuffer("id names[] = {\n  ");
+    for (EnumConstantDeclaration constant : node.getEnumConstants()) {
+      sb.append("@\"" + constant.getName() + "\", ");
+    }
+    sb.append("\n};");
+    stmts.add(new NativeStatement(sb.toString()));
+
+    TypeMirror intType = typeEnv.resolveJavaTypeMirror("int");
+    GeneratedVariableElement loopCounterElement =
+        new GeneratedVariableElement("i", intType,
+            ElementKind.LOCAL_VARIABLE, TreeUtil.getEnclosingElement(node));
+    VariableDeclarationExpression loopCounter =
+        new VariableDeclarationExpression().setType(Type.newType(loopCounterElement.asType()))
+            .addFragment(new VariableDeclarationFragment(
+                loopCounterElement, TreeUtil.newLiteral(0, typeEnv)));
+    Expression loopTest = new InfixExpression()
+        .setOperator(InfixExpression.Operator.LESS)
+        .setTypeMirror(intType)
+        .addOperand(new SimpleName(loopCounterElement))
+        .addOperand(TreeUtil.newLiteral(constants.size(), typeEnv));
+    Expression loopUpdater =
+        new PostfixExpression(loopCounterElement, PostfixExpression.Operator.INCREMENT);
+    Block loopBody = new Block();
+    stmts.add(new ForStatement()
+        .addInitializer(loopCounter)
+        .setExpression(loopTest)
+        .addUpdater(loopUpdater)
+        .setBody(loopBody));
+    String enumClassName = nameTable.getFullName(node.getTypeBinding());
+    loopBody.addStatement(new NativeStatement("(" + enumClassName
+        + "_values_[i] = e = objc_constructInstance(self, (void *)ptr), ptr += objSize);"));
+    loopBody.addStatement(new NativeStatement(enumClassName
+        + "_initWithNSString_withInt_(e, names[i], i);"));
+   }
 
   private void addNonArcInitialization(EnumDeclaration node) {
     ITypeBinding type = node.getTypeBinding();
@@ -120,13 +214,13 @@ public class EnumRewriter extends TreeVisitor {
           new NativeExpression("ptr += " + sizeName, voidType))));
       String initName = nameTable.getFullFunctionName(methodBinding);
       FunctionBinding initBinding = new FunctionBinding(initName, voidType, valueType);
-      initBinding.addParameter(valueType);
+      initBinding.addParameters(valueType);
       initBinding.addParameters(methodBinding.getParameterTypes());
       FunctionInvocation initFunc = new FunctionInvocation(initBinding, type);
-      initFunc.getArguments().add(new SimpleName(localEnum));
+      initFunc.addArgument(new SimpleName(localEnum));
       TreeUtil.copyList(constant.getArguments(), initFunc.getArguments());
-      initFunc.getArguments().add(new StringLiteral(varBinding.getName(), typeEnv));
-      initFunc.getArguments().add(new NumberLiteral(i++, typeEnv));
+      initFunc.addArgument(new StringLiteral(varBinding.getName(), typeEnv));
+      initFunc.addArgument(new NumberLiteral(i++, typeEnv));
       initStatements.add(new ExpressionStatement(initFunc));
     }
 
@@ -155,8 +249,8 @@ public class EnumRewriter extends TreeVisitor {
           addEnumConstructorParams(constant.getMethodBinding().getMethodDeclaration());
       ClassInstanceCreation creation = new ClassInstanceCreation(binding);
       TreeUtil.copyList(constant.getArguments(), creation.getArguments());
-      creation.getArguments().add(new StringLiteral(varBinding.getName(), typeEnv));
-      creation.getArguments().add(new NumberLiteral(i++, typeEnv));
+      creation.addArgument(new StringLiteral(varBinding.getName(), typeEnv));
+      creation.addArgument(new NumberLiteral(i++, typeEnv));
       creation.setHasRetainedResult(true);
       stmts.add(new ExpressionStatement(new Assignment(new SimpleName(varBinding), creation)));
     }
@@ -171,20 +265,17 @@ public class EnumRewriter extends TreeVisitor {
       return false;
     }
     GeneratedMethodBinding newBinding = addEnumConstructorParams(node.getMethodBinding());
-    node.setMethodBinding(newBinding);
-    // Enum constructors can't be called other than to create the enum values,
-    // so mark as synthetic to avoid writing the declaration.
-    node.addModifiers(BindingUtil.ACC_SYNTHETIC);
+    node.setExecutableElement(BindingConverter.getExecutableElement(newBinding));
     node.removeModifiers(Modifier.PUBLIC | Modifier.PROTECTED);
     node.addModifiers(Modifier.PRIVATE);
     newBinding.setModifiers((newBinding.getModifiers() & ~(Modifier.PUBLIC | Modifier.PROTECTED))
-        | Modifier.PRIVATE | BindingUtil.ACC_SYNTHETIC);
+        | Modifier.PRIVATE);
     nameVar = new GeneratedVariableBinding(
         "__name", 0, typeEnv.resolveIOSType("NSString"), false, true, declaringClass, newBinding);
     ordinalVar = new GeneratedVariableBinding(
         "__ordinal", 0, typeEnv.resolveJavaType("int"), false, true, declaringClass, newBinding);
-    node.getParameters().add(new SingleVariableDeclaration(nameVar));
-    node.getParameters().add(new SingleVariableDeclaration(ordinalVar));
+    node.addParameter(new SingleVariableDeclaration(nameVar));
+    node.addParameter(new SingleVariableDeclaration(ordinalVar));
     return true;
   }
 
@@ -197,16 +288,62 @@ public class EnumRewriter extends TreeVisitor {
   public void endVisit(ConstructorInvocation node) {
     assert nameVar != null && ordinalVar != null;
     node.setMethodBinding(addEnumConstructorParams(node.getMethodBinding()));
-    node.getArguments().add(new SimpleName(nameVar));
-    node.getArguments().add(new SimpleName(ordinalVar));
+    node.addArgument(new SimpleName(nameVar));
+    node.addArgument(new SimpleName(ordinalVar));
   }
 
   @Override
   public void endVisit(SuperConstructorInvocation node) {
     assert nameVar != null && ordinalVar != null;
     node.setMethodBinding(addEnumConstructorParams(node.getMethodBinding()));
-    node.getArguments().add(new SimpleName(nameVar));
-    node.getArguments().add(new SimpleName(ordinalVar));
+    node.addArgument(new SimpleName(nameVar));
+    node.addArgument(new SimpleName(ordinalVar));
+  }
+
+  private void addValuesMethod(EnumDeclaration node) {
+    ITypeBinding type = node.getTypeBinding();
+    IMethodBinding method = BindingUtil.findDeclaredMethod(type, "values");
+    assert method != null : "Can't find values method on enum type.";
+    String typeName = nameTable.getFullName(type);
+    MethodDeclaration methodDecl = new MethodDeclaration(method);
+    Block body = new Block();
+    methodDecl.setBody(body);
+    body.addStatement(new NativeStatement(UnicodeUtils.format(
+        "  return [IOSObjectArray arrayWithObjects:%s_values_ count:%s type:%s_class_()];",
+        typeName, node.getEnumConstants().size(), typeName)));
+    node.addBodyDeclaration(methodDecl);
+  }
+
+  private void addValueOfMethod(EnumDeclaration node) {
+    ITypeBinding type = node.getTypeBinding();
+    IMethodBinding method = BindingUtil.findDeclaredMethod(type, "valueOf", "java.lang.String");
+    assert method != null : "Can't find valueOf method on enum type.";
+    String typeName = nameTable.getFullName(type);
+    int numConstants = node.getEnumConstants().size();
+
+    GeneratedVariableBinding nameParam = new GeneratedVariableBinding(
+        "name", 0, method.getParameterTypes()[0], false, true, null, method);
+    MethodDeclaration methodDecl = new MethodDeclaration(method);
+    methodDecl.addParameter(new SingleVariableDeclaration(nameParam));
+    Block body = new Block();
+    methodDecl.setBody(body);
+
+    StringBuilder impl = new StringBuilder();
+    if (numConstants > 0) {
+      impl.append(UnicodeUtils.format(
+          "  for (int i = 0; i < %s; i++) {\n"
+          + "    %s *e = %s_values_[i];\n"
+          + "    if ([name isEqual:[e name]]) {\n"
+          + "      return e;\n"
+          + "    }\n"
+          + "  }\n", numConstants, typeName, typeName));
+    }
+    impl.append(
+        "  @throw create_JavaLangIllegalArgumentException_initWithNSString_(name);\n"
+        + "  return nil;");
+
+    body.addStatement(new NativeStatement(impl.toString()));
+    node.addBodyDeclaration(methodDecl);
   }
 
   private void addExtraNativeDecls(EnumDeclaration node) {
@@ -215,10 +352,9 @@ public class EnumRewriter extends TreeVisitor {
     boolean swiftFriendly = Options.swiftFriendly();
 
     StringBuilder header = new StringBuilder();
-    header.append(UnicodeUtils.format(
-        "+ (IOSObjectArray *)values;\n\n"
-        + "+ (%s *)valueOfWithNSString:(NSString *)name;\n\n"
-        + "- (id)copyWithZone:(NSZone *)zone;\n", typeName));
+    StringBuilder implementation = new StringBuilder();
+
+    header.append("- (id)copyWithZone:(NSZone *)zone;\n");
 
     // Append enum type suffix.
     String nativeName = NameTable.getNativeEnumName(typeName);
@@ -227,17 +363,6 @@ public class EnumRewriter extends TreeVisitor {
     if (swiftFriendly && numConstants > 0) {
       header.append(UnicodeUtils.format("- (%s)toNSEnum;\n", nativeName));
     }
-
-    StringBuilder implementation = new StringBuilder();
-    implementation.append(UnicodeUtils.format(
-        "+ (IOSObjectArray *)values {\n"
-        + "  return %s_values();\n"
-        + "}\n\n", typeName));
-
-    implementation.append(UnicodeUtils.format(
-        "+ (%s *)valueOfWithNSString:(NSString *)name {\n"
-        + "  return %s_valueOfWithNSString_(name);\n"
-        + "}\n\n", typeName, typeName));
 
     if (swiftFriendly && numConstants > 0) {
       implementation.append(UnicodeUtils.format(
@@ -251,44 +376,15 @@ public class EnumRewriter extends TreeVisitor {
     // values are never deallocated.
     implementation.append("- (id)copyWithZone:(NSZone *)zone {\n  return self;\n}\n");
 
-    node.getBodyDeclarations().add(NativeDeclaration.newInnerDeclaration(
+    node.addBodyDeclaration(NativeDeclaration.newInnerDeclaration(
         header.toString(), implementation.toString()));
 
     StringBuilder outerHeader = new StringBuilder();
     StringBuilder outerImpl = new StringBuilder();
+
     outerHeader.append(UnicodeUtils.format(
-        "FOUNDATION_EXPORT IOSObjectArray *%s_values();\n\n"
-        + "FOUNDATION_EXPORT %s *%s_valueOfWithNSString_(NSString *name);\n\n"
-        + "FOUNDATION_EXPORT %s *%s_fromOrdinal(NSUInteger ordinal);\n",
-        typeName, typeName, typeName, typeName, typeName));
-
-    outerImpl.append(UnicodeUtils.format(
-        "IOSObjectArray *%s_values() {\n"
-        + "  %s_initialize();\n"
-        + "  return [IOSObjectArray arrayWithObjects:%s_values_ count:%s type:%s_class_()];\n"
-        + "}\n\n", typeName, typeName, typeName, numConstants, typeName));
-
-    outerImpl.append(UnicodeUtils.format(
-        "%s *%s_valueOfWithNSString_(NSString *name) {\n"
-        + "  %s_initialize();\n", typeName, typeName, typeName));
-    if (numConstants > 0) {
-      outerImpl.append(UnicodeUtils.format(
-          "  for (int i = 0; i < %s; i++) {\n"
-          + "    %s *e = %s_values_[i];\n"
-          + "    if ([name isEqual:[e name]]) {\n"
-          + "      return e;\n"
-          + "    }\n"
-          + "  }\n", numConstants, typeName, typeName));
-    }
-    if (Options.useReferenceCounting()) {
-      outerImpl.append(
-          "  @throw [[[JavaLangIllegalArgumentException alloc] initWithNSString:name]"
-          + " autorelease];\n");
-    } else {
-      outerImpl.append(
-          "  @throw [[JavaLangIllegalArgumentException alloc] initWithNSString:name];\n");
-    }
-    outerImpl.append("  return nil;\n}\n\n");
+        "FOUNDATION_EXPORT %s *%s_fromOrdinal(NSUInteger ordinal);\n",
+        typeName, typeName));
 
     outerImpl.append(UnicodeUtils.format(
         "%s *%s_fromOrdinal(NSUInteger ordinal) {\n", typeName, typeName));
@@ -307,7 +403,12 @@ public class EnumRewriter extends TreeVisitor {
           typeName, numConstants, typeName));
     }
 
-    node.getBodyDeclarations().add(NativeDeclaration.newOuterDeclaration(
-        outerHeader.toString(), outerImpl.toString()));
+    NativeDeclaration outerDecl =
+        NativeDeclaration.newOuterDeclaration(outerHeader.toString(), outerImpl.toString());
+    outerDecl.addImplementationImportType(
+        GeneratedTypeBinding.newTypeBinding(
+            "java.lang.IllegalArgumentException",
+            typeEnv.resolveJavaType("java.lang.RuntimeException"), false));
+    node.addBodyDeclaration(outerDecl);
   }
 }

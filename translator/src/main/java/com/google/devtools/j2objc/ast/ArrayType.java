@@ -14,8 +14,6 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
 /**
  * Array type node. Array types are expressed recursively, one dimension at a
  * time.
@@ -25,23 +23,16 @@ public class ArrayType extends Type {
   // TODO(kirbs): Add dimensions into pipeline processing for annotations support on dimensions.
   private ChildLink<Type> componentType = ChildLink.create(Type.class, this);
 
-  public ArrayType(org.eclipse.jdt.core.dom.ArrayType jdtNode) {
-    super(jdtNode);
-    // This could also be implemented as an element type and dimensions for JLS8, but we mainly deal
-    // with ArrayTypes through the ArrayType(ITypeBinding) initializer, in the ArrayRewriter, for
-    // which we use ITypeBinding's componentType anyway.
-    componentType.set((Type) Type.newType(jdtNode.resolveBinding().getComponentType()));
-  }
+  public ArrayType() {}
 
   public ArrayType(ArrayType other) {
     super(other);
     componentType.copyFrom(other.getComponentType());
   }
 
-  public ArrayType(ITypeBinding typeBinding) {
-    super(typeBinding);
-    assert typeBinding.isArray();
-    componentType.set(Type.newType(typeBinding.getComponentType()));
+  public ArrayType(javax.lang.model.type.ArrayType typeMirror) {
+    super(typeMirror);
+    componentType.set(Type.newType(typeMirror.getComponentType()));
   }
 
   @Override
@@ -53,8 +44,9 @@ public class ArrayType extends Type {
     return componentType.get();
   }
 
-  public void setComponentType(Type newComponentType) {
+  public ArrayType setComponentType(Type newComponentType) {
     componentType.set(newComponentType);
+    return this;
   }
 
   @Override

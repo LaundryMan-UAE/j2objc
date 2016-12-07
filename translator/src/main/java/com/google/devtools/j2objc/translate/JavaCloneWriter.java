@@ -17,6 +17,7 @@ package com.google.devtools.j2objc.translate;
 import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.Block;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.ExpressionStatement;
 import com.google.devtools.j2objc.ast.FieldAccess;
 import com.google.devtools.j2objc.ast.FunctionInvocation;
@@ -28,9 +29,10 @@ import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
 import com.google.devtools.j2objc.ast.Statement;
 import com.google.devtools.j2objc.ast.SuperMethodInvocation;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.TypeDeclaration;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.FunctionBinding;
 import com.google.devtools.j2objc.types.GeneratedVariableBinding;
 import com.google.devtools.j2objc.types.IOSMethodBinding;
@@ -41,6 +43,7 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Writes the __javaClone method in order to support correct Java clone()
@@ -48,9 +51,13 @@ import java.util.List;
  *
  * @author Keith Stanger
  */
-public class JavaCloneWriter extends TreeVisitor {
+public class JavaCloneWriter extends UnitTreeVisitor {
 
   private static final String JAVA_CLONE_METHOD = "__javaClone:";
+
+  public JavaCloneWriter(CompilationUnit unit) {
+    super(unit);
+  }
 
   @Override
   public void endVisit(TypeDeclaration node) {
@@ -69,8 +76,9 @@ public class JavaCloneWriter extends TreeVisitor {
     methodBinding.addParameter(type);
 
     MethodDeclaration declaration = new MethodDeclaration(methodBinding);
-    node.getBodyDeclarations().add(declaration);
-    declaration.getParameters().add(new SingleVariableDeclaration(originalVar));
+    declaration.setHasDeclaration(false);
+    node.addBodyDeclaration(declaration);
+    declaration.addParameter(new SingleVariableDeclaration(originalVar));
 
     Block body = new Block();
     declaration.setBody(body);
@@ -80,7 +88,7 @@ public class JavaCloneWriter extends TreeVisitor {
     IOSMethodBinding cloneMethod = IOSMethodBinding.newMethod(
         JAVA_CLONE_METHOD, Modifier.PUBLIC, voidType, nsObjectType);
     SuperMethodInvocation superCall = new SuperMethodInvocation(cloneMethod);
-    superCall.getArguments().add(new SimpleName(originalVar));
+    superCall.addArgument(new SimpleName(originalVar));
     statements.add(new ExpressionStatement(superCall));
 
     statements.addAll(adjustments);
@@ -108,9 +116,9 @@ public class JavaCloneWriter extends TreeVisitor {
     if (Options.useARC()) {
       ITypeBinding voidType = typeEnv.resolveJavaType("void");
       FunctionBinding binding = new FunctionBinding("JreRelease", voidType, null);
-      binding.addParameter(typeEnv.resolveIOSType("id"));
+      binding.addParameters(typeEnv.getIdTypeMirror());
       FunctionInvocation invocation = new FunctionInvocation(binding, voidType);
-      invocation.getArguments().add(new SimpleName(var));
+      invocation.addArgument(new SimpleName(var));
       return new ExpressionStatement(invocation);
     } else {
       return new ExpressionStatement(
@@ -120,17 +128,17 @@ public class JavaCloneWriter extends TreeVisitor {
 
   private Statement createVolatileCloneStatement(
       IVariableBinding var, IVariableBinding originalVar, boolean isWeak) {
-    ITypeBinding voidType = typeEnv.resolveJavaType("void");
-    ITypeBinding pointerType = typeEnv.getPointerType(var.getType());
+    TypeMirror voidType = typeEnv.resolveJavaTypeMirror("void");
+    TypeMirror pointerType = typeEnv.getPointerType(BindingConverter.getType(var.getType()));
     String funcName = "JreCloneVolatile" + (isWeak ? "" : "Strong");
     FunctionBinding binding = new FunctionBinding(funcName, voidType, null);
     binding.addParameters(pointerType, pointerType);
     FunctionInvocation invocation = new FunctionInvocation(binding, voidType);
-    invocation.getArguments().add(new PrefixExpression(
+    invocation.addArgument(new PrefixExpression(
         pointerType, PrefixExpression.Operator.ADDRESS_OF, new SimpleName(var)));
-    invocation.getArguments().add(new PrefixExpression(
+    invocation.addArgument(new PrefixExpression(
         pointerType, PrefixExpression.Operator.ADDRESS_OF,
-        new FieldAccess(var, new SimpleName(originalVar))));
+        new FieldAccess(BindingConverter.getVariableElement(var), new SimpleName(originalVar))));
     return new ExpressionStatement(invocation);
   }
 }

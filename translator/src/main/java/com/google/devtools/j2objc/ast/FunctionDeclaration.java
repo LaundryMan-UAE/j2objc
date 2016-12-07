@@ -15,8 +15,9 @@
 package com.google.devtools.j2objc.ast;
 
 import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Node type for a function declaration.
@@ -29,7 +30,8 @@ public class FunctionDeclaration extends BodyDeclaration {
   private final ChildList<SingleVariableDeclaration> parameters =
       ChildList.create(SingleVariableDeclaration.class, this);
   private final ChildLink<Block> body = ChildLink.create(Block.class, this);
-  private final ITypeBinding declaringClass;
+  //TODO(user): declaringClass should more properly be an Element.
+  private final TypeMirror declaringClass;
   private String jniSignature = null;
 
   public FunctionDeclaration(FunctionDeclaration other) {
@@ -44,6 +46,12 @@ public class FunctionDeclaration extends BodyDeclaration {
   }
 
   public FunctionDeclaration(String name, ITypeBinding returnType, ITypeBinding declaringClass) {
+    this.name = name;
+    this.returnType.set(Type.newType(returnType));
+    this.declaringClass = BindingConverter.getType(declaringClass);
+  }
+
+  public FunctionDeclaration(String name, TypeMirror returnType, TypeMirror declaringClass) {
     this.name = name;
     this.returnType.set(Type.newType(returnType));
     this.declaringClass = declaringClass;
@@ -70,6 +78,10 @@ public class FunctionDeclaration extends BodyDeclaration {
     return returnType.get();
   }
 
+  public SingleVariableDeclaration getParameter(int index) {
+    return parameters.get(index);
+  }
+
   public List<SingleVariableDeclaration> getParameters() {
     return parameters;
   }
@@ -90,7 +102,7 @@ public class FunctionDeclaration extends BodyDeclaration {
     this.jniSignature = s;
   }
 
-  public ITypeBinding getDeclaringClass() {
+  public TypeMirror getDeclaringClass() {
     return declaringClass;
   }
 
@@ -109,5 +121,10 @@ public class FunctionDeclaration extends BodyDeclaration {
   @Override
   public FunctionDeclaration copy() {
     return new FunctionDeclaration(this);
+  }
+
+  public FunctionDeclaration addParameter(SingleVariableDeclaration param) {
+    parameters.add(param);
+    return this;
   }
 }

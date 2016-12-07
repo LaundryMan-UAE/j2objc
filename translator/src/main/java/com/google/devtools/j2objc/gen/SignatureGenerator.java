@@ -14,13 +14,16 @@
 
 package com.google.devtools.j2objc.gen;
 
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import com.google.devtools.j2objc.util.ParserEnvironment;
 import com.google.devtools.j2objc.util.UnicodeUtils;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.IPackageBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
+
+import javax.lang.model.element.PackageElement;
 
 /**
  * Generates signatures for classes, fields and methods, as defined by the JVM spec, 4.3.4,
@@ -97,7 +100,7 @@ public class SignatureGenerator {
     return builder.toString();
   }
 
-  public static String createJniFunctionSignature(IMethodBinding method) {
+  public static String createJniFunctionSignature(IMethodBinding method, ParserEnvironment env) {
     // Mangle function name as described in JNI specification.
     // http://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/design.html#wp615
     StringBuilder sb = new StringBuilder();
@@ -105,9 +108,10 @@ public class SignatureGenerator {
 
     String methodName = method.getName();
     ITypeBinding declaringClass = method.getDeclaringClass();
-    IPackageBinding pkg = declaringClass.getPackage();
+    PackageElement pkg =
+        env.elementUtilities().getPackageOf(BindingConverter.getElement(declaringClass));
     if (pkg != null && !pkg.isUnnamed()) {
-      String pkgName = pkg.getName();
+      String pkgName = pkg.getQualifiedName().toString();
       for (String part : pkgName.split("\\.")) {
         sb.append(part);
         sb.append('_');
@@ -189,6 +193,12 @@ public class SignatureGenerator {
       }
     }
 
+    for (ITypeBinding exception : method.getExceptionTypes()) {
+      if (exception.isTypeVariable() || exception.getTypeArguments().length > 0) {
+        return true;
+      }
+    }
+
     // Does it override a generic method?
     ITypeBinding superParent = method.getDeclaringClass().getSuperclass();
     if (superParent != null) {
@@ -216,6 +226,7 @@ public class SignatureGenerator {
     return false;
   }
 
+  @Override
   public String toString() {
     return sb.toString();
   }
@@ -301,10 +312,15 @@ public class SignatureGenerator {
    */
   private void genClassTypeSignature(ITypeBinding type) {
     if (type != null) {
-      sb.append('L');
-      sb.append(type.getBinaryName().replace('.', '/'));
-      genOptTypeArguments(type.getTypeArguments());
-      sb.append(';');
+      if (type.isArray()) {
+        sb.append('[');
+        genClassTypeSignature(type.getComponentType());
+      } else {
+        sb.append('L');
+        sb.append(type.getBinaryName().replace('.', '/'));
+        genOptTypeArguments(type.getTypeArguments());
+        sb.append(';');
+      }
     }
   }
 
@@ -357,7 +373,7 @@ public class SignatureGenerator {
     ITypeBinding[] exceptionTypes = method.getExceptionTypes();
     boolean hasGenericException = false;
     for (ITypeBinding exception : exceptionTypes) {
-      if (exception.isGenericType() || exception.isParameterizedType()) {
+      if (exception.isTypeVariable() || exception.getTypeArguments().length > 0) {
         hasGenericException = true;
         break;
       }

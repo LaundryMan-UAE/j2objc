@@ -14,10 +14,12 @@
 
 package com.google.devtools.cyclefinder;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.io.Resources;
+import com.google.devtools.j2objc.util.SourceVersion;
 import com.google.devtools.j2objc.util.Version;
 
 import java.io.BufferedReader;
@@ -57,6 +59,10 @@ class Options {
   private List<String> blacklistFiles = Lists.newArrayList();
   private List<String> sourceFiles = Lists.newArrayList();
   private String fileEncoding = System.getProperty("file.encoding", "UTF-8");
+
+  // The default source version number if not passed with -source is determined from the system
+  // properties of the running java version after parsing the argument list.
+  private SourceVersion sourceVersion = null;
 
   public List<String> getSourceFiles() {
     return sourceFiles;
@@ -115,6 +121,19 @@ class Options {
     return fileEncoding;
   }
 
+  public SourceVersion sourceVersion() {
+    if (sourceVersion == null) {
+      // Pull source version from system properties if it is not passed with -source flag.
+      sourceVersion = SourceVersion.parse(System.getProperty("java.version").substring(0, 3));
+    }
+    return sourceVersion;
+  }
+
+  @VisibleForTesting
+  void setSourceVersion(SourceVersion sv) {
+      sourceVersion = sv;
+  }
+
   public static void usage(String invalidUseMsg) {
     System.err.println("cycle_finder: " + invalidUseMsg);
     System.err.println(usageMessage);
@@ -170,6 +189,15 @@ class Options {
           usage("-encoding requires an argument");
         }
         options.fileEncoding = args[nArg];
+      }  else if (arg.equals("-source")) {
+        if (++nArg == args.length) {
+          usage("-source requires an argument");
+        }
+        try {
+          options.sourceVersion = SourceVersion.parse(args[nArg]);
+        } catch (IllegalArgumentException e) {
+          usage("invalid source release: " + args[nArg]);
+        }
       } else if (arg.equals("-version")) {
         version();
       } else if (arg.startsWith("-h") || arg.equals("--help")) {

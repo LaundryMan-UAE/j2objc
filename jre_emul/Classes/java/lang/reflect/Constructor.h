@@ -22,22 +22,19 @@
 #ifndef _JAVA_LANG_REFLECT_CONSTRUCTOR_H
 #define _JAVA_LANG_REFLECT_CONSTRUCTOR_H
 
-#import "ExecutableMember.h"
+#import "IOSMetadata.h"
 #import "J2ObjC_common.h"
+#import "java/lang/reflect/Executable.h"
 #import "java/lang/reflect/GenericDeclaration.h"
 #import "java/lang/reflect/Member.h"
-
-@class JavaMethodMetadata;
 
 // A native implementation of java.lang.reflect.Constructor.  Its methods are
 // limited to those that can be derived from an Objective-C Method instance,
 // so instances can be created and released as needed.
-@interface JavaLangReflectConstructor : ExecutableMember
+@interface JavaLangReflectConstructor : JavaLangReflectExecutable
 
-+ (instancetype)constructorWithMethodSignature:(NSMethodSignature *)methodSignature
-                                      selector:(SEL)selector
-                                         class:(IOSClass *)aClass
-                                      metadata:(JavaMethodMetadata *)metadata;
++ (instancetype)constructorWithDeclaringClass:(IOSClass *)aClass
+                                     metadata:(const J2ObjcMethodInfo *)metadata;
 
 // Create a new instance using this constructor.
 - (id)newInstanceWithNSObjectArray:(IOSObjectArray *)initArgs OBJC_METHOD_FAMILY_NONE;

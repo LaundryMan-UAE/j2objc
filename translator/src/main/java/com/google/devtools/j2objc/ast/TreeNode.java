@@ -22,15 +22,14 @@ import org.eclipse.jdt.core.dom.ASTNode;
 public abstract class TreeNode {
 
   private ChildLink<? extends TreeNode> owner = null;
-  private Key key;
   private int startPosition = -1;
   private int length = 0;
   private int lineNumber = -1;
 
   protected TreeNode() {
-    key = new Key();
   }
 
+  // TODO(tball): remove when all subclasses are converted.
   protected TreeNode(ASTNode jdtNode) {
     this();
     startPosition = jdtNode.getStartPosition();
@@ -42,21 +41,12 @@ public abstract class TreeNode {
   }
 
   protected TreeNode(TreeNode other) {
-    key = other.getKey();
     startPosition = other.getStartPosition();
     length = other.getLength();
     lineNumber = other.getLineNumber();
   }
 
   public abstract Kind getKind();
-
-  public Key getKey() {
-    return key;
-  }
-
-  public void setKey(Key newKey) {
-    key = newKey;
-  }
 
   public TreeNode getParent() {
     return owner == null ? null : owner.getParent();
@@ -135,6 +125,14 @@ public abstract class TreeNode {
 
   public void validateInner() {}
 
+  public TreeNode setPosition(SourcePosition position) {
+    this.startPosition = position.getStartPosition();
+    this.length = position.getLength();
+    this.lineNumber = position.getLineNumber();
+    return this;
+  }
+
+  @Override
   public String toString() {
     try {
       return DebugASTPrinter.toString(this);
@@ -142,14 +140,6 @@ public abstract class TreeNode {
       // Debugger may sometimes call toString methods on an instance that is partially initialized.
       return super.toString();
     }
-  }
-
-  /**
-   * Key type for associating nodes with additional data. Keys are normally
-   * unique to a node, except that copies keep the same key as the original.
-   */
-  public static class Key {
-    private Key() {}
   }
 
   /**

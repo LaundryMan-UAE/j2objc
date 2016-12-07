@@ -30,6 +30,8 @@ import junit.framework.TestCase;
  */
 public class ThrowableTest extends TestCase {
 
+  static final String NSEXCEPTION_MESSAGE = "native exception";
+
   public void testGetMessage() throws Exception {
     Throwable t = new Throwable("themessage");
     assertEquals("themessage", t.getMessage());
@@ -79,4 +81,67 @@ public class ThrowableTest extends TestCase {
     String trace = sw.toString();
     assertTrue(trace.contains("com.google.j2objc.ThrowableTest.testStackTraceWithPrintWriter("));
   }
+
+  public void testEquals() {
+    Throwable t1 = new Throwable();
+    Throwable t2 = new Throwable();
+    assertFalse(t1.equals(t2));
+  }
+
+  public void testHashCode() {
+    Throwable t1 = new Throwable();
+    Throwable t2 = new Throwable();
+    assertFalse(t1.hashCode() == t2.hashCode());
+  }
+
+  public void testNotWritableStackTrace() throws Exception {
+    Throwable t = new Throwable("test", null, true, false) {};
+    StackTraceElement[] stackTrace = t.getStackTrace();
+    assertNotNull(stackTrace);
+    assertEquals(0, stackTrace.length);
+
+    // Should be a no-op.
+    t.fillInStackTrace();
+    stackTrace = t.getStackTrace();
+    assertNotNull(stackTrace);
+    assertEquals(0, stackTrace.length);
+
+    // Also should be a no-op.
+    StackTraceElement[] newTrace = new Throwable().getStackTrace();
+    assertTrue(newTrace.length > 0);
+    t.setStackTrace(newTrace);
+    stackTrace = t.getStackTrace();
+    assertNotNull(stackTrace);
+    assertEquals(0, stackTrace.length);
+  }
+
+  public void testThrowableToStringFormat() {
+    assertEquals("java.lang.Throwable", new Throwable().toString());
+    assertEquals("java.lang.Throwable: oops", new Throwable("oops").toString());
+  }
+
+  public void testNSExceptionDescriptionUnchanged() {
+    assertEquals(NSEXCEPTION_MESSAGE, getNSExceptionDescription());
+  }
+
+  // Verify [NSException description] only returns the exception's reason, not
+  // with the class name like java.lang.Throwable.toString() does.
+  static native String getNSExceptionDescription() /*-[
+    NSException *e = AUTORELEASE(
+        [[NSException alloc] initWithName:@"MyException"
+                                   reason:ComGoogleJ2objcThrowableTest_NSEXCEPTION_MESSAGE
+                                 userInfo:nil]);
+    return [e description];
+  ]-*/;
+
+  /* TODO(kstanger): Make this test pass.
+  public void testOverwriteNullCause() throws Exception {
+    Throwable t = new Throwable((Throwable) null);
+    try {
+      t.initCause(new Throwable());
+      fail("Expected IllegalStateException");
+    } catch (IllegalStateException e) {
+      // Expected.
+    }
+  }*/
 }

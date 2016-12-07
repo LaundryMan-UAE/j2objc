@@ -18,7 +18,10 @@ package com.google.devtools.j2objc.translate;
 
 import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.Options;
+import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
+import com.google.devtools.j2objc.ast.AnnotationTypeDeclaration;
 import com.google.devtools.j2objc.ast.Block;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.ExpressionStatement;
 import com.google.devtools.j2objc.ast.FunctionInvocation;
@@ -28,10 +31,12 @@ import com.google.devtools.j2objc.ast.PrefixExpression;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.Statement;
 import com.google.devtools.j2objc.ast.SuperMethodInvocation;
+import com.google.devtools.j2objc.ast.ThisExpression;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.TypeDeclaration;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.FunctionBinding;
 import com.google.devtools.j2objc.types.GeneratedMethodBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
@@ -43,6 +48,7 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Adds release methods to Java classes, in preparation for translation
@@ -52,14 +58,25 @@ import java.util.List;
  *
  * @author Tom Ball
  */
-public class DestructorGenerator extends TreeVisitor {
+public class DestructorGenerator extends UnitTreeVisitor {
+
+  public DestructorGenerator(CompilationUnit unit) {
+    super(unit);
+  }
+
+  @Override
+  public void endVisit(AnnotationTypeDeclaration node) {
+    addDeallocMethod(node);
+  }
 
   @Override
   public void endVisit(TypeDeclaration node) {
-    if (node.isInterface()) {
-      return;
+    if (!node.isInterface()) {
+      addDeallocMethod(node);
     }
+  }
 
+  private void addDeallocMethod(AbstractTypeDeclaration node) {
     ITypeBinding type = node.getTypeBinding();
     boolean hasFinalize = hasFinalizeMethod(type);
     List<Statement> releaseStatements = createReleaseStatements(node);
@@ -72,6 +89,7 @@ public class DestructorGenerator extends TreeVisitor {
     GeneratedMethodBinding deallocBinding = GeneratedMethodBinding.newMethod(
         NameTable.DEALLOC_METHOD, modifiers, voidType, type);
     MethodDeclaration deallocDecl = new MethodDeclaration(deallocBinding);
+    deallocDecl.setHasDeclaration(false);
     Block block = new Block();
     deallocDecl.setBody(block);
     List<Statement> stmts = block.getStatements();
@@ -84,7 +102,7 @@ public class DestructorGenerator extends TreeVisitor {
       stmts.add(new ExpressionStatement(new SuperMethodInvocation(typeEnv.getDeallocMethod())));
     }
 
-    node.getBodyDeclarations().add(deallocDecl);
+    node.addBodyDeclaration(deallocDecl);
   }
 
   private boolean hasFinalizeMethod(ITypeBinding type) {
@@ -100,34 +118,51 @@ public class DestructorGenerator extends TreeVisitor {
     return hasFinalizeMethod(type.getSuperclass());
   }
 
-  private List<Statement> createReleaseStatements(TypeDeclaration node) {
+  private List<Statement> createReleaseStatements(AbstractTypeDeclaration node) {
     List<Statement> statements = Lists.newArrayList();
     for (VariableDeclarationFragment fragment : TreeUtil.getAllFields(node)) {
-      IVariableBinding var = fragment.getVariableBinding();
-      ITypeBinding type = var.getType();
-      if (BindingUtil.isStatic(var) || type.isPrimitive() || BindingUtil.isWeakReference(var)
-          || (Options.useARC() && !BindingUtil.isVolatile(var))) {
-        continue;
+      Statement releaseStmt = createRelease(fragment.getVariableBinding());
+      if (releaseStmt != null) {
+        statements.add(releaseStmt);
       }
-      statements.add(createRelease(var));
     }
     return statements;
   }
 
   private Statement createRelease(IVariableBinding var) {
-    ITypeBinding voidType = typeEnv.resolveJavaType("void");
-    ITypeBinding idType = typeEnv.resolveIOSType("id");
+    ITypeBinding varType = var.getType();
+    if (BindingUtil.isStatic(var) || varType.isPrimitive() || BindingUtil.isWeakReference(var)) {
+      return null;
+    }
     boolean isVolatile = BindingUtil.isVolatile(var);
-    FunctionBinding binding = new FunctionBinding(
-        isVolatile ? "JreReleaseVolatile" : "RELEASE_", voidType, null);
-    binding.addParameter(isVolatile ? typeEnv.getPointerType(idType) : idType);
+    boolean isRetainedWith = BindingUtil.isRetainedWithField(var);
+    String funcName = null;
+    if (isRetainedWith) {
+      funcName = isVolatile ? "JreVolatileRetainedWithRelease" : "JreRetainedWithRelease";
+    } else if (isVolatile) {
+      funcName = "JreReleaseVolatile";
+    } else if (Options.useReferenceCounting()) {
+      funcName = "RELEASE_";
+    }
+    if (funcName == null) {
+      return null;
+    }
+    ITypeBinding voidType = typeEnv.resolveJavaType("void");
+    TypeMirror idType = typeEnv.getIdTypeMirror();
+    FunctionBinding binding = new FunctionBinding(funcName, voidType, null);
     FunctionInvocation releaseInvocation = new FunctionInvocation(binding, voidType);
+    if (isRetainedWith) {
+      binding.addParameters(idType);
+      releaseInvocation.addArgument(new ThisExpression(var.getDeclaringClass()));
+    }
+    binding.addParameters(isVolatile ? typeEnv.getPointerType(idType) : idType);
     Expression arg = new SimpleName(var);
     if (isVolatile) {
       arg = new PrefixExpression(
-          typeEnv.getPointerType(var.getType()), PrefixExpression.Operator.ADDRESS_OF, arg);
+          typeEnv.getPointerType(BindingConverter.getType(varType)),
+          PrefixExpression.Operator.ADDRESS_OF, arg);
     }
-    releaseInvocation.getArguments().add(arg);
+    releaseInvocation.addArgument(arg);
     return new ExpressionStatement(releaseInvocation);
   }
 }

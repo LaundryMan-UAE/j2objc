@@ -22,9 +22,13 @@
 #include "java/lang/OutOfMemoryError.h"
 #include "java/lang/StringIndexOutOfBoundsException.h"
 #include "java/util/Arrays.h"
+#include "java/util/stream/IntStream.h"
 #include "libcore/util/EmptyArray.h"
 
-#define INITIAL_CAPACITY 16
+// Full name as expected by generated metadata.
+#define JavaLangAbstractStringBuilder_INITIAL_CAPACITY 16
+// Shorter alias for convenience.
+#define INITIAL_CAPACITY JavaLangAbstractStringBuilder_INITIAL_CAPACITY
 
 static void JreStringBuilder_move(JreStringBuilder *self, jint size, jint index);
 
@@ -647,66 +651,191 @@ jint JavaLangCharacter_offsetByCodePointsRaw(
       delegate_.buffer_, 0, delegate_.count_, index, codePointOffset);
 }
 
+- (JavaLangAbstractStringBuilder *)appendWithChar:(jchar)c{
+  JreStringBuilder_appendChar(&self->delegate_, c);
+  return self;
+}
+
+- (JavaLangAbstractStringBuilder *)appendWithCharArray:(IOSCharArray *)str
+                                               withInt:(jint)offset
+                                               withInt:(jint)len{
+  JreStringBuilder_appendCharArraySubset(&self->delegate_, str, offset, len);
+  return self;
+}
+
+- (JavaLangAbstractStringBuilder *)appendWithNSString:(NSString *)str {
+  JreStringBuilder_appendString(&self->delegate_, str);
+  return self;
+}
+
+// Default methods in java.lang.CharSequence.
+- (id<JavaUtilStreamIntStream>)chars {
+  return JavaLangCharSequence_chars(self);
+}
+
+- (id<JavaUtilStreamIntStream>)codePoints {
+  return JavaLangCharSequence_codePoints(self);
+}
+
+- (id<JavaLangAppendable>)appendWithJavaLangCharSequence:(id<JavaLangCharSequence>)cs {
+  // can't call an abstract method
+  [self doesNotRecognizeSelector:_cmd];
+  return 0;
+}
+
+- (id<JavaLangAppendable>)appendWithJavaLangCharSequence:(id<JavaLangCharSequence>)cs
+                                                 withInt:(jint)start
+                                                 withInt:(jint)end {
+  // can't call an abstract method
+  [self doesNotRecognizeSelector:_cmd];
+  return 0;
+}
+
 - (void)dealloc {
   free(delegate_.buffer_);
   [super dealloc];
 }
 
+// Suppress undeclared-selector warnings to avoid creating method bodies
+// for all the abstract methods which are implemented in subclasses.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wundeclared-selector"
+
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "getValue", NULL, "[C", 0x10, NULL, NULL },
-    { "shareValue", NULL, "[C", 0x10, NULL, NULL },
-    { "setWithCharArray:withInt:", "set", "V", 0x10, "Ljava.io.InvalidObjectException;", NULL },
-    { "init", "AbstractStringBuilder", NULL, 0x0, NULL, NULL },
-    { "initWithInt:", "AbstractStringBuilder", NULL, 0x0, NULL, NULL },
-    { "initWithNSString:", "AbstractStringBuilder", NULL, 0x0, NULL, NULL },
-    { "appendNull", NULL, "V", 0x10, NULL, NULL },
-    { "append0WithCharArray:", "append0", "V", 0x10, NULL, NULL },
-    { "append0WithCharArray:withInt:withInt:", "append0", "V", 0x10, NULL, NULL },
-    { "append0WithChar:", "append0", "V", 0x10, NULL, NULL },
-    { "append0WithNSString:", "append0", "V", 0x10, NULL, NULL },
-    { "append0WithJavaLangCharSequence:withInt:withInt:", "append0", "V", 0x10, NULL, NULL },
-    { "capacity", NULL, "I", 0x1, NULL, NULL },
-    { "charAtWithInt:", "charAt", "C", 0x1, NULL, NULL },
-    { "delete0WithInt:withInt:", "delete0", "V", 0x10, NULL, NULL },
-    { "deleteCharAt0WithInt:", "deleteCharAt0", "V", 0x10, NULL, NULL },
-    { "ensureCapacityWithInt:", "ensureCapacity", "V", 0x1, NULL, NULL },
-    { "getCharsWithInt:withInt:withCharArray:withInt:", "getChars", "V", 0x1, NULL, NULL },
-    { "insert0WithInt:withCharArray:", "insert0", "V", 0x10, NULL, NULL },
-    { "insert0WithInt:withCharArray:withInt:withInt:", "insert0", "V", 0x10, NULL, NULL },
-    { "insert0WithInt:withChar:", "insert0", "V", 0x10, NULL, NULL },
-    { "insert0WithInt:withNSString:", "insert0", "V", 0x10, NULL, NULL },
-    { "insert0WithInt:withJavaLangCharSequence:withInt:withInt:", "insert0", "V", 0x10, NULL,
-      NULL },
-    { "length", NULL, "I", 0x1, NULL, NULL },
-    { "replace0WithInt:withInt:withNSString:", "replace0", "V", 0x10, NULL, NULL },
-    { "reverse0", NULL, "V", 0x10, NULL, NULL },
-    { "setCharAtWithInt:withChar:", "setCharAt", "V", 0x1, NULL, NULL },
-    { "setLengthWithInt:", "setLength", "V", 0x1, NULL, NULL },
-    { "substringWithInt:", "substring", "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "substringWithInt:withInt:", "substring", "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "description", "toString", "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "toString0", NULL, "Ljava.lang.String;", 0x4, NULL, NULL },
-    { "subSequenceFrom:to:", "subSequence", "Ljava.lang.CharSequence;", 0x1, NULL, NULL },
-    { "indexOfWithNSString:", "indexOf", "I", 0x1, NULL, NULL },
-    { "indexOfWithNSString:withInt:", "indexOf", "I", 0x1, NULL, NULL },
-    { "lastIndexOfWithNSString:", "lastIndexOf", "I", 0x1, NULL, NULL },
-    { "lastIndexOfWithNSString:withInt:", "lastIndexOf", "I", 0x1, NULL, NULL },
-    { "trimToSize", NULL, "V", 0x1, NULL, NULL },
-    { "codePointAtWithInt:", "codePointAt", "I", 0x1, NULL, NULL },
-    { "codePointBeforeWithInt:", "codePointBefore", "I", 0x1, NULL, NULL },
-    { "codePointCountWithInt:withInt:", "codePointCount", "I", 0x1, NULL, NULL },
-    { "offsetByCodePointsWithInt:withInt:", "offsetByCodePoints", "I", 0x1, NULL, NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, NULL, 0x0, -1, -1, -1, -1, -1, -1 },
+    { NULL, NULL, 0x0, -1, 0, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "V", 0x1, 1, 0, -1, -1, -1, -1 },
+    { NULL, "V", 0x0, 2, 0, -1, -1, -1, -1 },
+    { NULL, "V", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "V", 0x1, 3, 0, -1, -1, -1, -1 },
+    { NULL, "C", 0x1, 4, 0, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 5, 0, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 6, 0, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 7, 8, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 9, 8, -1, -1, -1, -1 },
+    { NULL, "V", 0x1, 10, 11, -1, -1, -1, -1 },
+    { NULL, "V", 0x1, 12, 13, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 15, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 16, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 17, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x0, 14, 18, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 19, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 20, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 21, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 22, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 23, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 24, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 0, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 25, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 26, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 14, 27, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 28, 8, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 29, 0, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 30, 0, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 31, 32, -1, -1, -1, -1 },
+    { NULL, "LNSString;", 0x1, 33, 0, -1, -1, -1, -1 },
+    { NULL, "LJavaLangCharSequence;", 0x1, 34, 8, -1, -1, -1, -1 },
+    { NULL, "LNSString;", 0x1, 33, 8, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 36, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 37, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 38, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 39, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 40, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 41, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 42, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 13, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 8, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 43, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 44, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, 35, 45, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 46, 16, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 46, 47, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 48, 16, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, 48, 47, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAbstractStringBuilder;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSString;", 0x401, 49, -1, -1, -1, -1, -1 },
+    { NULL, "[C", 0x10, -1, -1, -1, -1, -1, -1 },
   };
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(init);
+  methods[1].selector = @selector(initWithInt:);
+  methods[2].selector = @selector(length);
+  methods[3].selector = @selector(capacity);
+  methods[4].selector = @selector(ensureCapacityWithInt:);
+  methods[5].selector = @selector(expandCapacityWithInt:);
+  methods[6].selector = @selector(trimToSize);
+  methods[7].selector = @selector(setLengthWithInt:);
+  methods[8].selector = @selector(charAtWithInt:);
+  methods[9].selector = @selector(codePointAtWithInt:);
+  methods[10].selector = @selector(codePointBeforeWithInt:);
+  methods[11].selector = @selector(codePointCountWithInt:withInt:);
+  methods[12].selector = @selector(offsetByCodePointsWithInt:withInt:);
+  methods[13].selector = @selector(getCharsWithInt:withInt:withCharArray:withInt:);
+  methods[14].selector = @selector(setCharAtWithInt:withChar:);
+  methods[15].selector = @selector(appendWithId:);
+  methods[16].selector = @selector(appendWithNSString:);
+  methods[17].selector = @selector(appendWithJavaLangStringBuffer:);
+  methods[18].selector = @selector(appendWithJavaLangAbstractStringBuilder:);
+  methods[19].selector = @selector(appendWithJavaLangCharSequence:);
+  methods[20].selector = @selector(appendWithJavaLangCharSequence:withInt:withInt:);
+  methods[21].selector = @selector(appendWithCharArray:);
+  methods[22].selector = @selector(appendWithCharArray:withInt:withInt:);
+  methods[23].selector = @selector(appendWithBoolean:);
+  methods[24].selector = @selector(appendWithChar:);
+  methods[25].selector = @selector(appendWithInt:);
+  methods[26].selector = @selector(appendWithLong:);
+  methods[27].selector = @selector(appendWithFloat:);
+  methods[28].selector = @selector(appendWithDouble:);
+  methods[29].selector = @selector(delete__WithInt:withInt:);
+  methods[30].selector = @selector(appendCodePointWithInt:);
+  methods[31].selector = @selector(deleteCharAtWithInt:);
+  methods[32].selector = @selector(replaceWithInt:withInt:withNSString:);
+  methods[33].selector = @selector(substringWithInt:);
+  methods[34].selector = @selector(subSequenceFrom:to:);
+  methods[35].selector = @selector(substringWithInt:withInt:);
+  methods[36].selector = @selector(insertWithInt:withCharArray:withInt:withInt:);
+  methods[37].selector = @selector(insertWithInt:withId:);
+  methods[38].selector = @selector(insertWithInt:withNSString:);
+  methods[39].selector = @selector(insertWithInt:withCharArray:);
+  methods[40].selector = @selector(insertWithInt:withJavaLangCharSequence:);
+  methods[41].selector = @selector(insertWithInt:withJavaLangCharSequence:withInt:withInt:);
+  methods[42].selector = @selector(insertWithInt:withBoolean:);
+  methods[43].selector = @selector(insertWithInt:withChar:);
+  methods[44].selector = @selector(insertWithInt:withInt:);
+  methods[45].selector = @selector(insertWithInt:withLong:);
+  methods[46].selector = @selector(insertWithInt:withFloat:);
+  methods[47].selector = @selector(insertWithInt:withDouble:);
+  methods[48].selector = @selector(indexOfWithNSString:);
+  methods[49].selector = @selector(indexOfWithNSString:withInt:);
+  methods[50].selector = @selector(lastIndexOfWithNSString:);
+  methods[51].selector = @selector(lastIndexOfWithNSString:withInt:);
+  methods[52].selector = @selector(reverse);
+  methods[53].selector = @selector(description);
+  methods[54].selector = @selector(getValue);
+  #pragma clang diagnostic pop
   static const J2ObjcFieldInfo fields[] = {
-    { "INITIAL_CAPACITY", "INITIAL_CAPACITY", 0x18, "I", NULL, NULL,
-      .constantValue.asInt = INITIAL_CAPACITY },
+    { "value_", "[C", .constantValue.asLong = 0, 0x0, -1, -1, -1, -1 },
+    { "count_", "I", .constantValue.asLong = 0, 0x0, -1, -1, -1, -1 },
   };
+  static const void *ptrTable[] = {
+    "I", "ensureCapacity", "expandCapacity", "setLength", "charAt", "codePointAt",
+    "codePointBefore", "codePointCount", "II", "offsetByCodePoints", "getChars", "II[CI",
+    "setCharAt", "IC", "append", "LNSObject;", "LNSString;", "LJavaLangStringBuffer;",
+    "LJavaLangAbstractStringBuilder;", "LJavaLangCharSequence;", "LJavaLangCharSequence;II", "[C",
+    "[CII", "Z", "C", "J", "F", "D", "delete", "appendCodePoint", "deleteCharAt", "replace",
+    "IILNSString;", "substring", "subSequence", "insert", "I[CII", "ILNSObject;", "ILNSString;",
+    "I[C", "ILJavaLangCharSequence;", "ILJavaLangCharSequence;II", "IZ", "IJ", "IF", "ID",
+    "indexOf", "LNSString;I", "lastIndexOf", "toString" };
   static const J2ObjcClassInfo _JavaLangAbstractStringBuilder = {
-    2, "AbstractStringBuilder", "java.lang", NULL, 0x400, 42, methods, 1, fields, 0, NULL, 0,
-    NULL, NULL, NULL
-  };
+    "AbstractStringBuilder", "java.lang", ptrTable, methods, fields, 7, 0x400, 55, 2, -1, -1, -1,
+    -1, -1 };
   return &_JavaLangAbstractStringBuilder;
 }
+
+#pragma clang diagnostic pop
 
 @end

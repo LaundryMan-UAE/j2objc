@@ -23,8 +23,8 @@ import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.EnumDeclaration;
 import com.google.devtools.j2objc.ast.FieldDeclaration;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
-import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.TypeDeclaration;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.DeadCodeMap;
@@ -42,21 +42,26 @@ import java.util.List;
  *
  * @author Daniel Connelly
  */
-public class DeadCodeEliminator extends TreeVisitor {
+public class DeadCodeEliminator extends UnitTreeVisitor {
 
   private static final Joiner innerClassJoiner = Joiner.on('$');
 
-  private final CompilationUnit unit;
   private final DeadCodeMap deadCodeMap;
 
   public DeadCodeEliminator(CompilationUnit unit, DeadCodeMap deadCodeMap) {
-    this.unit = unit;
+    super(unit);
     this.deadCodeMap = deadCodeMap;
   }
 
   @Override
   public void endVisit(TypeDeclaration node) {
-    eliminateDeadCode(node.getTypeBinding(), node.getBodyDeclarations());
+    ITypeBinding type = node.getTypeBinding();
+    eliminateDeadCode(type, node.getBodyDeclarations());
+    // Also strip supertypes.
+    if (deadCodeMap.isDeadClass(type.getBinaryName())) {
+      node.setSuperclassType(null);
+      node.getSuperInterfaceTypes().clear();
+    }
   }
 
   @Override
@@ -66,6 +71,7 @@ public class DeadCodeEliminator extends TreeVisitor {
     if (deadCodeMap.isDeadClass(binding.getBinaryName())) {
       // Dead enum means none of the constants are ever used, so they can all be deleted.
       node.getEnumConstants().clear();
+      node.getSuperInterfaceTypes().clear();
     }
   }
 

@@ -105,7 +105,7 @@ public class NameTableTest extends GenerationTest {
     });
     assertNotNull(methodBinding[0]);
     ITypeBinding paramType = methodBinding[0].getParameterTypes()[0];
-    assertEquals("id", nameTable.getSpecificObjCType(paramType));
+    assertEquals("id", nameTable.getObjCType(paramType));
   }
 
   public void testPrimitiveArrayParameterName() throws IOException {
@@ -221,7 +221,7 @@ public class NameTableTest extends GenerationTest {
     // Test invocation of renamed constructor.
     translation = translateSourceFile(
         "class Test { A test() { return new A(\"foo\", 5); } }", "Test", "Test.m");
-    assertTranslation(translation, "return [new_A_init_offset_(@\"foo\", 5) autorelease];");
+    assertTranslation(translation, "return create_A_init_offset_(@\"foo\", 5);");
   }
 
   public void testSuperMethodNotNamedWarning() throws IOException {
@@ -263,7 +263,7 @@ public class NameTableTest extends GenerationTest {
     translation = getTranslatedFile("foo/bar/Test.m");
     assertTranslation(translation, "#include \"foo/bar/Test.h\""); // should be full path.
     assertTranslation(translation, "@implementation FBTest");
-    assertTranslation(translation, "J2ObjcClassInfo _FBTest = { 2, \"Test\", \"foo.bar\", ");
+    assertTranslation(translation, "J2ObjcClassInfo _FBTest = { \"Test\", \"foo.bar\", ");
   }
 
   public void testRenamePackageAnnotationEnum() throws IOException {
@@ -287,7 +287,7 @@ public class NameTableTest extends GenerationTest {
     translation = getTranslatedFile("foo/bar/Test.m");
     assertTranslation(translation, "#include \"foo/bar/Test.h\""); // should be full path.
     assertTranslation(translation, "@implementation FBTest");
-    assertTranslation(translation, "J2ObjcClassInfo _FBTest = { 2, \"Test\", \"foo.bar\", ");
+    assertTranslation(translation, "J2ObjcClassInfo _FBTest = { \"Test\", \"foo.bar\", ");
 
     // Make sure package-info class doesn't use prefix for its own type name.
     translation = translateSourceFile("foo.bar.package-info", "foo/bar/package-info.m");

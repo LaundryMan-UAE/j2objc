@@ -22,15 +22,15 @@ SUFFIXES:
 
 default: dist
 
-# Force test targets to be run sequentially to avoid interspersed output.
-ifeq "$(findstring test,$(MAKECMDGOALS))" "test"
-.NOTPARALLEL:
-endif
-
 J2OBJC_ROOT = .
 
 include make/common.mk
 include make/j2objc_deps.mk
+
+# Force test targets to be run sequentially to avoid interspersed output.
+ifdef IS_TEST_GOAL
+.NOTPARALLEL:
+endif
 
 MAN_DIR = doc/man
 MAN_PAGES = $(MAN_DIR)/j2objc.1 $(MAN_DIR)/j2objcc.1
@@ -47,18 +47,20 @@ frameworks: dist
 	@cd guava && $(MAKE) framework
 	@cd testing/mockito && $(MAKE) framework
 	@cd xalan && $(MAKE) framework
-	@cd joda_convert && $(MAKE) framework
-	@cd joda_time && $(MAKE) framework
 
 all_frameworks: frameworks protobuf_dist
 	@cd protobuf/runtime && $(MAKE) framework
 
 dist: print_environment translator_dist jre_emul_dist junit_dist jsr305_dist \
-	  javax_inject_dist guava_dist joda_convert_dist joda_time_dist mockito_dist cycle_finder_dist install-man-pages
+  javax_inject_dist guava_dist mockito_dist cycle_finder_dist \
+  xalan_dist install-man-pages
 
+protobuf_dist: protobuf_compiler_dist protobuf_runtime_dist
+
+
+all_dist: dist all_frameworks
 
 clean:
-
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@cd annotations && $(MAKE) clean
 	@cd java_deps && $(MAKE) clean
@@ -74,9 +76,6 @@ clean:
 	@cd protobuf/compiler && $(MAKE) clean
 	@cd protobuf/tests && $(MAKE) clean
 	@cd xalan && $(MAKE) clean
-	@cd joda_convert && $(MAKE) clean
-	@cd joda_time && $(MAKE) clean
-
 
 test_translator: annotations_dist java_deps_dist
 	@cd translator && $(MAKE) test
@@ -90,21 +89,17 @@ test_jre_cycles: cycle_finder_dist
 test_junit_cycles: cycle_finder_dist
 	@cd junit && $(MAKE) find_cycles
 
-test_guava_cycles: cycle_finder_dist jre_emul_java_manifest
-	@cd guava && $(MAKE) find_cycles
-
-test_joda_convert_cycles: cycle_finder_dist
-	@cd joda_convert && $(MAKE) find_cycles
-
-test_joda_time_cycles: cycle_finder_dist
-	@cd joda_time && $(MAKE) find_cycles
-
 test_cycle_finder: cycle_finder_dist
 	@cd cycle_finder && $(MAKE) test
 
 test: test_translator test_jre_emul \
-   test_cycle_finder test_jre_cycles test_guava_cycles test_junit_cycles
+   test_cycle_finder test_jre_cycles test_junit_cycles
 
+test_protobuf: junit_dist protobuf_compiler_dist protobuf_runtime_dist
+	@cd protobuf/tests && $(MAKE) test
+
+
+test_all: test test_protobuf
 
 print_environment:
 	@echo Locale: $${LANG}

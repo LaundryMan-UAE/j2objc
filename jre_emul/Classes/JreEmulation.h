@@ -21,18 +21,14 @@
 #import "J2ObjC_common.h"
 #import "JavaObject.h"
 #import "IOSClass.h"
+#import "IOSMetadata.h"
 #import "IOSObjectArray.h"
 #import "IOSPrimitiveArray.h"
-#import "IOSReflection.h"
 #import "NSCopying+JavaCloneable.h"
 #import "NSException+JavaThrowable.h"
 #import "NSNumber+JavaNumber.h"
 #import "NSObject+JavaObject.h"
 #import "NSString+JavaString.h"
-
-// TODO(tball): remove when clients have updated to NSException mapping.
-#import "java/lang/Throwable.h"
-
 #endif // __OBJC__
 
 #endif // _JreEmulation_H_

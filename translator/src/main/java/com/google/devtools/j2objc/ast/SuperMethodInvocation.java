@@ -14,42 +14,48 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.type.ExecutableType;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.IMethodBinding;
 
 /**
  * Node type for a method invocation on the super class. (e.g. "super.foo()")
  */
 public class SuperMethodInvocation extends Expression {
 
-  private IMethodBinding methodBinding = null;
+  private ExecutableElement method = null;
+  private ExecutableType methodType = null;
   private ChildLink<Name> qualifier = ChildLink.create(Name.class, this);
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
+  // Resolved by OuterReferenceResolver.
+  private ChildLink<Expression> receiver = ChildLink.create(Expression.class, this);
   private ChildList<Expression> arguments = ChildList.create(Expression.class, this);
 
-  public SuperMethodInvocation(org.eclipse.jdt.core.dom.SuperMethodInvocation jdtNode) {
-    super(jdtNode);
-    methodBinding = jdtNode.resolveMethodBinding();
-    qualifier.set((Name) TreeConverter.convert(jdtNode.getQualifier()));
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-    for (Object argument : jdtNode.arguments()) {
-      arguments.add((Expression) TreeConverter.convert(argument));
-    }
-  }
+  public SuperMethodInvocation() {}
 
   public SuperMethodInvocation(SuperMethodInvocation other) {
     super(other);
-    methodBinding = other.getMethodBinding();
+    method = other.getExecutableElement();
+    methodType = other.getExecutableType();
     qualifier.copyFrom(other.getQualifier());
     name.copyFrom(other.getName());
+    receiver.copyFrom(other.getReceiver());
     arguments.copyFrom(other.getArguments());
   }
 
   public SuperMethodInvocation(IMethodBinding methodBinding) {
-    this.methodBinding = methodBinding;
+    method = BindingConverter.getExecutableElement(methodBinding);
+    methodType = BindingConverter.getType(methodBinding);
     name.set(new SimpleName(methodBinding));
+  }
+
+  public SuperMethodInvocation(ExecutableElement element) {
+    method = element;
+    methodType = (ExecutableType) element.asType();
+    name.set(new SimpleName(element));
   }
 
   @Override
@@ -58,38 +64,74 @@ public class SuperMethodInvocation extends Expression {
   }
 
   public IMethodBinding getMethodBinding() {
-    return methodBinding;
+    return (IMethodBinding) BindingConverter.unwrapTypeMirrorIntoBinding(getExecutableType());
   }
 
-  public void setMethodBinding(IMethodBinding newMethodBinding) {
-    methodBinding = newMethodBinding;
+  public ExecutableElement getExecutableElement() {
+    return method;
+  }
+
+  public SuperMethodInvocation setExecutableElement(ExecutableElement newElement) {
+    method = newElement;
+    return this;
+  }
+
+  public ExecutableType getExecutableType() {
+    return methodType;
+  }
+
+  public SuperMethodInvocation setExecutableType(ExecutableType newType) {
+    methodType = newType;
+    return this;
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return methodBinding != null ? methodBinding.getReturnType() : null;
+  public TypeMirror getTypeMirror() {
+    return getExecutableType().getReturnType();
   }
 
   public Name getQualifier() {
     return qualifier.get();
   }
 
-  public void setQualifier(Name newQualifier) {
+  public SuperMethodInvocation setQualifier(Name newQualifier) {
     qualifier.set(newQualifier);
+    return this;
   }
 
   public SimpleName getName() {
     return name.get();
   }
 
+  public SuperMethodInvocation setName(SimpleName newName) {
+    name.set(newName);
+    return this;
+  }
+
+  public Expression getReceiver() {
+    return receiver.get();
+  }
+
+  public SuperMethodInvocation setReceiver(Expression newReceiver) {
+    receiver.set(newReceiver);
+    return this;
+  }
+
   public List<Expression> getArguments() {
     return arguments;
+  }
+
+  public SuperMethodInvocation addArgument(Expression arg) {
+    arguments.add(arg);
+    return this;
   }
 
   @Override
   protected void acceptInner(TreeVisitor visitor) {
     if (visitor.visit(this)) {
       qualifier.accept(visitor);
+      name.accept(visitor);
+      receiver.accept(visitor);
       arguments.accept(visitor);
     }
     visitor.endVisit(this);

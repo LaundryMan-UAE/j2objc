@@ -14,17 +14,19 @@
 
 package com.google.devtools.j2objc.translate;
 
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.devtools.j2objc.ast.AnnotationTypeDeclaration;
 import com.google.devtools.j2objc.ast.AnonymousClassDeclaration;
 import com.google.devtools.j2objc.ast.ClassInstanceCreation;
+import com.google.devtools.j2objc.ast.CommonTypeDeclaration;
+import com.google.devtools.j2objc.ast.CompilationUnit;
+import com.google.devtools.j2objc.ast.ConstructorInvocation;
+import com.google.devtools.j2objc.ast.CreationReference;
 import com.google.devtools.j2objc.ast.EnumDeclaration;
+import com.google.devtools.j2objc.ast.Expression;
+import com.google.devtools.j2objc.ast.ExpressionMethodReference;
 import com.google.devtools.j2objc.ast.FieldAccess;
+import com.google.devtools.j2objc.ast.FunctionalExpression;
 import com.google.devtools.j2objc.ast.LambdaExpression;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.MethodInvocation;
@@ -32,314 +34,373 @@ import com.google.devtools.j2objc.ast.Name;
 import com.google.devtools.j2objc.ast.QualifiedName;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
+import com.google.devtools.j2objc.ast.SuperConstructorInvocation;
 import com.google.devtools.j2objc.ast.SuperMethodInvocation;
+import com.google.devtools.j2objc.ast.SuperMethodReference;
 import com.google.devtools.j2objc.ast.ThisExpression;
 import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
+import com.google.devtools.j2objc.ast.Type;
 import com.google.devtools.j2objc.ast.TypeDeclaration;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclaration;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
-import com.google.devtools.j2objc.types.GeneratedVariableBinding;
-import com.google.devtools.j2objc.util.BindingUtil;
-
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
-import org.eclipse.jdt.core.dom.Modifier;
-
+import com.google.devtools.j2objc.util.CaptureInfo;
+import com.google.devtools.j2objc.util.ElementUtil;
+import com.google.devtools.j2objc.util.TypeUtil;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeMirror;
 
 /**
- * Visits a compilation unit and creates variable bindings for outer references
+ * Visits a compilation unit and creates variable elements for outer references
  * and captured local variables where required. Also generates an outer
  * reference path for any nodes where an outer reference is required. The
- * generated paths are lists of variable bindings for the outer fields that can
+ * generated paths are lists of variable elements for the outer fields that can
  * be used to reconstruct the given expression.
  *
  * OuterReferenceResolver should be run prior to any AST mutations.
  *
  * @author Keith Stanger
  */
-public class OuterReferenceResolver extends TreeVisitor {
+public class OuterReferenceResolver extends UnitTreeVisitor {
 
-  // A placeholder variable binding that should be replaced with the outer
-  // parameter in a constructor.
-  public static final IVariableBinding OUTER_PARAMETER = GeneratedVariableBinding.newPlaceholder();
+  private final CaptureInfo captureInfo;
+  private Scope topScope = null;
 
-  private Map<ITypeBinding, IVariableBinding> outerVars = Maps.newHashMap();
-  private Set<ITypeBinding> usesOuterParam = Sets.newHashSet();
-  private ListMultimap<ITypeBinding, Capture> captures = ArrayListMultimap.create();
-  private Map<TreeNode.Key, List<IVariableBinding>> outerPaths = Maps.newHashMap();
-  private ArrayList<Scope> scopeStack = Lists.newArrayList();
-
-  @Override
-  public void run(TreeNode node) {
-    assert scopeStack.isEmpty();
-    super.run(node);
+  public OuterReferenceResolver(CompilationUnit unit, CaptureInfo captureInfo) {
+    super(unit);
+    this.captureInfo = captureInfo;
   }
 
-  public boolean needsOuterReference(ITypeBinding type) {
-    return outerVars.containsKey(type);
-  }
+  private enum ScopeKind { CLASS, LAMBDA, METHOD }
 
-  public boolean needsOuterParam(ITypeBinding type) {
-    return !type.isLocal() || outerVars.containsKey(type) || usesOuterParam.contains(type);
-  }
+  /**
+   * Encapsulates relevant information about the types being visited. Scope instances are linked to
+   * form a stack of enclosing types and methods.
+   */
+  private class Scope {
 
-  public IVariableBinding getOuterField(ITypeBinding type) {
-    return outerVars.get(type);
-  }
+    private final ScopeKind kind;
+    private final Scope outer;
+    private final Scope outerClass;  // Direct pointer to the next CLASS scope.
+    private final TypeElement type;
+    private final Set<Element> inheritedScope;
+    private final boolean initializingContext;
+    private final Set<VariableElement> declaredVars = new HashSet<>();
+    // These callbacks are used for correct resolution of local classes where the captures are not
+    // always known at the point of creation.
+    private List<Runnable> onExit = new ArrayList<>();
+    private final Queue<Runnable> onOuterParam;
+    // The following fields are used only by CLASS scope kinds.
+    private int constructorCount = 0;
+    private int constructorsNotNeedingSuperOuterScope = 0;
 
-  public List<IVariableBinding> getCapturedVars(ITypeBinding type) {
-    List<Capture> capturesForType = captures.get(type);
-    List<IVariableBinding> capturedVars = Lists.newArrayListWithCapacity(capturesForType.size());
-    for (Capture capture : capturesForType) {
-      capturedVars.add(capture.var);
-    }
-    return capturedVars;
-  }
-
-  public List<IVariableBinding> getInnerFields(ITypeBinding type) {
-    List<Capture> capturesForType = captures.get(type);
-    List<IVariableBinding> innerFields = Lists.newArrayListWithCapacity(capturesForType.size());
-    for (Capture capture : capturesForType) {
-      innerFields.add(capture.field);
-    }
-    return innerFields;
-  }
-
-  public List<IVariableBinding> getPath(TreeNode node) {
-    return outerPaths.get(node.getKey());
-  }
-
-  private static class Capture {
-
-    private final IVariableBinding var;
-    private final IVariableBinding field;
-
-    private Capture(IVariableBinding var, IVariableBinding field) {
-      this.var = var;
-      this.field = field;
-    }
-  }
-
-  private static class Scope {
-
-    private final ITypeBinding type;
-    private final Set<ITypeBinding> inheritedScope;
-    private boolean initializingContext = true;
-    private Set<IVariableBinding> declaredVars = Sets.newHashSet();
-
-    private Scope(ITypeBinding type) {
+    private Scope(Scope outer, TypeElement type) {
+      kind = ElementUtil.isLambda(type) ? ScopeKind.LAMBDA : ScopeKind.CLASS;
+      this.outer = outer;
+      outerClass = firstClassScope(outer);
       this.type = type;
-      ImmutableSet.Builder<ITypeBinding> inheritedScopeBuilder = ImmutableSet.builder();
-      inheritedScopeBuilder.add(type.getTypeDeclaration());
-      for (ITypeBinding inheritedType : BindingUtil.getAllInheritedTypes(type)) {
-        inheritedScopeBuilder.add(inheritedType.getTypeDeclaration());
+      ImmutableSet.Builder<Element> inheritedScopeBuilder = ImmutableSet.builder();
+
+      // Lambdas are ignored when resolving implicit outer scope.
+      if (kind == ScopeKind.CLASS) {
+        for (DeclaredType inheritedType :
+          ElementUtil.getInheritedDeclaredTypesInclusive(type.asType(), env)) {
+          inheritedScopeBuilder.add(inheritedType.asElement());
+        }
       }
+
+      // If type is an interface, type.getSuperClass() returns null even though all interfaces
+      // "inherit" from Object. Therefore we add this manually to make the set complete. This is
+      // needed because Java 8 default methods can call methods in Object.
+      if (ElementUtil.isInterface(type)) {
+        inheritedScopeBuilder.add(env.types().getJavaObjectElement());
+      }
+
       this.inheritedScope = inheritedScopeBuilder.build();
+      this.initializingContext = kind == ScopeKind.CLASS;
+      this.onOuterParam = new LinkedList<>();
+    }
+
+    /**
+     * Creates a Scope for a method declaration. This scope will contain mostly the same state as
+     * its enclosing CLASS scope, but may have a different value for "initializingContext".
+     */
+    private Scope(Scope outer, ExecutableElement method) {
+      kind = ScopeKind.METHOD;
+      this.outer = outer;
+      // Skip over the immediately enclosing class, since this scope has the same type information.
+      outerClass = outer.outerClass;
+      type = outer.type;
+      inheritedScope = outer.inheritedScope;
+      initializingContext = ElementUtil.isConstructor(method);
+      onOuterParam = outer.onOuterParam;
+    }
+
+    private boolean isInitializing() {
+      return initializingContext && this == peekScope();
     }
   }
 
   private Scope peekScope() {
-    assert scopeStack.size() > 0;
-    return scopeStack.get(scopeStack.size() - 1);
+    assert topScope != null;
+    return topScope;
   }
 
-  private String getOuterFieldName(ITypeBinding type) {
-    // Ensure that the new outer field does not conflict with a field in a superclass.
-    type = type.getSuperclass();
-    int suffix = 0;
-    while (type != null) {
-      if (BindingUtil.hasOuterContext(type)) {
-        suffix++;
-      }
-      type = type.getSuperclass();
+  private static Scope firstClassScope(Scope scope) {
+    while (scope != null && scope.kind != ScopeKind.CLASS) {
+      scope = scope.outer;
     }
-    return "this$" + suffix;
+    return scope;
   }
 
-  private IVariableBinding getOrCreateOuterField(Scope scope) {
-    if (scope.initializingContext && scope == peekScope()) {
-      usesOuterParam.add(scope.type);
-      return OUTER_PARAMETER;
+  // Finds the non-method scope for the given type.
+  private Scope findScopeForType(TypeElement type) {
+    Scope scope = peekScope();
+    while (scope != null) {
+      if (scope.kind != ScopeKind.METHOD && type.equals(scope.type)) {
+        return scope;
+      }
+      scope = scope.outer;
     }
-    ITypeBinding type = scope.type;
-    IVariableBinding outerField = outerVars.get(type);
-    if (outerField == null) {
-      outerField = new GeneratedVariableBinding(getOuterFieldName(type),
-          Modifier.PRIVATE | Modifier.FINAL, type.getDeclaringClass(), true, false, type, null);
-      outerVars.put(type, outerField);
-    }
-    return outerField;
+    return null;
   }
 
-  private IVariableBinding getOrCreateInnerField(IVariableBinding var, ITypeBinding declaringType) {
-    List<Capture> capturesForType = captures.get(declaringType);
-    IVariableBinding innerField = null;
-    for (Capture capture : capturesForType) {
-      if (var.equals(capture.var)) {
-        innerField = capture.field;
-        break;
+  private Runnable captureCurrentScope(Runnable runnable) {
+    Scope capturedScope = peekScope();
+    return new Runnable() {
+      @Override
+      public void run() {
+        Scope saved = topScope;
+        topScope = capturedScope;
+        runnable.run();
+        topScope = saved;
       }
-    }
-    if (innerField == null) {
-      if (BindingUtil.isLambda(declaringType)) {
-        // Lambdas are converted to blocks, which perform capturing for us, so we don't need to do
-        // the initialization rewrite.
-        captures.put(declaringType, new Capture(var, var));
-        return var;
-      } else {
-        GeneratedVariableBinding newField = new GeneratedVariableBinding("val$" + var.getName(),
-            Modifier.PRIVATE | Modifier.FINAL, var.getType(), true, false, declaringType, null);
-        newField.addAnnotations(var);
-        innerField = newField;
-        captures.put(declaringType, new Capture(var, innerField));
-      }
-    }
-    return innerField;
+    };
   }
 
-  private List<IVariableBinding> getOuterPath(ITypeBinding type) {
-    type = type.getTypeDeclaration();
-    List<IVariableBinding> path = Lists.newArrayList();
-    for (int i = scopeStack.size() - 1; i >= 0; i--) {
-      Scope scope = scopeStack.get(i);
-      if (type.equals(scope.type)) {
-        break;
+  private void onExitScope(TypeElement type, Runnable runnable) {
+    Scope scope = findScopeForType(type);
+    if (scope != null) {
+      scope.onExit.add(captureCurrentScope(runnable));
+    } else {
+      // The given type is not currently in scope, so execute the runnable now.
+      runnable.run();
+    }
+  }
+
+  // Executes the runnable if or when the given type needs an outer param.
+  private void whenNeedsOuterParam(TypeElement type, Runnable runnable) {
+    if (captureInfo.needsOuterParam(type)) {
+      runnable.run();
+    } else if (ElementUtil.isLocal(type)) {
+      Scope scope = findScopeForType(type);
+      if (scope != null) {
+        scope.onOuterParam.add(captureCurrentScope(runnable));
       }
-      if (!(BindingUtil.isLambda(scope.type))) {
-        path.add(getOrCreateOuterField(scope));
-      }
+    }
+  }
+
+  private VariableElement getOrCreateOuterVar(Scope scope) {
+    while (!scope.onOuterParam.isEmpty()) {
+      scope.onOuterParam.remove().run();
+    }
+    return scope.isInitializing() ? captureInfo.getOrCreateOuterParam(scope.type)
+        : captureInfo.getOrCreateOuterField(scope.type);
+  }
+
+  private VariableElement getOrCreateCaptureVar(VariableElement var, Scope scope) {
+    return scope.isInitializing() ? captureInfo.getOrCreateCaptureParam(var, scope.type)
+        : captureInfo.getOrCreateCaptureField(var, scope.type);
+  }
+
+  private Name getOuterPath(TypeElement type) {
+    Name path = null;
+    for (Scope scope = peekScope(); !type.equals(scope.type); scope = scope.outerClass) {
+      path = Name.newName(path, getOrCreateOuterVar(scope));
     }
     return path;
   }
 
-  private List<IVariableBinding> getOuterPathInherited(ITypeBinding type) {
-    type = type.getTypeDeclaration();
-    List<IVariableBinding> path = Lists.newArrayList();
-    for (int i = scopeStack.size() - 1; i >= 0; i--) {
-      Scope scope = scopeStack.get(i);
-      if (scope.inheritedScope.contains(type)) {
-        break;
-      }
-      if (!(BindingUtil.isLambda(scope.type))) {
-        path.add(getOrCreateOuterField(scope));
-      }
+  private Name getOuterPathInherited(TypeElement type) {
+    Name path = null;
+    for (Scope scope = peekScope(); !scope.inheritedScope.contains(type);
+         scope = scope.outerClass) {
+      path = Name.newName(path, getOrCreateOuterVar(scope));
     }
     return path;
   }
 
-  private List<IVariableBinding> getPathForField(IVariableBinding var) {
-    List<IVariableBinding> path = getOuterPathInherited(var.getDeclaringClass());
-    if (!path.isEmpty()) {
-      path.add(var);
+  private Name getPathForField(VariableElement var) {
+    Name path = getOuterPathInherited((TypeElement) var.getEnclosingElement());
+    if (path != null) {
+      path = Name.newName(path, var);
     }
     return path;
   }
 
-  private List<IVariableBinding> getPathForLocalVar(IVariableBinding var) {
-    boolean isConstant = var.getConstantValue() != null;
-    List<IVariableBinding> path = Lists.newArrayList();
-    Scope lastScope = null;
-    for (int i = scopeStack.size() - 1; i >= 0; i--) {
-      Scope scope = scopeStack.get(i);
-      if (scope.declaredVars.contains(var)) {
-        break;
-      }
-      if (lastScope != null && !isConstant) {
-        if (!(BindingUtil.isLambda(scope.type))) {
-          path.add(getOrCreateOuterField(lastScope));
-        }
-      }
-      lastScope = scope;
+  private Expression getPathForLocalVar(VariableElement var) {
+    Name path = null;
+    Scope scope = peekScope();
+    if (scope.declaredVars.contains(var)) {
+      // Var is declared in current scope, return empty path.
+      return path;
     }
-    if (lastScope != null) {
-      if (isConstant) {
-        path.add(var);
-      } else {
-        path.add(getOrCreateInnerField(var, lastScope.type));
+    if (var.getConstantValue() != null) {
+      // Var has constant value, return a literal.
+      return TreeUtil.newLiteral(var.getConstantValue(), typeEnv);
+    }
+    Scope lastScope = scope;
+    while (!(scope = scope.outer).declaredVars.contains(var)) {
+      // Except for the top scope, only include CLASS scopes when generating the path.
+      if (scope == lastScope.outerClass) {
+        path = Name.newName(path, getOrCreateOuterVar(lastScope));
+        lastScope = scope;
       }
     }
-    return path;
+    return Name.newName(path, getOrCreateCaptureVar(var, lastScope));
   }
 
-  private void addPath(TreeNode node, List<IVariableBinding> path) {
-    if (!path.isEmpty()) {
-      outerPaths.put(node.getKey(), path);
-    }
+  private void pushType(TypeElement type) {
+    topScope = new Scope(topScope, type);
   }
 
-  private void pushType(TreeNode node, ITypeBinding type) {
-    scopeStack.add(new Scope(type));
-
-    ITypeBinding superclass = type.getSuperclass();
-    if (superclass != null && BindingUtil.hasOuterContext(superclass)) {
-      addPath(node, getOuterPathInherited(superclass.getDeclaringClass()));
+  private void popType() {
+    Scope currentScope = peekScope();
+    topScope = currentScope.outer;
+    for (Runnable runnable : currentScope.onExit) {
+      runnable.run();
     }
   }
 
-  private void popType(ITypeBinding type) {
-    scopeStack.remove(scopeStack.size() - 1);
+  // Resolve the path for the outer scope to a SuperConstructorInvocation. This path goes on the
+  // type node because there may be implicit super invocations.
+  private void addSuperOuterPath(CommonTypeDeclaration node) {
+    TypeElement superclass = ElementUtil.getSuperclass(node.getTypeElement());
+    if (superclass != null && captureInfo.needsOuterParam(superclass)) {
+      node.setSuperOuter(getOuterPathInherited(ElementUtil.getDeclaringClass(superclass)));
+    }
+  }
+
+  private void addCaptureArgs(TypeElement type, List<Expression> args) {
+    for (VariableElement var : captureInfo.getCapturedVars(type)) {
+      Expression path = getPathForLocalVar(var);
+      if (path == null) {
+        path = new SimpleName(var);
+      }
+      args.add(path);
+    }
   }
 
   @Override
   public boolean visit(TypeDeclaration node) {
-    pushType(node, node.getTypeBinding());
+    pushType(node.getTypeElement());
     return true;
   }
 
   @Override
   public void endVisit(TypeDeclaration node) {
-    popType(node.getTypeBinding());
+    Scope currentScope = peekScope();
+    if (currentScope.constructorCount == 0) {
+      // Implicit default constructor.
+      currentScope.constructorCount++;
+    }
+    if (currentScope.constructorCount > currentScope.constructorsNotNeedingSuperOuterScope) {
+      addSuperOuterPath(node);
+    }
+    addCaptureArgs(ElementUtil.getSuperclass(node.getTypeElement()), node.getSuperCaptureArgs());
+    popType();
   }
 
   @Override
   public boolean visit(AnonymousClassDeclaration node) {
-    pushType(node, node.getTypeBinding());
+    pushType(node.getTypeElement());
     return true;
   }
 
   @Override
   public void endVisit(AnonymousClassDeclaration node) {
-    popType(node.getTypeBinding());
+    TypeElement type = node.getTypeElement();
+    TreeNode parent = node.getParent();
+    Expression superOuter = parent instanceof ClassInstanceCreation
+        ? TreeUtil.remove(((ClassInstanceCreation) parent).getExpression()) : null;
+    if (superOuter != null) {
+      // The parent creation node has an explicit outer reference that needs to be passed through to
+      // the superclass constructor.
+      ((ClassInstanceCreation) parent).setSuperOuterArg(superOuter);
+      node.setSuperOuter(new SimpleName(
+          captureInfo.createSuperOuterParam(type, superOuter.getTypeMirror())));
+    } else {
+      addSuperOuterPath(node);
+    }
+    addCaptureArgs(ElementUtil.getSuperclass(type), node.getSuperCaptureArgs());
+    popType();
   }
 
   @Override
   public boolean visit(EnumDeclaration node) {
-    pushType(node, node.getTypeBinding());
+    pushType(node.getTypeElement());
     return true;
   }
 
   @Override
   public void endVisit(EnumDeclaration node) {
-    popType(node.getTypeBinding());
+    popType();
   }
 
   @Override
   public boolean visit(AnnotationTypeDeclaration node) {
-    pushType(node, node.getTypeBinding());
+    pushType(node.getTypeElement());
     return true;
   }
 
   @Override
   public void endVisit(AnnotationTypeDeclaration node) {
-    popType(node.getTypeBinding());
+    popType();
+  }
+
+  private void endVisitFunctionalExpression(FunctionalExpression node) {
+    // Resolve outer and capture arguments.
+    TypeElement typeElement = node.getTypeElement();
+    if (captureInfo.needsOuterParam(typeElement)) {
+      node.setLambdaOuterArg(
+          getOuterPathInherited(TypeUtil.asTypeElement(captureInfo.getOuterType(typeElement))));
+    }
+    addCaptureArgs(typeElement, node.getLambdaCaptureArgs());
   }
 
   @Override
   public boolean visit(LambdaExpression node) {
-    pushType(node, node.getTypeBinding());
+    pushType(node.getTypeElement());
     return true;
   }
 
   @Override
   public void endVisit(LambdaExpression node) {
-    popType(node.getTypeBinding());
+    popType();
+    endVisitFunctionalExpression(node);
+  }
+
+  @Override
+  public void endVisit(ExpressionMethodReference node) {
+    Expression target = node.getExpression();
+    if (!ElementUtil.isStatic(node.getExecutableElement()) && isValue(target)) {
+      captureInfo.addMethodReferenceReceiver(node.getTypeElement(), target.getTypeMirror());
+    }
+  }
+
+  private static boolean isValue(Expression expr) {
+    return !(expr instanceof Name) || !ElementUtil.isType(((Name) expr).getElement());
   }
 
   @Override
@@ -356,12 +417,16 @@ public class OuterReferenceResolver extends TreeVisitor {
 
   @Override
   public boolean visit(SimpleName node) {
-    IVariableBinding var = TreeUtil.getVariableBinding(node);
+    VariableElement var = TreeUtil.getVariableElement(node);
     if (var != null) {
-      if (var.isField() && !Modifier.isStatic(var.getModifiers())) {
-        addPath(node, getPathForField(var));
-      } else if (!var.isField()) {
-        addPath(node, getPathForLocalVar(var));
+      Expression path = null;
+      if (ElementUtil.isInstanceVar(var)) {
+        path = getPathForField(var);
+      } else if (!ElementUtil.isField(var)) {
+        path = getPathForLocalVar(var);
+      }
+      if (path != null) {
+        node.replaceWith(path);
       }
     }
     return true;
@@ -369,41 +434,116 @@ public class OuterReferenceResolver extends TreeVisitor {
 
   @Override
   public boolean visit(ThisExpression node) {
-    Name qualifier = node.getQualifier();
+    Name qualifier = TreeUtil.remove(node.getQualifier());
     if (qualifier != null) {
-      addPath(node, getOuterPath(qualifier.getTypeBinding()));
+      Name path = getOuterPath((TypeElement) qualifier.getElement());
+      if (path != null) {
+        node.replaceWith(path);
+      }
+    } else {
+      Scope currentScope = peekScope();
+      if (ElementUtil.isLambda(currentScope.type)) {
+        Name path = getOuterPath(ElementUtil.getDeclaringClass(currentScope.type));
+        assert path != null : "this keyword within a lambda should have a non-empty path";
+        node.replaceWith(path);
+      }
     }
     return true;
   }
 
   @Override
   public void endVisit(MethodInvocation node) {
-    IMethodBinding method = node.getMethodBinding();
-    if (node.getExpression() == null && !Modifier.isStatic(method.getModifiers())) {
-      addPath(node, getOuterPathInherited(method.getDeclaringClass()));
+    ExecutableElement method = node.getExecutableElement();
+    if (node.getExpression() == null && !ElementUtil.isStatic(method)) {
+      node.setExpression(getOuterPathInherited(ElementUtil.getDeclaringClass(method)));
     }
+  }
+
+  private Name getSuperInvocationPath(Name qualifier) {
+    if (qualifier != null) {
+      return getOuterPath((TypeElement) qualifier.getElement());
+    } else {
+      Scope currentScope = peekScope();
+      if (ElementUtil.isLambda(currentScope.type)) {
+        return getOuterPath(ElementUtil.getDeclaringClass(currentScope.type));
+      }
+    }
+    return null;
   }
 
   @Override
   public void endVisit(SuperMethodInvocation node) {
-    Name qualifier = node.getQualifier();
-    if (qualifier != null) {
-      addPath(node, getOuterPath(qualifier.getTypeBinding()));
+    if (ElementUtil.isDefault(node.getExecutableElement())) {
+      // Default methods can be invoked with a SuperMethodInvocation. In this
+      // case the qualifier is not an enclosing class, but the interface that
+      // implements the default method. Since the default method is an instance
+      // method it captures self.
+      Scope currentScope = peekScope();
+      if (ElementUtil.isLambda(currentScope.type)) {
+        node.setReceiver(getOuterPath(ElementUtil.getDeclaringClass(currentScope.type)));
+      }
+    } else {
+      node.setReceiver(getSuperInvocationPath(node.getQualifier()));
     }
+    node.setQualifier(null);
+  }
+
+  @Override
+  public void endVisit(SuperMethodReference node) {
+    TypeElement lambdaType = node.getTypeElement();
+    pushType(lambdaType);
+    node.setReceiver(getSuperInvocationPath(TreeUtil.remove(node.getQualifier())));
+    popType();
+    endVisitFunctionalExpression(node);
   }
 
   @Override
   public void endVisit(ClassInstanceCreation node) {
-    ITypeBinding type = node.getTypeBinding();
-    if (node.getExpression() == null && BindingUtil.hasOuterContext(type)) {
-      addPath(node, getOuterPathInherited(type.getDeclaringClass()));
+    TypeElement typeElement = (TypeElement) node.getExecutableElement().getEnclosingElement();
+    if (node.getExpression() == null) {
+      whenNeedsOuterParam(typeElement, () -> {
+        node.setExpression(
+            getOuterPathInherited(TypeUtil.asTypeElement(captureInfo.getOuterType(typeElement))));
+      });
+    }
+    if (ElementUtil.isLocal(typeElement)) {
+      onExitScope(typeElement, () -> {
+        addCaptureArgs(typeElement, node.getCaptureArgs());
+      });
     }
   }
 
+  @Override
+  public void endVisit(CreationReference node) {
+    Type typeNode = node.getType();
+    TypeMirror creationType = typeNode.getTypeMirror();
+    if (TypeUtil.isArray(creationType)) {
+      // Nothing to capture for array creations.
+      return;
+    }
+
+    TypeElement lambdaType = node.getTypeElement();
+    pushType(lambdaType);
+    // This is kind of messy, but we use the Type child node as the key for capture scope to be
+    // transferred to the inner ClassInstanceCreation. The capture scope of the CreationReference
+    // node will be transferred to the ClassInstanceCreation that creates the lambda instance.
+    TypeElement creationElement = TypeUtil.asTypeElement(creationType);
+    whenNeedsOuterParam(creationElement, () -> {
+      TypeElement enclosingTypeElement = ElementUtil.getDeclaringClass(creationElement);
+      node.setCreationOuterArg(getOuterPathInherited(enclosingTypeElement));
+    });
+    if (ElementUtil.isLocal(creationElement)) {
+      onExitScope(creationElement, () -> {
+        addCaptureArgs(creationElement, node.getCreationCaptureArgs());
+      });
+    }
+    popType();
+
+    endVisitFunctionalExpression(node);
+  }
+
   private boolean visitVariableDeclaration(VariableDeclaration node) {
-    assert scopeStack.size() > 0;
-    Scope currentScope = scopeStack.get(scopeStack.size() - 1);
-    currentScope.declaredVars.add(node.getVariableBinding());
+    peekScope().declaredVars.add(node.getVariableElement());
     return true;
   }
 
@@ -419,19 +559,29 @@ public class OuterReferenceResolver extends TreeVisitor {
 
   @Override
   public boolean visit(MethodDeclaration node) {
-    IMethodBinding binding = node.getMethodBinding();
-    // Assume all code except for non-constructor methods is initializer code.
-    if (!binding.isConstructor()) {
-      peekScope().initializingContext = false;
+    Scope currentScope = peekScope();
+    ExecutableElement elem = node.getExecutableElement();
+    if (ElementUtil.isConstructor(elem)) {
+      currentScope.constructorCount++;
     }
+    topScope = new Scope(currentScope, elem);
     return true;
   }
 
   @Override
   public void endVisit(MethodDeclaration node) {
-    IMethodBinding binding = node.getMethodBinding();
-    if (!binding.isConstructor()) {
-      peekScope().initializingContext = true;
+    topScope = topScope.outer;
+  }
+
+  @Override
+  public void endVisit(ConstructorInvocation node) {
+    firstClassScope(peekScope()).constructorsNotNeedingSuperOuterScope++;
+  }
+
+  @Override
+  public void endVisit(SuperConstructorInvocation node) {
+    if (node.getExpression() != null) {
+      firstClassScope(peekScope()).constructorsNotNeedingSuperOuterScope++;
     }
   }
 }

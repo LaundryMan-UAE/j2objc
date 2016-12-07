@@ -21,10 +21,7 @@ public class ContinueStatement extends Statement {
 
   private ChildLink<SimpleName> label = ChildLink.create(SimpleName.class, this);
 
-  public ContinueStatement(org.eclipse.jdt.core.dom.ContinueStatement jdtNode) {
-    super(jdtNode);
-    label.set((SimpleName) TreeConverter.convert(jdtNode.getLabel()));
-  }
+  public ContinueStatement() {}
 
   public ContinueStatement(ContinueStatement other) {
     super(other);
@@ -40,8 +37,9 @@ public class ContinueStatement extends Statement {
     return label.get();
   }
 
-  public void setLabel(SimpleName newLabel) {
+  public ContinueStatement setLabel(SimpleName newLabel) {
     label.set(newLabel);
+    return this;
   }
 
   @Override

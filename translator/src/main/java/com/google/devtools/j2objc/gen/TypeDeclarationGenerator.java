@@ -20,7 +20,6 @@ import com.google.common.collect.Lists;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.Annotation;
-import com.google.devtools.j2objc.ast.AnnotationTypeMemberDeclaration;
 import com.google.devtools.j2objc.ast.BodyDeclaration;
 import com.google.devtools.j2objc.ast.EnumConstantDeclaration;
 import com.google.devtools.j2objc.ast.EnumDeclaration;
@@ -30,10 +29,12 @@ import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.Name;
 import com.google.devtools.j2objc.ast.NativeDeclaration;
 import com.google.devtools.j2objc.ast.PropertyAnnotation;
+import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
+import com.google.devtools.j2objc.util.TranslationUtil;
 import com.google.devtools.j2objc.util.UnicodeUtils;
 import com.google.j2objc.annotations.Property;
 
@@ -47,7 +48,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Base class for generating type declarations, either public or private.
@@ -57,9 +57,6 @@ import java.util.regex.Pattern;
 public class TypeDeclarationGenerator extends TypeGenerator {
 
   private static final String DEPRECATED_ATTRIBUTE = "__attribute__((deprecated))";
-
-  private static final Pattern FAMILY_METHOD_REGEX =
-      Pattern.compile("^[_]*(new|copy|alloc|init|mutableCopy).*");
 
   protected TypeDeclarationGenerator(SourceBuilder builder, AbstractTypeDeclaration node) {
     super(builder, node);
@@ -75,8 +72,7 @@ public class TypeDeclarationGenerator extends TypeGenerator {
 
   @Override
   protected boolean shouldPrintDeclaration(BodyDeclaration decl) {
-    // Don't print declarations for any synthetic members.
-    if (BindingUtil.isSynthetic(decl.getModifiers())) {
+    if (decl instanceof MethodDeclaration && !((MethodDeclaration) decl).hasDeclaration()) {
       return false;
     }
     return decl.hasPrivateDeclaration() == printPrivateDeclarations();
@@ -102,16 +98,23 @@ public class TypeDeclarationGenerator extends TypeGenerator {
       printf("@interface %s : %s", typeName, getSuperTypeName());
     }
     printImplementedProtocols();
-    printInstanceVariables();
+    if (!typeBinding.isInterface()) {
+      printInstanceVariables();
+    } else {
+      newline();
+    }
     printProperties();
     if (!typeBinding.isInterface()) {
       printStaticAccessors();
     }
-    printAnnotationProperties();
     printInnerDeclarations();
     printDisallowedConstructors();
     println("\n@end");
 
+    if (BindingUtil.isPackageInfo(typeBinding)) {
+      printOuterDeclarations();
+      return;
+    }
     printCompanionClassDeclaration();
     printStaticInitFunction();
     printEnumConstants();
@@ -143,7 +146,8 @@ public class TypeDeclarationGenerator extends TypeGenerator {
       int ordinal = 0;
       for (EnumConstantDeclaration constant : constants) {
         printIndent();
-        printf("%s_%s = %d,\n", nativeName, constant.getName().getIdentifier(), ordinal++);
+        printf("%s_%s = %d,\n",
+            nativeName, nameTable.getVariableBaseName(constant.getVariableBinding()), ordinal++);
       }
       unindent();
       print("};\n");
@@ -159,11 +163,11 @@ public class TypeDeclarationGenerator extends TypeGenerator {
   }
 
   private String getSuperTypeName() {
-    ITypeBinding superclass = typeBinding.getSuperclass();
-    if (superclass == null) {
-      return null;
+    ITypeBinding supertype = TranslationUtil.getSuperType(typeNode);
+    if (supertype != null) {
+      return nameTable.getFullName(supertype);
     }
-    return nameTable.getFullName(superclass);
+    return "NSObject";
   }
 
   private List<String> getInterfaceNames() {
@@ -171,14 +175,13 @@ public class TypeDeclarationGenerator extends TypeGenerator {
       return Lists.newArrayList("JavaLangAnnotationAnnotation");
     }
     List<String> names = Lists.newArrayList();
-    for (ITypeBinding intrface : typeBinding.getInterfaces()) {
+    for (ITypeBinding intrface : TranslationUtil.getInterfaceTypes(typeNode)) {
       names.add(nameTable.getFullName(intrface));
     }
     if (typeBinding.isEnum()) {
       names.remove("NSCopying");
       names.add(0, "NSCopying");
     } else if (isInterfaceType()) {
-      names.add("NSObject");
       names.add("JavaObject");
     }
     return names;
@@ -200,6 +203,14 @@ public class TypeDeclarationGenerator extends TypeGenerator {
     }
   }
 
+  protected void printStaticInterfaceMethods() {
+    for (BodyDeclaration declaration : getInnerDeclarations()) {
+      if (declaration.getKind().equals(TreeNode.Kind.METHOD_DECLARATION)) {
+        printMethodDeclaration((MethodDeclaration) declaration, true);
+      }
+    }
+  }
+
   /**
    * Prints the list of static variable and/or enum constant accessor methods.
    */
@@ -217,7 +228,11 @@ public class TypeDeclarationGenerator extends TypeGenerator {
       if (typeNode instanceof EnumDeclaration) {
         for (EnumConstantDeclaration constant : ((EnumDeclaration) typeNode).getEnumConstants()) {
           String accessorName = nameTable.getStaticAccessorName(constant.getVariableBinding());
-          printf("\n+ (%s *)%s;\n", typeName, accessorName);
+          if (Options.nullability()) {
+            printf("\n+ (%s * __nonnull)%s;\n", typeName, accessorName);
+          } else {
+            printf("\n+ (%s *)%s;\n", typeName, accessorName);
+          }
         }
       }
     }
@@ -319,7 +334,7 @@ public class TypeDeclarationGenerator extends TypeGenerator {
             print(") ");
           }
 
-          String objcType = nameTable.getSpecificObjCType(varType);
+          String objcType = nameTable.getObjCType(varType);
           print(objcType);
           if (!objcType.endsWith("*")) {
             print(' ');
@@ -336,22 +351,13 @@ public class TypeDeclarationGenerator extends TypeGenerator {
       return;
     }
     printf("\n@interface %s : NSObject", typeName);
-    if (BindingUtil.isRuntimeAnnotation(typeBinding)) {
+    if (BindingUtil.isRuntimeAnnotation(typeBinding)
+        || BindingUtil.hasDefaultMethodsInFamily(typeBinding)) {
       // Print annotation implementation interface.
       printf(" < %s >", typeName);
-      List<AnnotationTypeMemberDeclaration> members = TreeUtil.getAnnotationMembers(typeNode);
-      if (!members.isEmpty()) {
-        println(" {\n @private");
-        printAnnotationVariables(members);
-        println("}");
-        printAnnotationConstructor(typeBinding);
-        printAnnotationAccessors(members);
-      } else {
-        newline();
-      }
-    } else {
-      newline();
     }
+    printInstanceVariables();
+    printStaticInterfaceMethods();
     printStaticAccessors();
     println("\n@end");
   }
@@ -384,7 +390,12 @@ public class TypeDeclarationGenerator extends TypeGenerator {
     @Override
     public boolean apply(VariableDeclarationFragment fragment) {
       IVariableBinding var = fragment.getVariableBinding();
-      return !var.getType().isPrimitive() && !BindingUtil.isWeakReference(var);
+      if (BindingUtil.isRetainedWithField(var)) {
+        assert !BindingUtil.isPublic(var) : "@RetainedWith fields cannot be public.";
+        return false;
+      }
+      return !var.getType().isPrimitive() && !BindingUtil.isSynthetic(var)
+          && !BindingUtil.isWeakReference(var);
     }
   };
 
@@ -398,6 +409,9 @@ public class TypeDeclarationGenerator extends TypeGenerator {
     for (VariableDeclarationFragment fragment : fields) {
       IVariableBinding var = fragment.getVariableBinding();
       String typeStr = nameTable.getObjCType(var.getType());
+      if (typeStr.contains(",")) {
+        typeStr = "J2OBJC_ARG(" + typeStr + ')';
+      }
       String fieldName = nameTable.getVariableShortName(var);
       String isVolatile = BindingUtil.isVolatile(var) ? "_VOLATILE" : "";
       println(UnicodeUtils.format("J2OBJC%s_FIELD_SETTER(%s, %s, %s)",
@@ -421,7 +435,7 @@ public class TypeDeclarationGenerator extends TypeGenerator {
   private void printStaticFieldFullDeclaration(VariableDeclarationFragment fragment) {
     IVariableBinding var = fragment.getVariableBinding();
     boolean isVolatile = BindingUtil.isVolatile(var);
-    String objcType = nameTable.getSpecificObjCType(var.getType());
+    String objcType = nameTable.getObjCType(var.getType());
     String objcTypePadded = objcType + (objcType.endsWith("*") ? "" : " ");
     String declType = getDeclarationType(var);
     declType += (declType.endsWith("*") ? "" : " ");
@@ -454,8 +468,10 @@ public class TypeDeclarationGenerator extends TypeGenerator {
   }
 
   private void printTypeLiteralDeclaration() {
-    newline();
-    printf("J2OBJC_TYPE_LITERAL_HEADER(%s)\n", typeName);
+    if (needsTypeLiteral()) {
+      newline();
+      printf("J2OBJC_TYPE_LITERAL_HEADER(%s)\n", typeName);
+    }
   }
 
   private void printBoxedOperators() {
@@ -520,73 +536,31 @@ public class TypeDeclarationGenerator extends TypeGenerator {
     }
   }
 
-  private void printAnnotationProperties() {
-    if (!BindingUtil.isRuntimeAnnotation(typeBinding)) {
-      return;
-    }
-    List<AnnotationTypeMemberDeclaration> members = TreeUtil.getAnnotationMembers(typeNode);
-    if (!members.isEmpty()) {
-      newline();
-    }
-    for (AnnotationTypeMemberDeclaration member : members) {
-      ITypeBinding type = member.getType().getTypeBinding();
-      print("@property (readonly) ");
-      String typeString = nameTable.getSpecificObjCType(type);
-      String propertyName = NameTable.getAnnotationPropertyName(member.getMethodBinding());
-      println(UnicodeUtils.format("%s%s%s;", typeString, typeString.endsWith("*") ? "" : " ",
-          propertyName));
-      if (needsObjcMethodFamilyNoneAttribute(propertyName)) {
-        println(UnicodeUtils.format("- (%s)%s OBJC_METHOD_FAMILY_NONE;", typeString, propertyName));
+  /**
+   * Emit method declaration.
+   *
+   * @param m The method.
+   * @param isCompanionClass If true, emit only if m is a static interface method.
+   */
+  private void printMethodDeclaration(MethodDeclaration m, boolean isCompanionClass) {
+    IMethodBinding methodBinding = m.getMethodBinding();
+    ITypeBinding typeBinding = methodBinding.getDeclaringClass();
+
+    if (typeBinding.isInterface()) {
+      // isCompanion and isStatic must be both false (i.e. this prints a non-static method decl
+      // in @protocol) or must both be true (i.e. this prints a static method decl in the
+      // companion class' @interface).
+      if (isCompanionClass != BindingUtil.isStatic(methodBinding)) {
+        return;
       }
     }
-  }
 
-  private void printAnnotationVariables(List<AnnotationTypeMemberDeclaration> members) {
-    indent();
-    for (AnnotationTypeMemberDeclaration member : members) {
-      printIndent();
-      ITypeBinding type = member.getMethodBinding().getReturnType();
-      print(nameTable.getObjCType(type));
-      if (type.isPrimitive() || type.isInterface()) {
-        print(' ');
-      }
-      print(NameTable.getAnnotationPropertyVariableName(member.getMethodBinding()));
-      println(";");
-    }
-    unindent();
-  }
-
-  private void printAnnotationConstructor(ITypeBinding annotation) {
-    newline();
-    print(getAnnotationConstructorSignature(annotation));
-    println(";");
-  }
-
-  private void printAnnotationAccessors(List<AnnotationTypeMemberDeclaration> members) {
-    boolean printedNewline = false;
-    for (AnnotationTypeMemberDeclaration member : members) {
-      if (member.getDefault() != null) {
-        if (!printedNewline) {
-          newline();
-          printedNewline = true;
-        }
-        ITypeBinding type = member.getType().getTypeBinding();
-        String typeString = nameTable.getSpecificObjCType(type);
-        String propertyName =
-            NameTable.getAnnotationPropertyName(member.getMethodBinding());
-        printf("+ (%s)%sDefault;\n", typeString, propertyName);
-      }
-    }
-  }
-
-  @Override
-  protected void printMethodDeclaration(MethodDeclaration m) {
     newline();
     JavadocGenerator.printDocComment(getBuilder(), m.getJavadoc());
     print(getMethodSignature(m));
-    String methodName = nameTable.getMethodSelector(m.getMethodBinding());
+    String methodName = nameTable.getMethodSelector(methodBinding);
     if (!m.isConstructor() && !BindingUtil.isSynthetic(m.getModifiers())
-        && needsObjcMethodFamilyNoneAttribute(methodName)) {
+        && NameTable.needsObjcMethodFamilyNoneAttribute(methodName)) {
       // Getting around a clang warning.
       // clang assumes that methods with names starting with new, alloc or copy
       // return objects of the same type as the receiving class, regardless of
@@ -602,27 +576,11 @@ public class TypeDeclarationGenerator extends TypeGenerator {
       print(" " + DEPRECATED_ATTRIBUTE);
     }
     println(";");
-
-    // TODO(kstanger): Remove code below when users have migrated.
-    String oldMethodName = nameTable.getMethodSelector(m.getMethodBinding(), true);
-    if (oldMethodName.equals(methodName)) {
-      return;
-    }
-    String[] selParts = methodName.split(":");
-    String[] oldSelParts = oldMethodName.split(":");
-    println("#ifdef J2OBJC_RENAME_ALIASES");
-    for (int i = 0; i < selParts.length; i++) {
-      String part = selParts[i];
-      String oldPart = oldSelParts[i];
-      if (!part.equals(oldPart)) {
-        printf("#define %s %s\n", oldPart, part);
-      }
-    }
-    println("#endif // J2OBJC_RENAME_ALIASES");
   }
 
-  private boolean needsObjcMethodFamilyNoneAttribute(String name) {
-     return FAMILY_METHOD_REGEX.matcher(name).matches();
+  @Override
+  protected void printMethodDeclaration(MethodDeclaration m) {
+    printMethodDeclaration(m, false);
   }
 
   private boolean needsDeprecatedAttribute(List<Annotation> annotations) {
@@ -776,7 +734,7 @@ public class TypeDeclarationGenerator extends TypeGenerator {
           sb.append('\n');
           sb.append(pad(baseLength - selParts[i].length()));
         }
-        String typeName = nameTable.getSpecificObjCType(params[i]);
+        String typeName = nameTable.getObjCType(params[i]);
         sb.append(UnicodeUtils.format("%s:(%s)arg%d", selParts[i], typeName, i));
       }
     }

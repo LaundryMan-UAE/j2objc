@@ -14,6 +14,8 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import javax.lang.model.element.VariableElement;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 
 /**
@@ -21,59 +23,74 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
  */
 public abstract class VariableDeclaration extends TreeNode {
 
-  private IVariableBinding variableBinding;
+  private VariableElement variableElement;
   private int extraDimensions = 0;
   protected ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
   protected ChildLink<Expression> initializer = ChildLink.create(Expression.class, this);
 
-  public VariableDeclaration(org.eclipse.jdt.core.dom.VariableDeclaration jdtNode) {
-    super(jdtNode);
-    variableBinding = jdtNode.resolveBinding();
-    extraDimensions = jdtNode.getExtraDimensions();
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-    initializer.set((Expression) TreeConverter.convert(jdtNode.getInitializer()));
-  }
+  public VariableDeclaration() {}
 
   public VariableDeclaration(VariableDeclaration other) {
     super(other);
-    variableBinding = other.getVariableBinding();
+    variableElement = other.getVariableElement();
     extraDimensions = other.getExtraDimensions();
     name.copyFrom(other.getName());
     initializer.copyFrom(other.getInitializer());
   }
 
+  // TODO(tball): remove when javac migration is complete.
   public VariableDeclaration(IVariableBinding variableBinding, Expression initializer) {
+    this((VariableElement) BindingConverter.getElement(variableBinding), initializer);
+  }
+
+  public VariableDeclaration(VariableElement variableElement, Expression initializer) {
     super();
-    this.variableBinding = variableBinding;
-    name.set(new SimpleName(variableBinding));
+    this.variableElement = variableElement;
+    name.set(new SimpleName(variableElement));
     this.initializer.set(initializer);
   }
 
   public IVariableBinding getVariableBinding() {
-    return variableBinding;
+    return (IVariableBinding) BindingConverter.unwrapElement(variableElement);
+  }
+
+  public VariableElement getVariableElement() {
+    return variableElement;
+  }
+
+  public VariableDeclaration setVariableElement(VariableElement newElement) {
+    variableElement = newElement;
+    return this;
   }
 
   public void setVariableBinding(IVariableBinding newVariableBinding) {
-    variableBinding = newVariableBinding;
+    variableElement = (VariableElement) BindingConverter.getElement(newVariableBinding);
   }
 
   public int getExtraDimensions() {
     return extraDimensions;
   }
 
-  public void setExtraDimensions(int newExtraDimensions) {
+  public VariableDeclaration setExtraDimensions(int newExtraDimensions) {
     extraDimensions = newExtraDimensions;
+    return this;
   }
 
   public SimpleName getName() {
     return name.get();
   }
 
+  public VariableDeclaration setName(SimpleName newName) {
+    name.set(newName);
+    return this;
+  }
+
   public Expression getInitializer() {
     return initializer.get();
   }
 
-  public void setInitializer(Expression newInitializer) {
+  public VariableDeclaration setInitializer(Expression newInitializer) {
     initializer.set(newInitializer);
+    return this;
   }
 }

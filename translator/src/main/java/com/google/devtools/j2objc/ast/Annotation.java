@@ -14,35 +14,41 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IAnnotationBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import javax.lang.model.element.AnnotationMirror;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Base class for annotation nodes.
  */
 public abstract class Annotation extends Expression {
 
-  private IAnnotationBinding annotationBinding = null;
+  private AnnotationMirror annotationMirror = null;
   protected ChildLink<Name> typeName = ChildLink.create(Name.class, this);
 
-  protected Annotation(org.eclipse.jdt.core.dom.Annotation jdtNode) {
-    super(jdtNode);
-    annotationBinding = jdtNode.resolveAnnotationBinding();
-    typeName.set((Name) TreeConverter.convert(jdtNode.getTypeName()));
-  }
+  protected Annotation() {}
 
   protected Annotation(Annotation other) {
     super(other);
-    annotationBinding = other.getAnnotationBinding();
+    annotationMirror = other.getAnnotationMirror();
     typeName.copyFrom(other.getTypeName());
   }
 
-  public IAnnotationBinding getAnnotationBinding() {
-    return annotationBinding;
+  public AnnotationMirror getAnnotationMirror() {
+    return annotationMirror;
+  }
+
+  public Annotation setAnnotationMirror(AnnotationMirror mirror) {
+    annotationMirror = mirror;
+    return this;
   }
 
   public Name getTypeName() {
     return typeName.get();
+  }
+
+  public Annotation setTypeName(Name newName) {
+    typeName.set(newName);
+    return this;
   }
 
   public boolean isSingleMemberAnnotation() {
@@ -50,7 +56,7 @@ public abstract class Annotation extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return annotationBinding.getAnnotationType();
+  public TypeMirror getTypeMirror() {
+    return annotationMirror.getAnnotationType();
   }
 }

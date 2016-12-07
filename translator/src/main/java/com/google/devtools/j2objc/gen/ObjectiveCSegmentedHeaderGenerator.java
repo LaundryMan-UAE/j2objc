@@ -44,13 +44,13 @@ public class ObjectiveCSegmentedHeaderGenerator extends ObjectiveCHeaderGenerato
   protected void generateFileHeader() {
     println("#include \"J2ObjC_header.h\"");
     newline();
-    printf("#pragma push_macro(\"%s_INCLUDE_ALL\")\n", varPrefix);
-    printf("#ifdef %s_RESTRICT\n", varPrefix);
-    printf("#define %s_INCLUDE_ALL 0\n", varPrefix);
+    printf("#pragma push_macro(\"INCLUDE_ALL_%s\")\n", varPrefix);
+    printf("#ifdef RESTRICT_%s\n", varPrefix);
+    printf("#define INCLUDE_ALL_%s 0\n", varPrefix);
     println("#else");
-    printf("#define %s_INCLUDE_ALL 1\n", varPrefix);
+    printf("#define INCLUDE_ALL_%s 1\n", varPrefix);
     println("#endif");
-    printf("#undef %s_RESTRICT\n", varPrefix);
+    printf("#undef RESTRICT_%s\n", varPrefix);
 
     for (GeneratedType type : Lists.reverse(getOrderedTypes())) {
       printLocalIncludes(type);
@@ -80,12 +80,6 @@ public class ObjectiveCSegmentedHeaderGenerator extends ObjectiveCHeaderGenerato
   private void printLocalIncludes(GeneratedType type) {
     String typeName = type.getTypeName();
     Set<Import> includes = type.getHeaderIncludes();
-    if (typeName == null) {
-      // Our type doesn't have a name, it's probably a package declaration.
-      // Our nameless type shouldn't have any includes.
-      assert includes.isEmpty();
-      return;
-    }
     List<Import> localImports = Lists.newArrayList();
     for (Import imp : includes) {
       if (isLocalType(imp.getTypeName())) {
@@ -93,9 +87,9 @@ public class ObjectiveCSegmentedHeaderGenerator extends ObjectiveCHeaderGenerato
       }
     }
     if (!localImports.isEmpty()) {
-      printf("#ifdef %s_INCLUDE\n", typeName);
+      printf("#ifdef INCLUDE_%s\n", typeName);
       for (Import imp : localImports) {
-        printf("#define %s_INCLUDE 1\n", imp.getTypeName());
+        printf("#define INCLUDE_%s 1\n", imp.getTypeName());
       }
       println("#endif");
     }
@@ -106,7 +100,7 @@ public class ObjectiveCSegmentedHeaderGenerator extends ObjectiveCHeaderGenerato
     // Don't need #endif for file-level header guard.
     newline();
     popIgnoreDeprecatedDeclarationsPragma();
-    printf("#pragma pop_macro(\"%s_INCLUDE_ALL\")\n", varPrefix);
+    printf("#pragma pop_macro(\"INCLUDE_ALL_%s\")\n", varPrefix);
   }
 
   @Override
@@ -116,16 +110,9 @@ public class ObjectiveCSegmentedHeaderGenerator extends ObjectiveCHeaderGenerato
     if (code.length() == 0) {
       return;
     }
-    if (typeName == null) {
-      // Must be generated code for a package-info.java file. The header code
-      // will only contain doc-comments, so we skip the header guards.
-      assert type.getHeaderIncludes().isEmpty() && type.getHeaderForwardDeclarations().isEmpty();
-      print(code);
-      return;
-    }
 
     newline();
-    printf("#if !defined (%s_) && (%s_INCLUDE_ALL || defined(%s_INCLUDE))\n",
+    printf("#if !defined (%s_) && (INCLUDE_ALL_%s || defined(INCLUDE_%s))\n",
         typeName, varPrefix, typeName);
     printf("#define %s_\n", typeName);
 
@@ -137,8 +124,8 @@ public class ObjectiveCSegmentedHeaderGenerator extends ObjectiveCHeaderGenerato
         continue;
       }
       newline();
-      printf("#define %s_RESTRICT 1\n", getVarPrefix(imp.getImportFileName()));
-      printf("#define %s_INCLUDE 1\n", imp.getTypeName());
+      printf("#define RESTRICT_%s 1\n", getVarPrefix(imp.getImportFileName()));
+      printf("#define INCLUDE_%s 1\n", imp.getTypeName());
       printf("#include \"%s\"\n", imp.getImportFileName());
       forwardDeclarations.remove(imp);
     }

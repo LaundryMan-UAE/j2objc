@@ -23,7 +23,6 @@ import com.google.common.io.Resources;
 import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.Statement;
-import com.google.devtools.j2objc.ast.TreeConverter;
 import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.file.RegularInputFile;
 import com.google.devtools.j2objc.gen.GenerationUnit;
@@ -36,10 +35,9 @@ import com.google.devtools.j2objc.pipeline.TranslationProcessor;
 import com.google.devtools.j2objc.util.DeadCodeMap;
 import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
-import com.google.devtools.j2objc.util.JdtParser;
 import com.google.devtools.j2objc.util.NameTable;
+import com.google.devtools.j2objc.util.Parser;
 import com.google.devtools.j2objc.util.TimeTracker;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,7 +55,6 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import junit.framework.TestCase;
 
 /**
@@ -70,24 +67,22 @@ import junit.framework.TestCase;
 public class GenerationTest extends TestCase {
 
   protected File tempDir;
-  protected JdtParser parser;
+  protected Parser parser;
   private DeadCodeMap deadCodeMap = null;
+  private DeadCodeMap treeShakerMap = null;
 
   static {
     // Prevents errors and warnings from being printed to the console.
     ErrorUtil.setTestMode();
+    ClassLoader cl = GenerationTest.class.getClassLoader();
+    cl.setPackageAssertionStatus("com.google.devtools.j2objc", true);
   }
 
   @Override
   protected void setUp() throws IOException {
     tempDir = FileUtil.createTempDir("testout");
-    Options.load(new String[]{
-        "-d", tempDir.getAbsolutePath(),
-        "-sourcepath", tempDir.getAbsolutePath(),
-        "-q", // Suppress console output.
-        "-encoding", "UTF-8" // Translate strings correctly when encodings are nonstandard.
-    });
-    parser = initializeParser(tempDir);
+    loadOptions();
+    createParser();
   }
 
   @Override
@@ -97,8 +92,21 @@ public class GenerationTest extends TestCase {
     ErrorUtil.reset();
   }
 
-  protected static JdtParser initializeParser(File tempDir) {
-    JdtParser parser = new JdtParser();
+  protected void loadOptions() throws IOException {
+    Options.load(new String[]{
+        "-d", tempDir.getAbsolutePath(),
+        "-sourcepath", tempDir.getAbsolutePath(),
+        "-q", // Suppress console output.
+        "-encoding", "UTF-8" // Translate strings correctly when encodings are nonstandard.
+    });
+  }
+
+  protected void createParser() {
+    parser = initializeParser(tempDir);
+  }
+
+  protected static Parser initializeParser(File tempDir) {
+    Parser parser = Options.newParser();
     parser.addClasspathEntries(getComGoogleDevtoolsJ2objcPath());
     parser.addSourcepathEntry(tempDir.getAbsolutePath());
     return parser;
@@ -106,6 +114,10 @@ public class GenerationTest extends TestCase {
 
   protected void setDeadCodeMap(DeadCodeMap deadCodeMap) {
     this.deadCodeMap = deadCodeMap;
+  }
+  
+  protected void setTreeShakerMap(DeadCodeMap treeShakerMap) {
+    this.treeShakerMap = treeShakerMap;
   }
 
   protected void addSourcesToSourcepaths() throws IOException {
@@ -144,7 +156,7 @@ public class GenerationTest extends TestCase {
    */
   protected CompilationUnit translateType(String typeName, String source) {
     CompilationUnit newUnit = compileType(typeName, source);
-    TranslationProcessor.applyMutations(newUnit, deadCodeMap, TimeTracker.noop());
+    TranslationProcessor.applyMutations(newUnit, deadCodeMap, treeShakerMap, TimeTracker.noop());
     return newUnit;
   }
 
@@ -160,15 +172,14 @@ public class GenerationTest extends TestCase {
     String path = name.replace('.', '/') + ".java";
     int errors = ErrorUtil.errorCount();
     parser.setEnableDocComments(Options.docCommentsEnabled());
-    org.eclipse.jdt.core.dom.CompilationUnit unit = parser.parseWithBindings(path, source);
+    CompilationUnit unit = parser.parse(mainTypeName, path, source);
     if (ErrorUtil.errorCount() > errors) {
       int newErrorCount = ErrorUtil.errorCount() - errors;
       String info = String.format(
           "%d test compilation error%s", newErrorCount, (newErrorCount == 1 ? "" : "s"));
       failWithMessages(info, ErrorUtil.getErrorMessages().subList(errors, ErrorUtil.errorCount()));
     }
-    return TreeConverter.convertCompilationUnit(
-        unit, path, mainTypeName, source, NameTable.newFactory());
+    return unit;
   }
 
   protected static List<String> getComGoogleDevtoolsJ2objcPath() {
@@ -238,10 +249,9 @@ public class GenerationTest extends TestCase {
         if (nextLine == null) {
           return i;
         }
-        index += nextLine.length() + 1;  // Also skip trailing newline.
         if (!nextLine.trim().equals(lines[i].trim())) {
           // Check if there is a subsequent match.
-          int subsequentMatch = unmatchedLineIndex(s.substring(index), lines);
+          int subsequentMatch = unmatchedLineIndex(s.substring(index + 1), lines);
           if (subsequentMatch == -1) {
             return -1;
           }
@@ -368,7 +378,8 @@ public class GenerationTest extends TestCase {
     List<ProcessingContext> inputs = batch.getInputs();
     parser.setEnableDocComments(Options.docCommentsEnabled());
     new InputFilePreprocessor(parser).processInputs(inputs);
-    new TranslationProcessor(parser, DeadCodeMap.builder().build()).processInputs(inputs);
+    new TranslationProcessor(parser, DeadCodeMap.builder().build(), 
+        DeadCodeMap.builder().build()).processInputs(inputs);
     return getTranslatedFile(outputPath + extension);
   }
 

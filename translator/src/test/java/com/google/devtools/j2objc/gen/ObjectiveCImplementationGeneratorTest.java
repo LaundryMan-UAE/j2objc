@@ -222,7 +222,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
       "Color", "Color.m");
     assertTranslation(translation, "Color *Color_values_[3];");
     assertTranslation(translation, "@implementation Color");
-    assertTranslation(translation, "Color_initWithNSString_withInt_(e, @\"RED\", 0);");
+    assertTranslation(translation, "@\"RED\", @\"WHITE\", @\"BLUE\",");
     assertTranslation(translation, "for (int i = 0; i < 3; i++) {");
     assertTranslation(translation, "Color *e = Color_values_[i];");
   }
@@ -303,8 +303,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertTranslation(translation, "@synthesize fooable = fooable_;");
 
     // Verify constructor generated.
-    assertTranslation(translation, "- (instancetype)initWithFooable:(jboolean)fooable__ {");
-    assertTranslation(translation, "fooable_ = fooable__;");
+    assertTranslation(translation, "id<FooCompatible> create_FooCompatible(jboolean fooable) {");
+    assertTranslation(translation, "fooable_ = fooable;");
 
     // Verify default value accessor.
     assertTranslatedLines(translation,
@@ -542,82 +542,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
       throws IOException {
     String translation = translateSourceFile(
             "class Test { public static String foo; }", "Test", "Test.m");
-
-    assertNotInTranslation(translation, "#pragma clang diagnostic push");
     assertNotInTranslation(translation,
         "#pragma GCC diagnostic ignored \"-Wdeprecated-declarations\"");
-    assertNotInTranslation(translation, "#pragma clang diagnostic pop");
-  }
-
-  public void testMethodAnnotationNoParameters() throws IOException {
-    String translation = translateSourceFile(
-        "import org.junit.*;"
-        + "public class Test { @After void foo() {} }",
-        "Test", "Test.m");
-    assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations_foo {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[OrgJunitAfter alloc] init] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
-  }
-
-  public void testMethodAnnotationWithParameter() throws IOException {
-    String translation = translateSourceFile(
-        "import org.junit.*;"
-        + "public class Test { @After void foo(int i) {} }",
-        "Test", "Test.m");
-    assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations_fooWithInt_ {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[OrgJunitAfter alloc] init] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
-  }
-
-  public void testConstructorAnnotationNoParameters() throws IOException {
-    String translation = translateSourceFile(
-        "public class Test { @Deprecated Test() {} }",
-        "Test", "Test.m");
-    assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations_init {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[JavaLangDeprecated alloc] init] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
-  }
-
-  public void testConstructorAnnotationWithParameter() throws IOException {
-    String translation = translateSourceFile(
-        "public class Test { @Deprecated Test(int i) {} }",
-        "Test", "Test.m");
-    assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations_initWithInt_ {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[JavaLangDeprecated alloc] init] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
-  }
-
-  public void testTypeAnnotationDefaultParameter() throws IOException {
-    String translation = translateSourceFile(
-        "import org.junit.*;"
-        + "@Ignore public class Test { void test() {} }",
-        "Test", "Test.m");
-    assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[OrgJunitIgnore alloc] initWithValue:@\"\"] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
-  }
-
-  public void testTypeAnnotationWithParameter() throws IOException {
-    String translation = translateSourceFile(
-        "import org.junit.*;"
-        + "@Ignore(\"some \\\"escaped\\n comment\") public class Test { void test() {} }",
-        "Test", "Test.m");
-    assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[OrgJunitIgnore alloc] initWithValue:"
-        + "@\"some \\\"escaped\\n comment\"] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
   }
 
   public void testFreeFormNativeCode() throws IOException {
@@ -677,41 +603,6 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertTranslation(translation, "@synchronized(self)");
   }
 
-  public void testMethodMetadata() throws IOException {
-    String translation = translateSourceFile(
-        // Separate methods are used so each only has one modifier.
-        "abstract class Test<T> { "
-        + " Object test1() { return null; }"  // package-private
-        + " private char test2() { return 'a'; }"
-        + " protected void test3() { }"
-        + " final long test4() { return 0L; }"
-        + " synchronized boolean test5() { return false; }"
-        + " String test6(String s, Object... args) { return null; }"
-        + " native void test7() /*-[ exit(0); ]-*/; "
-        + " abstract void test8() throws InterruptedException, Error; "
-        + " abstract T test9();"
-        + " abstract void test10(int i, T t);"
-        + " abstract <V,X> void test11(V one, X two, T three);"
-        + "}",
-        "Test", "Test.m");
-    assertTranslation(translation, "{ \"test1\", NULL, \"Ljava.lang.Object;\", 0x0, NULL, NULL },");
-    assertTranslation(translation, "{ \"test2\", NULL, \"C\", 0x2, NULL, NULL },");
-    assertTranslation(translation, "{ \"test3\", NULL, \"V\", 0x4, NULL, NULL },");
-    assertTranslation(translation, "{ \"test4\", NULL, \"J\", 0x10, NULL, NULL },");
-    assertTranslation(translation, "{ \"test5\", NULL, \"Z\", 0x20, NULL, NULL },");
-    assertTranslation(translation, "{ \"test6WithNSString:withNSObjectArray:\", "
-        + "\"test6\", \"Ljava.lang.String;\", 0x80, NULL, NULL }");
-    assertTranslation(translation, "{ \"test7\", NULL, \"V\", 0x100, NULL, NULL },");
-    assertTranslation(translation, "{ \"test8\", NULL, \"V\", 0x400, "
-        + "\"Ljava.lang.InterruptedException;Ljava.lang.Error;\", NULL },");
-    assertTranslation(translation, "{ \"test9\", NULL, \"TT;\", 0x400, NULL, \"()TT;\" },");
-    assertTranslation(translation,
-        "{ \"test10WithInt:withId:\", \"test10\", \"V\", 0x400, NULL, \"(ITT;)V\" },");
-    assertTranslation(translation,
-        "{ \"test11WithId:withId:withId:\", \"test11\", \"V\", 0x400, NULL, "
-        + "\"<V:Ljava/lang/Object;X:Ljava/lang/Object;>(TV;TX;TT;)V\" },");
-  }
-
   public void testAnnotationWithField() throws IOException {
     String translation = translateSourceFile(
         "@interface Test { String FOO = \"foo\"; int I = 5; }", "Test", "Test.h");
@@ -755,8 +646,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertTranslatedLines(translation, "/*!", "@brief A package doc-comment.", "*/");
     translation = getTranslatedFile("foo/bar/mumble/package-info.m");
     assertTranslation(translation, "@implementation FooBarMumblepackage_info");
-    assertTranslation(translation, "+ (IOSObjectArray *)__annotations");
-    assertTranslation(translation, "[FooAnnotationsTest alloc]");
+    assertTranslation(translation, "IOSObjectArray *FooBarMumblepackage_info__Annotations$0() {");
+    assertTranslation(translation, "create_FooAnnotationsTest()");
   }
 
   public void testPackageInfoAnnotationNoDoc() throws IOException {
@@ -775,8 +666,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertNotInTranslation(translation, "/**");
     translation = getTranslatedFile("foo/bar/mumble/package-info.m");
     assertTranslation(translation, "@implementation FooBarMumblepackage_info");
-    assertTranslation(translation, "+ (IOSObjectArray *)__annotations");
-    assertTranslation(translation, "[FooAnnotationsTest alloc]");
+    assertTranslation(translation, "IOSObjectArray *FooBarMumblepackage_info__Annotations$0() {");
+    assertTranslation(translation, "create_FooAnnotationsTest()");
   }
 
   public void testPackageInfoDocNoAnnotation() throws IOException {
@@ -839,7 +730,7 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     compileArgs.add("-encoding");
     compileArgs.add(Options.getCharset().name());
     compileArgs.add("-source");
-    compileArgs.add("1.6");
+    compileArgs.add("1.7");
     compileArgs.add(tempDir.getAbsolutePath() + "/src/foo/bar/mumble/package-info.java");
     org.eclipse.jdt.internal.compiler.batch.Main batchCompiler =
         new org.eclipse.jdt.internal.compiler.batch.Main(
@@ -890,14 +781,6 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
     assertTranslation(translation, "JavaLangCharSequence_class_()");
   }
 
-  public void testMetadataHeaderGeneration() throws IOException {
-    String translation = translateSourceFile("package foo; class Test {}", "Test", "foo/Test.m");
-    assertTranslation(translation, "+ (const J2ObjcClassInfo *)__metadata");
-    assertTranslation(translation, "static const J2ObjcClassInfo _FooTest = { "
-        + Integer.toString(MetadataGenerator.METADATA_VERSION)
-        + ", \"Test\", \"foo\"");
-  }
-
   public void testReservedWordAsAnnotationPropertyName() throws IOException {
     String translation = translateSourceFile(
         "package foo; import java.lang.annotation.*; @Retention(RetentionPolicy.RUNTIME) "
@@ -905,9 +788,8 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "class Test { Bar ann; String namespace() { return ann.namespace(); }}",
         "Bar", "foo/Bar.m");
     assertTranslation(translation, "@synthesize namespace__ = namespace___;");
-    assertTranslation(translation,
-        "- (instancetype)initWithNamespace__:(NSString *)namespace____ {");
-    assertTranslation(translation, "self->namespace___ = RETAIN_(namespace____);");
+    assertTranslation(translation, "id<FooBar> create_FooBar(NSString *namespace__) {");
+    assertTranslation(translation, "self->namespace___ = RETAIN_(namespace__);");
     assertTranslation(translation, "+ (NSString *)namespace__Default {");
   }
 
@@ -937,73 +819,6 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         "}");
   }
 
-  public void testAnnotationMetadata() throws IOException {
-    String translation = translateSourceFile(
-        "import java.lang.annotation.*; @Retention(RetentionPolicy.RUNTIME) @interface Test { "
-        + " String foo() default \"bar\";"
-        + " int num() default 5;"
-        + "}",
-        "Test", "Test.m");
-    assertTranslation(translation,
-        "{ \"fooDefault\", \"foo\", \"Ljava.lang.String;\", 0x100a, NULL, NULL },");
-    assertTranslation(translation, "{ \"numDefault\", \"num\", \"I\", 0x100a, NULL, NULL },");
-  }
-
-  // Verify that a class with an annotation with a reserved name property is
-  // created in the __annotations support method with that reserved name in the
-  // constructor.
-  public void testReservedWordAsAnnotationConstructorParameter() throws IOException {
-    String translation = translateSourceFile(
-        "package foo; import java.lang.annotation.*; @Retention(RetentionPolicy.RUNTIME) "
-        + "public @interface Bar { String namespace() default \"\"; } "
-        + "@Bar(namespace=\"mynames\") class Test {}",
-        "Bar", "foo/Bar.m");
-    assertTranslatedLines(translation, "+ (IOSObjectArray *)__annotations {",
-        "return [IOSObjectArray arrayWithObjects:(id[]) "
-        + "{ [[[FooBar alloc] initWithNamespace__:@\"mynames\"] autorelease] } "
-        + "count:1 type:JavaLangAnnotationAnnotation_class_()];");
-  }
-
-  public void testInnerClassesMetadata() throws IOException {
-    String translation = translateSourceFile(
-        " class A {"
-        + "class B {"
-        + "  class InnerInner{}}"
-        + "static class C {"
-        + "  Runnable test() {"
-        + "    return new Runnable() { public void run() {}};}}"
-        + "interface D {}"
-        + "@interface E {}"
-        + "}"
-        , "A", "A.m");
-    assertTranslation(translation,
-        "static const char *inner_classes[] = {\"LA$B;\", \"LA$C;\", \"LA$D;\", \"LA$E;\"};");
-    assertTranslation(translation,
-        "static const J2ObjcClassInfo _A = { 2, \"A\", NULL, NULL, 0x0, 1, methods, "
-        + "0, NULL, 0, NULL, 4, inner_classes, NULL, NULL };");
-  }
-
-  public void testEnclosingMethodAndConstructor() throws IOException {
-    String translation = translateSourceFile(
-        "class A { A(String s) { class B {}} void test(int i, long l) { class C { class D {}}}}",
-        "A", "A.m");
-    assertTranslatedLines(translation,
-        "static const J2ObjCEnclosingMethodInfo "
-        + "enclosing_method = { \"A\", \"initWithNSString:\" };",
-        "static const J2ObjcClassInfo _A_1B = { 2, \"B\", NULL, \"A\", 0x0, 1, methods, "
-        + "0, NULL, 0, NULL, 0, NULL, &enclosing_method, NULL };");
-    assertTranslatedLines(translation,
-        "static const J2ObjCEnclosingMethodInfo "
-        + "enclosing_method = { \"A\", \"testWithInt:withLong:\" };",
-        "static const J2ObjcClassInfo _A_1C = { 2, \"C\", NULL, \"A\", 0x0, 1, methods, "
-        + "0, NULL, 0, NULL, 1, inner_classes, &enclosing_method, NULL };");
-
-    // Verify D is not enclosed by test(), as it's enclosed by C.
-    assertTranslation(translation,
-        "J2ObjcClassInfo _A_1C_D = { 2, \"D\", NULL, \"A$C\", 0x0, 1, methods, "
-        + "0, NULL, 0, NULL, 0, NULL, NULL, NULL }");
-  }
-
   public void testAnnotationsAsAnnotationValues() throws IOException {
     String translation = translateSourceFile(
         "import java.lang.annotation.*; "
@@ -1012,7 +827,6 @@ public class ObjectiveCImplementationGeneratorTest extends GenerationTest {
         + "@Retention(RetentionPolicy.RUNTIME) @interface Inner { String name(); }"
         + "@Outer(innerAnnotation=@Inner(name=\"Bar\")) class Foo {}}",
         "A", "A.m");
-    assertTranslation(translation,
-        "[[[A_Outer alloc] initWithInnerAnnotation:[[[A_Inner alloc] initWithName:@\"Bar\"]");
+    assertTranslation(translation, "create_A_Outer(create_A_Inner(@\"Bar\"))");
   }
 }

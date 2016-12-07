@@ -15,41 +15,29 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.common.base.Preconditions;
-
-import org.eclipse.jdt.core.dom.IPackageBinding;
-
 import java.util.List;
+import javax.lang.model.element.PackageElement;
 
 /**
  * Tree node for a package declaration.
  */
 public class PackageDeclaration extends TreeNode {
 
-  private IPackageBinding packageBinding = null;
+  private PackageElement packageElement = null;
   private ChildLink<Javadoc> javadoc = ChildLink.create(Javadoc.class, this);
   private ChildList<Annotation> annotations = ChildList.create(Annotation.class, this);
   private ChildLink<Name> name = ChildLink.create(Name.class, this);
 
-  public PackageDeclaration(org.eclipse.jdt.core.dom.PackageDeclaration jdtNode) {
-    super(jdtNode);
-    packageBinding = jdtNode.resolveBinding();
-    javadoc.set((Javadoc) TreeConverter.convert(jdtNode.getJavadoc()));
-    for (Object modifier : jdtNode.annotations()) {
-      annotations.add((Annotation) TreeConverter.convert(modifier));
-    }
-    name.set((Name) TreeConverter.convert(jdtNode.getName()));
-  }
-
   public PackageDeclaration(PackageDeclaration other) {
     super(other);
-    packageBinding = other.getPackageBinding();
+    packageElement = other.getPackageElement();
     javadoc.copyFrom(other.getJavadoc());
     annotations.copyFrom(other.getAnnotations());
     name.copyFrom(other.getName());
   }
 
-  // Used by CompilationUnit to represent the default package.
-  PackageDeclaration() {
+  // An unmodified instance represents the default package.
+  public PackageDeclaration() {
     name.set(new SimpleName(""));
   }
 
@@ -58,24 +46,40 @@ public class PackageDeclaration extends TreeNode {
     return Kind.PACKAGE_DECLARATION;
   }
 
-  public IPackageBinding getPackageBinding() {
-    return packageBinding;
+  public PackageElement getPackageElement() {
+    return packageElement;
+  }
+
+  public PackageDeclaration setPackageElement(PackageElement newElement) {
+    packageElement = newElement;
+    return this;
   }
 
   public Name getName() {
     return name.get();
   }
 
-  public void setName(Name newName) {
+  public PackageDeclaration setName(Name newName) {
     name.set(newName);
+    return this;
   }
 
   public Javadoc getJavadoc() {
     return javadoc.get();
   }
 
+  public PackageDeclaration setJavadoc(Javadoc doc) {
+    javadoc.set(doc);
+    return this;
+  }
+
   public List<Annotation> getAnnotations() {
     return annotations;
+  }
+
+  public PackageDeclaration addAnnotation(Annotation a) {
+    annotations.add(a);
+    return this;
   }
 
   @Override

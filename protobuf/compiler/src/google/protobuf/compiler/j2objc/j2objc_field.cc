@@ -34,10 +34,7 @@
 
 #include <google/protobuf/compiler/j2objc/j2objc_field.h>
 
-#include <google/protobuf/stubs/common.h>
 #include <google/protobuf/compiler/j2objc/j2objc_helpers.h>
-#include <google/protobuf/io/printer.h>
-#include <google/protobuf/stubs/strutil.h>
 
 namespace google {
 namespace protobuf {
@@ -62,11 +59,11 @@ namespace {
 
   string GetStorageType(const FieldDescriptor *descriptor) {
     switch (GetJavaType(descriptor)) {
-      case JAVATYPE_INT: return "int";
-      case JAVATYPE_LONG: return "long long int";
-      case JAVATYPE_FLOAT: return "float";
-      case JAVATYPE_DOUBLE: return "double";
-      case JAVATYPE_BOOLEAN: return "BOOL";
+      case JAVATYPE_INT: return "jint";
+      case JAVATYPE_LONG: return "jlong";
+      case JAVATYPE_FLOAT: return "jfloat";
+      case JAVATYPE_DOUBLE: return "jdouble";
+      case JAVATYPE_BOOLEAN: return "jboolean";
       case JAVATYPE_STRING: return "NSString *";
       case JAVATYPE_BYTES: return "ComGoogleProtobufByteString *";
       case JAVATYPE_ENUM:
@@ -295,7 +292,7 @@ void RepeatedFieldGenerator::GenerateDeclaration(io::Printer* printer) const {
 FieldGeneratorMap::FieldGeneratorMap(const Descriptor* descriptor)
   : descriptor_(descriptor),
     field_generators_(
-        new scoped_ptr<FieldGenerator>[descriptor->field_count()]) {
+        new std::unique_ptr<FieldGenerator>[descriptor->field_count()]) {
 
   // Construct all the FieldGenerators.
   for (int i = 0; i < descriptor->field_count(); i++) {

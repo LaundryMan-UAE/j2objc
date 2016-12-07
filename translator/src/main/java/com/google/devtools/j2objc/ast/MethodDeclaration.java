@@ -14,39 +14,32 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.ExecutableElement;
+import org.eclipse.jdt.core.dom.IMethodBinding;
 
 /**
  * Node type for a method declaration.
  */
 public class MethodDeclaration extends BodyDeclaration {
 
-  private IMethodBinding methodBinding = null;
+  private ExecutableElement executableElement = null;
   private boolean isConstructor = false;
+  private boolean hasDeclaration = true;
   private ChildLink<Type> returnType = ChildLink.create(Type.class, this);
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
   private ChildList<SingleVariableDeclaration> parameters =
       ChildList.create(SingleVariableDeclaration.class, this);
   private ChildLink<Block> body = ChildLink.create(Block.class, this);
 
-  public MethodDeclaration(org.eclipse.jdt.core.dom.MethodDeclaration jdtNode) {
-    super(jdtNode);
-    methodBinding = jdtNode.resolveBinding();
-    isConstructor = jdtNode.isConstructor();
-    returnType.set((Type) TreeConverter.convert(jdtNode.getReturnType2()));
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-    for (Object param : jdtNode.parameters()) {
-      parameters.add((SingleVariableDeclaration) TreeConverter.convert(param));
-    }
-    body.set((Block) TreeConverter.convert(jdtNode.getBody()));
-  }
+  public MethodDeclaration() {}
 
   public MethodDeclaration(MethodDeclaration other) {
     super(other);
-    methodBinding = other.getMethodBinding();
+    executableElement = other.getExecutableElement();
     isConstructor = other.isConstructor();
+    hasDeclaration = other.hasDeclaration();
     returnType.copyFrom(other.getReturnType());
     name.copyFrom(other.getName());
     parameters.copyFrom(other.getParameters());
@@ -55,10 +48,14 @@ public class MethodDeclaration extends BodyDeclaration {
 
   public MethodDeclaration(IMethodBinding methodBinding) {
     super(methodBinding);
-    this.methodBinding = methodBinding;
+    executableElement = BindingConverter.getExecutableElement(methodBinding);
     isConstructor = methodBinding.isConstructor();
     returnType.set(Type.newType(methodBinding.getReturnType()));
     name.set(new SimpleName(methodBinding));
+  }
+
+  public MethodDeclaration(ExecutableElement method) {
+    this((IMethodBinding) BindingConverter.unwrapElement(method));
   }
 
   @Override
@@ -67,27 +64,60 @@ public class MethodDeclaration extends BodyDeclaration {
   }
 
   public IMethodBinding getMethodBinding() {
-    return methodBinding;
+    return BindingConverter.unwrapExecutableElement(executableElement);
+  }
+
+  public ExecutableElement getExecutableElement() {
+    return executableElement;
   }
 
   public void setMethodBinding(IMethodBinding newMethodBinding) {
-    methodBinding = newMethodBinding;
+    executableElement = BindingConverter.getExecutableElement(newMethodBinding);
+  }
+
+  public MethodDeclaration setExecutableElement(ExecutableElement newElement) {
+    executableElement = newElement;
+    return this;
   }
 
   public boolean isConstructor() {
     return isConstructor;
   }
 
+  public MethodDeclaration setIsConstructor(boolean value) {
+    isConstructor = value;
+    return this;
+  }
+
+  public boolean hasDeclaration() {
+    return hasDeclaration;
+  }
+
+  public MethodDeclaration setHasDeclaration(boolean value) {
+    hasDeclaration = value;
+    return this;
+  }
+
   public Type getReturnType() {
     return returnType.get();
+  }
+
+  public MethodDeclaration setReturnType(Type newType) {
+    returnType.set(newType);
+    return this;
   }
 
   public SimpleName getName() {
     return name.get();
   }
 
-  public void setName(SimpleName newName) {
+  public MethodDeclaration setName(SimpleName newName) {
     name.set(newName);
+    return this;
+  }
+
+  public SingleVariableDeclaration getParameter(int index) {
+    return parameters.get(index);
   }
 
   public List<SingleVariableDeclaration> getParameters() {
@@ -98,8 +128,9 @@ public class MethodDeclaration extends BodyDeclaration {
     return body.get();
   }
 
-  public void setBody(Block newBody) {
+  public MethodDeclaration setBody(Block newBody) {
     body.set(newBody);
+    return this;
   }
 
   @Override
@@ -118,5 +149,15 @@ public class MethodDeclaration extends BodyDeclaration {
   @Override
   public MethodDeclaration copy() {
     return new MethodDeclaration(this);
+  }
+
+  public MethodDeclaration addParameter(SingleVariableDeclaration param) {
+    parameters.add(param);
+    return this;
+  }
+
+  public MethodDeclaration addParameter(int index, SingleVariableDeclaration param) {
+    parameters.add(index, param);
+    return this;
   }
 }

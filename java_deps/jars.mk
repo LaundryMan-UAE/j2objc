@@ -14,6 +14,8 @@
 #
 # Author: Keith Stanger
 
+JARJAR_HOME = jarjar
+JARJAR_JAR = jarjar-1.4.jar
 JAVA_DEPS_JAR_DIR = $(J2OBJC_ROOT)/java_deps/$(BUILD_DIR_NAME)
 JUNIT_JAR = j2objc_junit.jar
 
@@ -31,8 +33,6 @@ ECLIPSE_JARS = \
 
 GUAVA_JAR = guava-19.0.jar
 GUAVA_SOURCE_JAR = guava-19.0-sources.jar
-JODA_CONVERT_JAR=joda-convert-1.7.jar
-JODA_TIME_JAR = joda-time-b9fe534c7f.jar
 
 JSR305_JAR = jsr305-3.0.0.jar
 JSR305_SOURCE_JAR = jsr305-3.0.0.jar
@@ -48,8 +48,10 @@ HAMCREST_SOURCE_JAR = hamcrest-core-1.3-sources.jar
 MOCKITO_JAR = mockito-core-1.9.5.jar
 MOCKITO_SOURCE_JAR = mockito-core-1.9.5-sources.jar
 
-JARJAR = jarjar-1.3.jar
+JAVAC_JAR = tools.jar
 
 DOCLAVA_JAR = doclava-1.0.6.jar
 JSILVER_JAR = jsilver-1.0.0.jar
 ASM_JAR = asm-5.0.4.jar
+
+PROTOBUF_JAR = protobuf-java-2.6.1.jar

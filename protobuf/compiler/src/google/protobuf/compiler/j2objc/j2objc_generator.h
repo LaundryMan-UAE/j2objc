@@ -38,11 +38,9 @@
 #ifndef GOOGLE_PROTOBUF_COMPILER_J2OBJC_GENERATOR_H__
 #define GOOGLE_PROTOBUF_COMPILER_J2OBJC_GENERATOR_H__
 
-#include <google/protobuf/compiler/code_generator.h>
-
 #include <string>
 
-#include <google/protobuf/stubs/common.h>
+#include "google/protobuf/compiler/j2objc/common.h"
 
 namespace google {
 namespace protobuf {

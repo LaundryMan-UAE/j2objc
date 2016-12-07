@@ -14,55 +14,57 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.IMethodBinding;
 
 /**
  * Node type for constructing a new instance. (e.g. "new Foo()")
  */
 public class ClassInstanceCreation extends Expression {
 
-  private IMethodBinding methodBinding = null;
+  private ExecutableElement method = null;
   // Indicates that this expression leaves the created object with a retain
   // count of 1. (i.e. does not call autorelease)
   private boolean hasRetainedResult = false;
   private ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
+  // Used by anonymous classes where we have two outer scopes, one for the class and one for the
+  // superclass.
+  private ChildLink<Expression> superOuterArg = ChildLink.create(Expression.class, this);
+  private ChildList<Expression> captureArgs = ChildList.create(Expression.class, this);
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
   private ChildList<Expression> arguments = ChildList.create(Expression.class, this);
   private ChildLink<AnonymousClassDeclaration> anonymousClassDeclaration =
       ChildLink.create(AnonymousClassDeclaration.class, this);
 
-  public ClassInstanceCreation(org.eclipse.jdt.core.dom.ClassInstanceCreation jdtNode) {
-    super(jdtNode);
-    methodBinding = jdtNode.resolveConstructorBinding();
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-    for (Object argument : jdtNode.arguments()) {
-      arguments.add((Expression) TreeConverter.convert(argument));
-    }
-    anonymousClassDeclaration.set(
-        (AnonymousClassDeclaration) TreeConverter.convert(jdtNode.getAnonymousClassDeclaration()));
-  }
+  public ClassInstanceCreation() {}
 
   public ClassInstanceCreation(ClassInstanceCreation other) {
     super(other);
-    methodBinding = other.getMethodBinding();
+    method = other.getExecutableElement();
     hasRetainedResult = other.hasRetainedResult();
     expression.copyFrom(other.getExpression());
+    superOuterArg.copyFrom(other.getSuperOuterArg());
+    captureArgs.copyFrom(other.getCaptureArgs());
     type.copyFrom(other.getType());
     arguments.copyFrom(other.getArguments());
     anonymousClassDeclaration.copyFrom(other.getAnonymousClassDeclaration());
   }
 
+  public ClassInstanceCreation(ExecutableElement method, Type type) {
+    this.method = method;
+    this.type.set(type);
+  }
+
   public ClassInstanceCreation(IMethodBinding methodBinding, Type type) {
-    this.methodBinding = methodBinding;
+    method = BindingConverter.getExecutableElement(methodBinding);
     this.type.set(type);
   }
 
   public ClassInstanceCreation(IMethodBinding methodBinding) {
-    this.methodBinding = methodBinding;
+    method = BindingConverter.getExecutableElement(methodBinding);
     type.set(Type.newType(methodBinding.getDeclaringClass()));
   }
 
@@ -72,16 +74,26 @@ public class ClassInstanceCreation extends Expression {
   }
 
   public IMethodBinding getMethodBinding() {
-    return methodBinding;
+    return (IMethodBinding) BindingConverter.unwrapElement(method);
   }
 
-  public void setMethodBinding(IMethodBinding newMethodBinding) {
-    methodBinding = newMethodBinding;
+  public void setMethodBinding(IMethodBinding methodBinding) {
+    method = BindingConverter.getExecutableElement(methodBinding);
+  }
+
+  public ExecutableElement getExecutableElement() {
+    return method;
+  }
+
+  public ClassInstanceCreation setExecutableElement(ExecutableElement element) {
+    method = element;
+    return this;
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return methodBinding != null ? methodBinding.getDeclaringClass() : null;
+  public TypeMirror getTypeMirror() {
+    return method != null
+        ? method.getEnclosingElement().asType() : null;
   }
 
   public boolean hasRetainedResult() {
@@ -96,16 +108,45 @@ public class ClassInstanceCreation extends Expression {
     return expression.get();
   }
 
-  public void setExpression(Expression newExpression) {
+  public ClassInstanceCreation setExpression(Expression newExpression) {
     expression.set(newExpression);
+    return this;
+  }
+
+  public Expression getSuperOuterArg() {
+    return superOuterArg.get();
+  }
+
+  public ClassInstanceCreation setSuperOuterArg(Expression newSuperOuterArg) {
+    superOuterArg.set(newSuperOuterArg);
+    return this;
+  }
+
+  public List<Expression> getCaptureArgs() {
+    return captureArgs;
   }
 
   public Type getType() {
     return type.get();
   }
 
-  public void setType(Type newType) {
+  public ClassInstanceCreation setType(Type newType) {
     type.set(newType);
+    return this;
+  }
+
+  public ClassInstanceCreation addArgument(Expression arg) {
+    arguments.add(arg);
+    return this;
+  }
+
+  public ClassInstanceCreation addArgument(int index, Expression arg) {
+    arguments.add(index, arg);
+    return this;
+  }
+
+  public Expression getArgument(int index) {
+    return arguments.get(index);
   }
 
   public List<Expression> getArguments() {
@@ -116,14 +157,18 @@ public class ClassInstanceCreation extends Expression {
     return anonymousClassDeclaration.get();
   }
 
-  public void setAnonymousClassDeclaration(AnonymousClassDeclaration newAnonymousClassDeclaration) {
+  public ClassInstanceCreation setAnonymousClassDeclaration(
+      AnonymousClassDeclaration newAnonymousClassDeclaration) {
     anonymousClassDeclaration.set(newAnonymousClassDeclaration);
+    return this;
   }
 
   @Override
   protected void acceptInner(TreeVisitor visitor) {
     if (visitor.visit(this)) {
       expression.accept(visitor);
+      superOuterArg.accept(visitor);
+      captureArgs.accept(visitor);
       type.accept(visitor);
       arguments.accept(visitor);
       anonymousClassDeclaration.accept(visitor);

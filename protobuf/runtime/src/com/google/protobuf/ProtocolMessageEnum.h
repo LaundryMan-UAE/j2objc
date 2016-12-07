@@ -32,14 +32,17 @@
 //
 //  Hand written counterpart of com.google.protobuf.ProtocolMessageEnum
 
-#ifndef __ComGoogleProtobufProtocolMessageEnum_H__
-#define __ComGoogleProtobufProtocolMessageEnum_H__
+#ifndef ComGoogleProtobufProtocolMessageEnum_H
+#define ComGoogleProtobufProtocolMessageEnum_H
+
+#include "com/google/protobuf/Internal.h"
+#include "J2ObjC_header.h"
 
 @class ComGoogleProtobufDescriptors_EnumValueDescriptor;
 
-@protocol ComGoogleProtobufProtocolMessageEnum
+@protocol ComGoogleProtobufProtocolMessageEnum <ComGoogleProtobufInternal_EnumLite, JavaObject>
 
-- (int)getNumber;
+- (jint)getNumber;
 
 - (ComGoogleProtobufDescriptors_EnumValueDescriptor *)getValueDescriptor;
 
@@ -49,4 +52,4 @@ J2OBJC_EMPTY_STATIC_INIT(ComGoogleProtobufProtocolMessageEnum)
 
 J2OBJC_TYPE_LITERAL_HEADER(ComGoogleProtobufProtocolMessageEnum)
 
-#endif // __ComGoogleProtobufProtocolMessageEnum_H__
+#endif // ComGoogleProtobufProtocolMessageEnum_H

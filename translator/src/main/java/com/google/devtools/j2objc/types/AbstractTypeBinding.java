@@ -14,20 +14,26 @@
 
 package com.google.devtools.j2objc.types;
 
+import com.google.devtools.j2objc.jdt.JdtMethodBinding;
+import com.google.devtools.j2objc.jdt.JdtTypeBinding;
+import com.google.devtools.j2objc.jdt.JdtVariableBinding;
 import org.eclipse.jdt.core.dom.IAnnotationBinding;
 import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.IPackageBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 
 /**
- * Abstract base class for ITypeBinding providing default implementations for
+ * Abstract base class for JdtTypeBinding providing default implementations for
  * most interface methods.
  *
  * @author Keith Stanger
  */
-public abstract class AbstractTypeBinding extends AbstractBinding implements ITypeBinding {
+public abstract class AbstractTypeBinding extends JdtTypeBinding {
+
+  protected AbstractTypeBinding() {
+    super(null);
+  }
 
   @Override
   public int getKind() {
@@ -51,7 +57,7 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
 
   @Override
   public ITypeBinding[] getInterfaces() {
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
@@ -161,12 +167,12 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
 
   @Override
   public IVariableBinding[] getDeclaredFields() {
-    return new IVariableBinding[0];
+    return new JdtVariableBinding[0];
   }
 
   @Override
   public IMethodBinding[] getDeclaredMethods() {
-    return new IMethodBinding[0];
+    return new JdtMethodBinding[0];
   }
 
   @Override
@@ -176,7 +182,7 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
 
   @Override
   public ITypeBinding[] getDeclaredTypes() {
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
@@ -200,23 +206,18 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
   }
 
   @Override
-  public IPackageBinding getPackage() {
-    return null;
-  }
-
-  @Override
   public ITypeBinding getSuperclass() {
     return null;
   }
 
   @Override
   public ITypeBinding[] getTypeArguments() {
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
   public ITypeBinding[] getTypeBounds() {
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
@@ -226,7 +227,7 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
 
   @Override
   public ITypeBinding[] getTypeParameters() {
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
@@ -250,12 +251,12 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
   }
 
   @Override
-  public boolean isCastCompatible(ITypeBinding type) {
+  public boolean isCastCompatible(JdtTypeBinding type) {
     return isEqualTo(type);
   }
 
   @Override
-  public boolean isSubTypeCompatible(ITypeBinding type) {
+  public boolean isSubTypeCompatible(JdtTypeBinding type) {
     throw new AssertionError("not implemented");
   }
 
@@ -264,10 +265,6 @@ public abstract class AbstractTypeBinding extends AbstractBinding implements ITy
   }
 
   public IAnnotationBinding[] getTypeAnnotations() {
-    return null;
-  }
-
-  public IBinding getDeclaringMember() {
     return null;
   }
 }

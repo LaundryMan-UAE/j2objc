@@ -21,11 +21,6 @@ public class BreakStatement extends Statement {
 
   private ChildLink<SimpleName> label = ChildLink.create(SimpleName.class, this);
 
-  public BreakStatement(org.eclipse.jdt.core.dom.BreakStatement jdtNode) {
-    super(jdtNode);
-    label.set((SimpleName) TreeConverter.convert(jdtNode.getLabel()));
-  }
-
   public BreakStatement(BreakStatement other) {
     super(other);
     label.copyFrom(other.getLabel());
@@ -42,8 +37,9 @@ public class BreakStatement extends Statement {
     return label.get();
   }
 
-  public void setLabel(SimpleName newLabel) {
+  public BreakStatement setLabel(SimpleName newLabel) {
     label.set(newLabel);
+    return this;
   }
 
   @Override

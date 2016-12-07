@@ -41,14 +41,17 @@
     @throw AUTORELEASE([[JavaLangCloneNotSupportedException alloc] init]);
   }
 
-  // Deliberately not calling "init" on the cloned object. To match Java's
-  // behavior we simply copy the data. However we must additionally retain all
-  // fields with object type.
-  Class cls = [self class];
+  // Use the Java getClass method because it returns the class we want in case
+  // self's class hass been swizzled by a WeakReference or RetainedWith field.
+  Class cls = [self getClass].objcClass;
   size_t instanceSize = class_getInstanceSize(cls);
   // We don't want to copy the NSObject portion of the object, in particular the
   // isa pointer, because it may contain the retain count.
   size_t nsObjectSize = class_getInstanceSize([NSObject class]);
+
+  // Deliberately not calling "init" on the cloned object. To match Java's
+  // behavior we simply copy the data. However we must additionally retain all
+  // fields with object type.
   id clone = AUTORELEASE([cls alloc]);
   memcpy((char *)clone + nsObjectSize, (char *)self + nsObjectSize, instanceSize - nsObjectSize);
 
@@ -167,24 +170,42 @@ static void doWait(id obj, long long timeout) {
 }
 
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "init", "Object", NULL, 0x1, NULL, NULL },
-    { "getClass", NULL, "Ljava.lang.Class;", 0x11, NULL, "()Ljava/lang/Class<*>;" },
-    { "hash", "hashCode", "I", 0x1, NULL, NULL },
-    { "isEqual:", "equals", "Z", 0x1, NULL, NULL },
-    { "clone", NULL, "Ljava.lang.Object;", 0x4, "Ljava.lang.CloneNotSupportedException;", NULL },
-    { "description", "toString", "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "javaFinalize", "finalize", "V", 0x4, "Ljava.lang.Throwable;", NULL },
-    { "notify", NULL, "V", 0x11, NULL, NULL },
-    { "notifyAll", NULL, "V", 0x11, NULL, NULL },
-    { "waitWithLong:", "wait", "V", 0x11, "Ljava.lang.InterruptedException;", NULL },
-    { "waitWithLong:withInt:", "wait", "V", 0x11, "Ljava.lang.InterruptedException;", NULL },
-    { "wait", NULL, "V", 0x11, "Ljava.lang.InterruptedException;", NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, NULL, 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LIOSClass;", 0x11, -1, -1, -1, 0, -1, -1 },
+    { NULL, "I", 0x1, 1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, 2, 3, -1, -1, -1, -1 },
+    { NULL, "LNSObject;", 0x4, -1, -1, 4, -1, -1, -1 },
+    { NULL, "LNSString;", 0x1, 5, -1, -1, -1, -1, -1 },
+    { NULL, "V", 0x4, 6, -1, 7, -1, -1, -1 },
+    { NULL, "V", 0x11, -1, -1, -1, -1, -1, -1 },
+    { NULL, "V", 0x11, -1, -1, -1, -1, -1, -1 },
+    { NULL, "V", 0x11, 8, 9, 10, -1, -1, -1 },
+    { NULL, "V", 0x11, 8, 11, 10, -1, -1, -1 },
+    { NULL, "V", 0x11, -1, -1, 10, -1, -1, -1 },
   };
-  static const J2ObjcClassInfo _JavaLangObject = {
-    2, "Object", "java.lang", NULL, 0x1, 12, methods, 0, NULL, 0, NULL, 0, NULL, NULL, NULL
-  };
-  return &_JavaLangObject;
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(init);
+  methods[1].selector = @selector(getClass);
+  methods[2].selector = @selector(hash);
+  methods[3].selector = @selector(isEqual:);
+  methods[4].selector = @selector(clone);
+  methods[5].selector = @selector(description);
+  methods[6].selector = @selector(javaFinalize);
+  methods[7].selector = @selector(notify);
+  methods[8].selector = @selector(notifyAll);
+  methods[9].selector = @selector(waitWithLong:);
+  methods[10].selector = @selector(waitWithLong:withInt:);
+  methods[11].selector = @selector(wait);
+  #pragma clang diagnostic pop
+  static const void *ptrTable[] = {
+    "()Ljava/lang/Class<*>;", "hashCode", "equals", "LNSObject;",
+    "LJavaLangCloneNotSupportedException;", "toString", "finalize", "LNSException;", "wait", "J",
+    "LJavaLangInterruptedException;", "JI" };
+  static const J2ObjcClassInfo _NSObject = {
+    "Object", "java.lang", ptrTable, methods, NULL, 7, 0x1, 12, 0, -1, -1, -1, -1, -1 };
+  return &_NSObject;
 }
 
 // Unimplemented private methods for java.lang.ref.Reference. The methods'

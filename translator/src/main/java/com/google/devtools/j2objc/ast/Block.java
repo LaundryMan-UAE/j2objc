@@ -24,13 +24,6 @@ public class Block extends Statement {
   private ChildList<Statement> statements = ChildList.create(Statement.class, this);
   private boolean hasAutoreleasePool = false;
 
-  public Block(org.eclipse.jdt.core.dom.Block jdtNode) {
-    super(jdtNode);
-    for (Object statement : jdtNode.statements()) {
-      statements.add((Statement) TreeConverter.convert(statement));
-    }
-  }
-
   public Block(Block other) {
     super(other);
     statements.copyFrom(other.getStatements());
@@ -67,5 +60,15 @@ public class Block extends Statement {
   @Override
   public Block copy() {
     return new Block(this);
+  }
+
+  public Block addStatement(Statement s) {
+    statements.add(s);
+    return this;
+  }
+
+  public Block addStatement(int index, Statement s) {
+    statements.add(index, s);
+    return this;
   }
 }

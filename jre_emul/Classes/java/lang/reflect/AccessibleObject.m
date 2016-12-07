@@ -72,7 +72,7 @@ void JavaLangReflectAccessibleObject_init(JavaLangReflectAccessibleObject *self)
 }
 
 - (IOSObjectArray *)getAnnotations {
-  // Overridden by ExecutableMember to also return inherited members.
+  // Overridden by Executable to also return inherited members.
   return [self getDeclaredAnnotations];
 }
 
@@ -95,24 +95,48 @@ void JavaLangReflectAccessibleObject_init(JavaLangReflectAccessibleObject *self)
   return nil;
 }
 
+// Default methods in java.lang.reflect.AnnotatedElement.
+- (IOSObjectArray *)getAnnotationsByTypeWithIOSClass:(IOSClass *)arg0 {
+  return JavaLangReflectAnnotatedElement_getAnnotationsByTypeWithIOSClass_(self, arg0);
+}
+
+- (id<JavaLangAnnotationAnnotation>)getDeclaredAnnotationWithIOSClass:(IOSClass *)arg0 {
+  return JavaLangReflectAnnotatedElement_getDeclaredAnnotationWithIOSClass_(self, arg0);
+}
+
+- (IOSObjectArray *)getDeclaredAnnotationsByTypeWithIOSClass:(IOSClass *)arg0 {
+  return JavaLangReflectAnnotatedElement_getDeclaredAnnotationsByTypeWithIOSClass_(self, arg0);
+}
+
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "isAccessible", NULL, "Z", 0x1, NULL, NULL },
-    { "setAccessibleWithBoolean:", "setAccessible", "V", 0x1, NULL, NULL },
-    { "setAccessibleWithJavaLangReflectAccessibleObjectArray:withBoolean:",
-      "setAccessible", "V", 0x9, NULL, NULL },
-    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL,
-      "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" },
-    { "isAnnotationPresentWithIOSClass:", "isAnnotationPresent", "Z", 0x1, NULL,
-      "(Ljava/lang/Class<+Ljava/lang/annotation/Annotation;>;)Z" },
-    { "getAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "init", NULL, NULL, 0x1, NULL, NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "V", 0x1, 0, 1, -1, -1, -1, -1 },
+    { NULL, "V", 0x9, 0, 2, -1, -1, -1, -1 },
+    { NULL, "LJavaLangAnnotationAnnotation;", 0x1, 3, 4, -1, 5, -1, -1 },
+    { NULL, "Z", 0x1, 6, 4, -1, 7, -1, -1 },
+    { NULL, "[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, NULL, 0x1, -1, -1, -1, -1, -1, -1 },
   };
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(isAccessible);
+  methods[1].selector = @selector(setAccessibleWithBoolean:);
+  methods[2].selector = @selector(setAccessibleWithJavaLangReflectAccessibleObjectArray:withBoolean:);
+  methods[3].selector = @selector(getAnnotationWithIOSClass:);
+  methods[4].selector = @selector(isAnnotationPresentWithIOSClass:);
+  methods[5].selector = @selector(getAnnotations);
+  methods[6].selector = @selector(getDeclaredAnnotations);
+  methods[7].selector = @selector(init);
+  #pragma clang diagnostic pop
+  static const void *ptrTable[] = {
+    "setAccessible", "Z", "[LJavaLangReflectAccessibleObject;Z", "getAnnotation", "LIOSClass;",
+    "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;", "isAnnotationPresent",
+    "(Ljava/lang/Class<+Ljava/lang/annotation/Annotation;>;)Z" };
   static const J2ObjcClassInfo _JavaLangReflectAccessibleObject = {
-    2, "AccessibleObject", "java.lang.reflect", NULL, 0x1, 8, methods, 0, NULL, 0, NULL,
-    0, NULL, NULL, NULL
-  };
+    "AccessibleObject", "java.lang.reflect", ptrTable, methods, NULL, 7, 0x1, 8, 0, -1, -1, -1, -1,
+    -1 };
   return &_JavaLangReflectAccessibleObject;
 }
 
@@ -123,89 +147,6 @@ void JavaLangReflectAccessibleObject_setAccessibleWithJavaLangReflectAccessibleO
   for (JavaLangReflectAccessibleObject *o in objects) {
     [o setAccessibleWithBoolean:b];
   }
-}
-
-jboolean validTypeEncoding(const char *type) {
-  return strlen(type) == 1 && strchr("@#cSsilLqQZfdBv", *type);
-}
-
-// TODO(tball): is there a reasonable way to make these methods table-driven?
-
-// Return a Obj-C type encoding as a Java type or wrapper type.
-IOSClass *decodeTypeEncoding(const char *type) {
-  if (strlen(type) > 3 && type[0] == '@') {
-    // Format is either '@"type-name"' for classes, or '@"<type-name>"' for protocols.
-    char *typeNameAsC = type[2] == '<'
-        ? strndup(type + 3, strlen(type) - 5) : strndup(type + 2, strlen(type) - 3);
-    NSString *typeName = [NSString stringWithUTF8String:typeNameAsC];
-    free(typeNameAsC);
-    return [IOSClass forName:typeName];
-  }
-  switch (type[0]) {
-    case '@':
-      return NSObject_class_();
-    case '#':
-      return IOSClass_class_();
-    case 'c':
-      return [IOSClass byteClass];
-    case 'S':
-      return [IOSClass charClass];
-    case 's':
-      return [IOSClass shortClass];
-    case 'i':
-      return [IOSClass intClass];
-    case 'l':
-    case 'L':
-    case 'q':
-    case 'Q':
-      return [IOSClass longClass];
-    case 'f':
-      return [IOSClass floatClass];
-    case 'd':
-      return [IOSClass doubleClass];
-    case 'B':
-      return [IOSClass booleanClass];
-    case 'v':
-      return [IOSClass voidClass];
-  }
-  NSString *errorMsg =
-  [NSString stringWithFormat:@"unknown Java type encoding: '%s'", type];
-  @throw AUTORELEASE([[JavaLangAssertionError alloc] initWithId:errorMsg]);
-}
-
-// Return a description of an Obj-C type encoding.
-NSString *describeTypeEncoding(NSString *type) {
-  if ([type length] == 1) {
-    unichar typeChar = [type characterAtIndex:0];
-    switch (typeChar) {
-      case '@':
-        return @"Object";
-      case '#':
-        return @"Class";
-      case 'c':
-        return @"byte";
-      case 'S':
-        // A Java character is an unsigned two-byte int; in other words,
-        // an unsigned short with an encoding of 'S'.
-        return @"char";
-      case 's':
-        return @"short";
-      case 'i':
-        return @"int";
-      case 'q':
-      case 'Q':
-        return @"long";
-      case 'f':
-        return @"float";
-      case 'd':
-        return @"double";
-      case 'B':
-        return @"jbooleanean";
-      case 'v':
-        return @"void";
-    }
-  }
-  return [NSString stringWithFormat:@"unknown type encoding: %@", type];
 }
 
 J2OBJC_CLASS_TYPE_LITERAL_SOURCE(JavaLangReflectAccessibleObject)

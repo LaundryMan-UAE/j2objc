@@ -18,7 +18,6 @@ package com.google.devtools.j2objc;
 
 import com.google.devtools.j2objc.ast.LambdaExpressionTest;
 import com.google.devtools.j2objc.ast.MethodReferenceTest;
-import com.google.devtools.j2objc.ast.TreeConvertTest;
 import com.google.devtools.j2objc.ast.TreeUtilTest;
 import com.google.devtools.j2objc.gen.ArrayAccessTest;
 import com.google.devtools.j2objc.gen.ArrayCreationTest;
@@ -34,9 +33,11 @@ import com.google.devtools.j2objc.gen.SignatureGeneratorTest;
 import com.google.devtools.j2objc.gen.StatementGeneratorTest;
 import com.google.devtools.j2objc.gen.TypeDeclarationGeneratorTest;
 import com.google.devtools.j2objc.gen.TypeImplementationGeneratorTest;
+import com.google.devtools.j2objc.jdt.TreeConverterTest;
 import com.google.devtools.j2objc.pipeline.J2ObjCIncompatibleStripperTest;
 import com.google.devtools.j2objc.pipeline.TranslationProcessorTest;
 import com.google.devtools.j2objc.translate.AbstractMethodRewriterTest;
+import com.google.devtools.j2objc.translate.AnnotationRewriterTest;
 import com.google.devtools.j2objc.translate.AnonymousClassConverterTest;
 import com.google.devtools.j2objc.translate.ArrayRewriterTest;
 import com.google.devtools.j2objc.translate.AutoboxerTest;
@@ -44,6 +45,7 @@ import com.google.devtools.j2objc.translate.CastResolverTest;
 import com.google.devtools.j2objc.translate.ComplexExpressionExtractorTest;
 import com.google.devtools.j2objc.translate.ConstantBranchPrunerTest;
 import com.google.devtools.j2objc.translate.DeadCodeEliminatorTest;
+import com.google.devtools.j2objc.translate.DefaultMethodsTest;
 import com.google.devtools.j2objc.translate.DestructorGeneratorTest;
 import com.google.devtools.j2objc.translate.EnhancedForRewriterTest;
 import com.google.devtools.j2objc.translate.EnumRewriterTest;
@@ -53,6 +55,7 @@ import com.google.devtools.j2objc.translate.InitializationNormalizerTest;
 import com.google.devtools.j2objc.translate.InnerClassExtractorTest;
 import com.google.devtools.j2objc.translate.JavaCloneWriterTest;
 import com.google.devtools.j2objc.translate.JavaToIOSMethodTranslatorTest;
+import com.google.devtools.j2objc.translate.MetadataWriterTest;
 import com.google.devtools.j2objc.translate.NilCheckResolverTest;
 import com.google.devtools.j2objc.translate.OcniExtractorTest;
 import com.google.devtools.j2objc.translate.OperatorRewriterTest;
@@ -62,19 +65,23 @@ import com.google.devtools.j2objc.translate.PrivateDeclarationResolverTest;
 import com.google.devtools.j2objc.translate.RewriterTest;
 import com.google.devtools.j2objc.translate.StaticVarRewriterTest;
 import com.google.devtools.j2objc.translate.SuperMethodInvocationRewriterTest;
+import com.google.devtools.j2objc.translate.SwitchRewriterTest;
+import com.google.devtools.j2objc.translate.TypeUseAnnotationTest;
 import com.google.devtools.j2objc.translate.UnsequencedExpressionRewriterTest;
 import com.google.devtools.j2objc.translate.VarargsRewriterTest;
 import com.google.devtools.j2objc.translate.VariableRenamerTest;
-import com.google.devtools.j2objc.types.BindingMapBuilderTest;
+import com.google.devtools.j2objc.types.CompoundTypeTest;
 import com.google.devtools.j2objc.types.HeaderImportCollectorTest;
 import com.google.devtools.j2objc.types.ImplementationImportCollectorTest;
 import com.google.devtools.j2objc.util.BindingUtilTest;
 import com.google.devtools.j2objc.util.DeadCodeMapTest;
+import com.google.devtools.j2objc.util.ElementUtilTest;
 import com.google.devtools.j2objc.util.ErrorUtilTest;
 import com.google.devtools.j2objc.util.FileUtilTest;
 import com.google.devtools.j2objc.util.NameTableTest;
 import com.google.devtools.j2objc.util.PackagePrefixesTest;
 import com.google.devtools.j2objc.util.ProGuardUsageParserTest;
+import com.google.devtools.j2objc.util.TranslationUtilTest;
 import com.google.devtools.j2objc.util.UnicodeUtilsTest;
 
 import junit.framework.Test;
@@ -87,12 +94,12 @@ public class SmallTests {
 
   private static final Class<?>[] smallTestClasses = new Class[] {
     AbstractMethodRewriterTest.class,
+    AnnotationRewriterTest.class,
     AnonymousClassConverterTest.class,
     ArrayAccessTest.class,
     ArrayCreationTest.class,
     ArrayRewriterTest.class,
     AutoboxerTest.class,
-    BindingMapBuilderTest.class,
     BindingUtilTest.class,
     CastResolverTest.class,
     ComplexExpressionExtractorTest.class,
@@ -100,6 +107,7 @@ public class SmallTests {
     DeadCodeEliminatorTest.class,
     DeadCodeMapTest.class,
     DestructorGeneratorTest.class,
+    ElementUtilTest.class,
     EnhancedForRewriterTest.class,
     EnumRewriterTest.class,
     ErrorUtilTest.class,
@@ -117,6 +125,7 @@ public class SmallTests {
     JavaToIOSMethodTranslatorTest.class,
     LineDirectivesTest.class,
     LiteralGeneratorTest.class,
+    MetadataWriterTest.class,
     NameTableTest.class,
     NilCheckResolverTest.class,
     ObjectiveCHeaderGeneratorTest.class,
@@ -137,10 +146,12 @@ public class SmallTests {
     StatementGeneratorTest.class,
     StaticVarRewriterTest.class,
     SuperMethodInvocationRewriterTest.class,
-    TreeConvertTest.class,
+    SwitchRewriterTest.class,
+    TreeConverterTest.class,
     TypeDeclarationGeneratorTest.class,
     TypeImplementationGeneratorTest.class,
     TranslationProcessorTest.class,
+    TranslationUtilTest.class,
     TreeUtilTest.class,
     UnicodeUtilsTest.class,
     UnsequencedExpressionRewriterTest.class,
@@ -154,8 +165,11 @@ public class SmallTests {
       Class.forName("java.lang.invoke.LambdaMetafactory");
 
       // Running with Java 8 JRE, add test classes that depend on it.
-      testSuite.addTestSuite(MethodReferenceTest.class);
+      testSuite.addTestSuite(CompoundTypeTest.class);
+      testSuite.addTestSuite(DefaultMethodsTest.class);
       testSuite.addTestSuite(LambdaExpressionTest.class);
+      testSuite.addTestSuite(MethodReferenceTest.class);
+      testSuite.addTestSuite(TypeUseAnnotationTest.class);
     } catch (ClassNotFoundException e) {
       // Running on pre-Java 8 JRE.
     }

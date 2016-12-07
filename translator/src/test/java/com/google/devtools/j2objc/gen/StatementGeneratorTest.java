@@ -51,16 +51,6 @@ public class StatementGeneratorTest extends GenerationTest {
     assertTranslation(translation, "[((id<JavaUtilList>) nil_chk(two)) getClass]");
   }
 
-  public void testEnumConstantsInSwitchStatement() throws IOException {
-    String translation = translateSourceFile(
-        "public class A { static enum EnumType { ONE, TWO }"
-        + "public static void doSomething(EnumType e) {"
-        + " switch (e) { case ONE: break; case TWO: break; }}}",
-        "A", "A.m");
-    assertTranslation(translation, "switch ([e ordinal]) {");
-    assertTranslation(translation, "case A_EnumType_Enum_ONE:");
-  }
-
   public void testEnumConstantReferences() throws IOException {
     String translation = translateSourceFile(
         "public class A { static enum B { ONE, TWO; "
@@ -91,7 +81,7 @@ public class StatementGeneratorTest extends GenerationTest {
     List<Statement> stmts = translateStatements(source);
     assertEquals(1, stmts.size());
     String result = generateStatement(stmts.get(0));
-    assertEquals("[new_JavaLangException_initWithNSString_(@\"test\") autorelease];", result);
+    assertEquals("create_JavaLangException_initWithNSString_(@\"test\");", result);
   }
 
   public void testParameterTranslation() throws IOException {
@@ -99,8 +89,7 @@ public class StatementGeneratorTest extends GenerationTest {
     List<Statement> stmts = translateStatements(source);
     assertEquals(2, stmts.size());
     String result = generateStatement(stmts.get(1));
-    assertEquals(
-        "[new_JavaLangException_initWithNSException_(cause) autorelease];", result);
+    assertEquals("create_JavaLangException_initWithNSException_(cause);", result);
   }
 
   public void testCastTranslation() throws IOException {
@@ -437,7 +426,7 @@ public class StatementGeneratorTest extends GenerationTest {
         + "  public T nextElement() { return it.next(); }}; }}",
         "Test", "Test.m");
     assertTranslation(translation,
-        "return [new_Test_$1_initWithJavaUtilCollection_(collection) autorelease];");
+        "return create_Test_$1_initWithJavaUtilCollection_(collection);");
     assertTranslation(translation,
         "- (instancetype)initWithJavaUtilCollection:(id<JavaUtilCollection>)capture$0;");
     assertTranslation(translation,
@@ -627,7 +616,7 @@ public class StatementGeneratorTest extends GenerationTest {
         "public class A { int x; class Inner { int y; Inner(int i) { y = i + x; }}"
         + "public Inner test() { return this.new Inner(3); }}",
         "A", "A.m");
-    assertTranslation(translation, "return [new_A_Inner_initWithA_withInt_(self, 3) autorelease];");
+    assertTranslation(translation, "return create_A_Inner_initWithA_withInt_(self, 3);");
   }
 
   public void testNewFieldNotRetained() throws IOException {
@@ -644,18 +633,6 @@ public class StatementGeneratorTest extends GenerationTest {
         + "  A() { myString = \"Foo\"; myString += \"Bar\"; }}",
         "A", "A.m");
     assertTranslation(translation, "JreStrAppendStrong(&self->myString_, \"$\", @\"Bar\");");
-  }
-
-  public void testPrimitiveConstantInSwitchCase() throws IOException {
-    String translation = translateSourceFile(
-        "public class A { public static final char PREFIX = 'p';"
-        + "public boolean doSomething(char c) { switch (c) { "
-        + "case PREFIX: return true; "
-        + "default: return false; }}}",
-        "A", "A.h");
-    assertTranslation(translation, "#define A_PREFIX 'p'");
-    translation = getTranslatedFile("A.m");
-    assertTranslation(translation, "case A_PREFIX:");
   }
 
   public void testInterfaceStaticVarReference() throws IOException {
@@ -747,7 +724,7 @@ public class StatementGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "class A { class B {} static B test() { return new A().new B(); }}",
         "A", "A.m");
-    assertTranslation(translation, "[new_A_B_initWithA_([new_A_init() autorelease]) autorelease]");
+    assertTranslation(translation, "create_A_B_initWithA_(create_A_init())");
   }
 
   public void testSuperFieldAccess() throws IOException {
@@ -1059,20 +1036,6 @@ public class StatementGeneratorTest extends GenerationTest {
         + "static final char QUOTE = '\"'; static final String TEST = QUOTE + \"\"; }",
         "Test", "Test.m");
     assertTranslation(translation, "Test_TEST = @\"\\\"\";");
-  }
-
-  /**
-   * Verify that when a the last switch case is empty (no statement),
-   * an empty statement is added.  Java doesn't require an empty statement
-   * here, while C does.
-   */
-  public void testEmptyLastCaseStatement() throws IOException {
-    String translation = translateSourceFile(
-        "public class A {"
-        + "  int test(int i) { "
-        + "    switch (i) { case 1: return 1; case 2: return 2; default: } return i; }}",
-        "A", "A.m");
-    assertTranslation(translation, "default:\n    ;\n  }");
   }
 
   // Verify that return statements in constructors return self.
@@ -1400,13 +1363,14 @@ public class StatementGeneratorTest extends GenerationTest {
         "Test", "Test.m");
     assertTranslation(translation, "@catch (Test_FirstException *e) {\n    @throw e;\n  }");
     assertTranslation(translation, "@catch (Test_SecondException *e) {\n    @throw e;\n  }");
+    assertNotInTranslation(translation, "@catch (JavaLangException *e) {\n    @throw e;\n  }");
   }
 
   public void testDifferentTypesInConditionalExpression() throws IOException {
     String translation = translateSourceFile(
         "class Test { String test(Runnable r) { return \"foo\" + (r != null ? r : \"bar\"); } }",
         "Test", "Test.m");
-    assertTranslation(translation, "(r != nil ? ((id) r) : @\"bar\")");
+    assertTranslation(translation, "(r != nil ? r : (id) @\"bar\")");
   }
 
   // Verify that when a method invocation returns an object that is ignored,
@@ -1423,31 +1387,6 @@ public class StatementGeneratorTest extends GenerationTest {
     assertTranslation(translation, "(void) new_NSException_init();");
   }
 
-  // Verify Java 7's switch statements with strings.
-  public void testStringSwitchStatement() throws IOException {
-    String translation = translateSourceFile(
-        "public class Test { "
-        + "static final String constant = \"mumble\";"
-        + "int test(String s) { "
-        + "  switch(s) {"
-        + "    case \"foo\": return 42;"
-        + "    case \"bar\": return 666;"
-        + "    case constant: return -1;"
-        + "    default: return -1;"
-        + "  }}}",
-        "Test", "Test.m");
-    assertTranslation(translation, "case 0:\n      return 42;");
-    assertTranslation(translation, "case 1:\n      return 666;");
-    assertTranslation(translation, "case 2:\n      return -1;");
-    assertTranslation(translation, "default:\n      return -1;");
-    assertTranslation(translation,
-        "NSArray *__caseValues = "
-        + "[NSArray arrayWithObjects:@\"foo\", @\"bar\", @\"mumble\", nil];");
-    assertTranslation(translation,
-        "NSUInteger __index = [__caseValues indexOfObject:s];");
-    assertTranslation(translation, "switch (__index)");
-  }
-
   // Verify minimal try-with-resources translation.
   public void testTryWithResourceNoCatchOrFinally() throws IOException {
     String translation = translateSourceFile(
@@ -1456,8 +1395,8 @@ public class StatementGeneratorTest extends GenerationTest {
         + "    return br.readLine(); } }}",
         "Test", "Test.m");
     assertTranslatedLines(translation,
-        "JavaIoBufferedReader *br = [new_JavaIoBufferedReader_initWithJavaIoReader_("
-        + "[new_JavaIoFileReader_initWithNSString_(path) autorelease]) autorelease];",
+        "JavaIoBufferedReader *br = create_JavaIoBufferedReader_initWithJavaIoReader_("
+        + "create_JavaIoFileReader_initWithNSString_(path));",
         "NSException *__primaryException1 = nil;",
         "@try {",
         "  return [br readLine];",
@@ -1490,12 +1429,12 @@ public class StatementGeneratorTest extends GenerationTest {
         + "    return br.readLine(); } }}",
         "Test", "Test.m");
     assertTranslatedLines(translation,
-        "JavaIoBufferedReader *br = [new_JavaIoBufferedReader_initWithJavaIoReader_("
-            + "[new_JavaIoFileReader_initWithNSString_(path) autorelease]) autorelease];",
+        "JavaIoBufferedReader *br = create_JavaIoBufferedReader_initWithJavaIoReader_("
+            + "create_JavaIoFileReader_initWithNSString_(path));",
         "NSException *__primaryException2 = nil;",
         "@try {",
-        " JavaIoBufferedReader *br2 = [new_JavaIoBufferedReader_initWithJavaIoReader_("
-            + "[new_JavaIoFileReader_initWithNSString_(path) autorelease]) autorelease];",
+        " JavaIoBufferedReader *br2 = create_JavaIoBufferedReader_initWithJavaIoReader_("
+            + "create_JavaIoFileReader_initWithNSString_(path));",
         " NSException *__primaryException1 = nil;",
         " @try {",
         "  return [br readLine];",
@@ -1550,8 +1489,8 @@ public class StatementGeneratorTest extends GenerationTest {
         "Test", "Test.m");
     assertTranslatedLines(translation,
         "@try {",
-        " JavaIoBufferedReader *br = [new_JavaIoBufferedReader_initWithJavaIoReader_("
-        + "[new_JavaIoFileReader_initWithNSString_(path) autorelease]) autorelease];",
+        " JavaIoBufferedReader *br = create_JavaIoBufferedReader_initWithJavaIoReader_("
+        + "create_JavaIoFileReader_initWithNSString_(path));",
         " NSException *__primaryException1 = nil;",
         " @try {",
         "  return [br readLine];",
@@ -1616,10 +1555,12 @@ public class StatementGeneratorTest extends GenerationTest {
         + "B test(D d) { return d.foo(); } }", "Test", "Test.h");
     // Check that protocols are declared in the same order.
     assertTranslation(translation, "@interface Test_D : Test_C < Test_I1, Test_I2 >");
+    // A "foo" declaration is added to class "D" to override the less specific
+    // return type inherited from "I1".
+    assertOccurrences(translation, "- (Test_B *)foo;", 3);
     translation = getTranslatedFile("Test.m");
-    // Check that the result of d.foo() is cast because the compiler will think
-    // it returns a Test_A type.
-    assertTranslation(translation, "return ((Test_B *) [((Test_D *) nil_chk(d)) foo]);");
+    // Check that the result of d.foo() is not cast.
+    assertTranslation(translation, "return [((Test_D *) nil_chk(d)) foo];");
   }
 
   public void testStaticMethodCalledOnObject() throws IOException {

@@ -14,18 +14,13 @@
 
 package com.google.devtools.j2objc.ast;
 
-import com.google.devtools.j2objc.types.NullTypeBinding;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Null literal node type.
  */
 public class NullLiteral extends Expression {
-
-  public NullLiteral(org.eclipse.jdt.core.dom.NullLiteral jdtNode) {
-    super(jdtNode);
-  }
 
   public NullLiteral(NullLiteral other) {
     super(other);
@@ -39,8 +34,8 @@ public class NullLiteral extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return NullTypeBinding.getInstance();
+  public TypeMirror getTypeMirror() {
+    return BindingConverter.NULL_TYPE;
   }
 
   @Override

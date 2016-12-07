@@ -27,20 +27,21 @@ import com.google.devtools.j2objc.ast.FunctionDeclaration;
 import com.google.devtools.j2objc.ast.MethodDeclaration;
 import com.google.devtools.j2objc.ast.NativeDeclaration;
 import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
+import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.ast.TreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.file.InputFile;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.Types;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.FileUtil;
 import com.google.devtools.j2objc.util.NameTable;
-import com.google.devtools.j2objc.util.TranslationUtil;
+import com.google.devtools.j2objc.util.ParserEnvironment;
 import com.google.devtools.j2objc.util.UnicodeUtils;
 
 import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.IPackageBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
@@ -50,11 +51,11 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Opcodes;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
 import javax.annotation.ParametersAreNonnullByDefault;
+import javax.lang.model.element.PackageElement;
 
 /**
  * The base class for TypeDeclarationGenerator and TypeImplementationGenerator,
@@ -68,10 +69,10 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
   protected final AbstractTypeDeclaration typeNode;
   protected final ITypeBinding typeBinding;
   protected final CompilationUnit compilationUnit;
+  protected final ParserEnvironment env;
   protected final Types typeEnv;
   protected final NameTable nameTable;
   protected final String typeName;
-  protected final boolean typeNeedsReflection;
   protected final boolean hasNullabilityAnnotations;
 
   private final List<BodyDeclaration> declarations;
@@ -82,10 +83,10 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
     typeNode = node;
     typeBinding = node.getTypeBinding();
     compilationUnit = TreeUtil.getCompilationUnit(node);
+    env = compilationUnit.getEnv();
     typeEnv = compilationUnit.getTypeEnv();
     nameTable = compilationUnit.getNameTable();
     typeName = nameTable.getFullName(typeBinding);
-    typeNeedsReflection = TranslationUtil.needsReflection(typeBinding);
     declarations = filterDeclarations(node.getBodyDeclarations());
     parametersNonnullByDefault = Options.nullability()
         && areParametersNonnullByDefault();
@@ -109,6 +110,7 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
 
   private static final Predicate<VariableDeclarationFragment> IS_STATIC_FIELD =
       new Predicate<VariableDeclarationFragment>() {
+    @Override
     public boolean apply(VariableDeclarationFragment frag) {
       // isGlobalVar includes non-static but final primitives, which are treated
       // like static fields in J2ObjC.
@@ -118,12 +120,14 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
 
   private static final Predicate<VariableDeclarationFragment> IS_INSTANCE_FIELD =
       new Predicate<VariableDeclarationFragment>() {
+    @Override
     public boolean apply(VariableDeclarationFragment frag) {
       return BindingUtil.isInstanceVar(frag.getVariableBinding());
     }
   };
 
   private static final Predicate<BodyDeclaration> IS_OUTER_DECL = new Predicate<BodyDeclaration>() {
+    @Override
     public boolean apply(BodyDeclaration decl) {
       switch (decl.getKind()) {
         case FUNCTION_DECLARATION:
@@ -137,6 +141,7 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
   };
 
   private static final Predicate<BodyDeclaration> IS_INNER_DECL = new Predicate<BodyDeclaration>() {
+    @Override
     public boolean apply(BodyDeclaration decl) {
       switch (decl.getKind()) {
         case METHOD_DECLARATION:
@@ -146,6 +151,17 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
         default:
           return false;
       }
+    }
+  };
+
+  // This predicate returns true if the declaration generates implementation
+  // code inside a @implementation declaration.
+  private static final Predicate<BodyDeclaration> HAS_INNER_IMPL =
+      new Predicate<BodyDeclaration>() {
+    @Override
+    public boolean apply(BodyDeclaration decl) {
+      return decl.getKind() == TreeNode.Kind.METHOD_DECLARATION
+          && !Modifier.isAbstract(((MethodDeclaration) decl).getModifiers());
     }
   };
 
@@ -188,9 +204,6 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
   }
 
   private Iterable<VariableDeclarationFragment> getInstanceFields(List<BodyDeclaration> decls) {
-    if (isInterfaceType()) {
-      return Collections.emptyList();
-    }
     return Iterables.filter(
         TreeUtil.asFragments(Iterables.filter(decls, FieldDeclaration.class)),
         IS_INSTANCE_FIELD);
@@ -232,17 +245,28 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
   }
 
   protected boolean needsPublicCompanionClass() {
-    return !typeNode.hasPrivateDeclaration()
-        && (hasInitializeMethod() || BindingUtil.isRuntimeAnnotation(typeBinding)
-            || hasStaticAccessorMethods());
+    if (typeNode.hasPrivateDeclaration()) {
+      return false;
+    }
+    return hasInitializeMethod()
+        || hasStaticAccessorMethods()
+        || BindingUtil.isRuntimeAnnotation(typeBinding)
+        || BindingUtil.hasDefaultMethodsInFamily(typeBinding)
+        || BindingUtil.hasStaticInterfaceMethods(typeBinding);
   }
 
   protected boolean needsCompanionClass() {
-    return needsPublicCompanionClass() || typeNeedsReflection;
+    return needsPublicCompanionClass()
+        || !Iterables.isEmpty(Iterables.filter(typeNode.getBodyDeclarations(), HAS_INNER_IMPL));
   }
 
   protected boolean hasInitializeMethod() {
     return !typeNode.getClassInitStatements().isEmpty();
+  }
+
+  protected boolean needsTypeLiteral() {
+    return !(BindingUtil.isPackageInfo(typeBinding) || typeBinding.isAnonymous()
+             || BindingUtil.isLambda(typeBinding));
   }
 
   protected String getDeclarationType(IVariableBinding var) {
@@ -250,7 +274,7 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
     if (BindingUtil.isVolatile(var)) {
       return "volatile_" + NameTable.getPrimitiveObjCType(type);
     } else {
-      return nameTable.getSpecificObjCType(type);
+      return nameTable.getObjCType(type);
     }
   }
 
@@ -286,7 +310,7 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
           sb.append(pad(baseLength - selParts[i].length()));
         }
         IVariableBinding var = params.get(i).getVariableBinding();
-        String typeName = nameTable.getSpecificObjCType(var.getType());
+        String typeName = nameTable.getObjCType(var.getType());
         sb.append(UnicodeUtils.format("%s:(%s%s)%s", selParts[i], typeName, nullability(var, true),
             nameTable.getVariableShortName(var)));
       }
@@ -319,10 +343,12 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
     if (BindingUtil.hasAnnotation(typeBinding, ParametersAreNonnullByDefault.class)) {
       return true;
     }
-    IPackageBinding pkg = typeBinding.getPackage();
     try {
+      PackageElement pkg =
+          env.elementUtilities().getPackageOf(BindingConverter.getElement(typeBinding));
+      String pkgName = pkg.getQualifiedName().toString();
       // See if a package-info source file has a ParametersAreNonnullByDefault annotation.
-      InputFile file = FileUtil.findOnSourcePath(pkg.getName() + ".package-info");
+      InputFile file = FileUtil.findOnSourcePath(pkgName + ".package-info");
       if (file != null) {
         String pkgInfo = FileUtil.readFile(file);
         if (pkgInfo.indexOf("@ParametersAreNonnullByDefault") >= 0) {
@@ -335,7 +361,7 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
 
       // See if the package-info class file has it.
       final boolean[] result = new boolean[1];
-      file = FileUtil.findOnClassPath(pkg.getName() + ".package-info");
+      file = FileUtil.findOnClassPath(pkgName + ".package-info");
       if (file != null) {
         ClassReader classReader = new ClassReader(file.getInputStream());
         classReader.accept(new ClassVisitor(Opcodes.ASM5) {
@@ -387,7 +413,7 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
     for (Iterator<SingleVariableDeclaration> iter = function.getParameters().iterator();
          iter.hasNext(); ) {
       IVariableBinding var = iter.next().getVariableBinding();
-      String paramType = nameTable.getSpecificObjCType(var.getType());
+      String paramType = nameTable.getObjCType(var.getType());
       paramType += (paramType.endsWith("*") ? "" : " ");
       sb.append(paramType + nameTable.getVariableShortName(var));
       if (iter.hasNext()) {
@@ -395,32 +421,6 @@ public abstract class TypeGenerator extends AbstractSourceGenerator {
       }
     }
     sb.append(')');
-    return sb.toString();
-  }
-
-  /**
-   * Create an Objective-C constructor from a list of annotation member
-   * declarations.
-   */
-  protected String getAnnotationConstructorSignature(ITypeBinding annotation) {
-    StringBuffer sb = new StringBuffer();
-    sb.append("- (instancetype)init");
-    IMethodBinding[] members = BindingUtil.getSortedAnnotationMembers(annotation);
-    for (int i = 0; i < members.length; i++) {
-      if (i == 0) {
-        sb.append("With");
-      } else {
-        sb.append(" with");
-      }
-      IMethodBinding member = members[i];
-      String name = NameTable.getAnnotationPropertyName(member);
-      sb.append(NameTable.capitalize(name));
-      sb.append(":(");
-      sb.append(nameTable.getSpecificObjCType(member.getReturnType()));
-      sb.append(')');
-      sb.append(name);
-      sb.append("__");
-    }
     return sb.toString();
   }
 

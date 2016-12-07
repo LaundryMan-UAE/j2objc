@@ -17,15 +17,17 @@
 package com.google.devtools.j2objc.types;
 
 import com.google.common.collect.Maps;
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import com.google.devtools.j2objc.jdt.JdtTypeBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
-
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.Modifier;
-
+import com.google.devtools.j2objc.util.ParserEnvironment;
 import java.util.HashMap;
 import java.util.Map;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.ITypeBinding;
+import org.eclipse.jdt.core.dom.Modifier;
 
 /**
  * Types is a singleton service class for type-related operations.
@@ -34,7 +36,7 @@ import java.util.Map;
  */
 public class Types {
 
-  private final AST ast;
+  private final ParserEnvironment env;
   private final Map<ITypeBinding, ITypeBinding> typeMap = Maps.newHashMap();
   private final Map<ITypeBinding, ITypeBinding> primitiveToWrapperTypes =
       new HashMap<ITypeBinding, ITypeBinding>();
@@ -82,17 +84,17 @@ public class Types {
   private final IOSMethodBinding allocMethod;
   private final IOSMethodBinding deallocMethod;
 
-  public Types(AST ast) {
-    this.ast = ast;
+  public Types(ParserEnvironment env) {
+    this.env = env;
 
     // Find core java types.
-    javaObjectType = ast.resolveWellKnownType("java.lang.Object");
-    javaClassType = ast.resolveWellKnownType("java.lang.Class");
-    javaCloneableType = ast.resolveWellKnownType("java.lang.Cloneable");
-    javaStringType = ast.resolveWellKnownType("java.lang.String");
-    javaThrowableType = ast.resolveWellKnownType("java.lang.Throwable");
-    javaVoidType = ast.resolveWellKnownType("java.lang.Void");
-    ITypeBinding binding = ast.resolveWellKnownType("java.lang.Integer");
+    javaObjectType = resolveWellKnownType("java.lang.Object");
+    javaClassType = resolveWellKnownType("java.lang.Class");
+    javaCloneableType = resolveWellKnownType("java.lang.Cloneable");
+    javaStringType = resolveWellKnownType("java.lang.String");
+    javaThrowableType = resolveWellKnownType("java.lang.Throwable");
+    javaVoidType = resolveWellKnownType("java.lang.Void");
+    ITypeBinding binding = resolveWellKnownType("java.lang.Integer");
     javaNumberType = binding.getSuperclass();
 
     // Create core IOS types.
@@ -110,7 +112,7 @@ public class Types {
     initializeCommonJavaTypes();
     populatePrimitiveAndWrapperTypeMaps();
 
-    ITypeBinding voidType = ast.resolveWellKnownType("void");
+    ITypeBinding voidType = resolveWellKnownType("void");
 
     // Commonly used methods.
     retainMethod = IOSMethodBinding.newMethod(
@@ -167,7 +169,7 @@ public class Types {
   }
 
   private void initializePrimitiveArray(String javaTypeName, String iosTypeName) {
-    ITypeBinding javaType = ast.resolveWellKnownType(javaTypeName);
+    ITypeBinding javaType = resolveWellKnownType(javaTypeName);
     IOSTypeBinding iosType = mapIOSType(IOSTypeBinding.newUnmappedClass(iosTypeName));
     iosType.setHeader("IOSPrimitiveArray.h");
     arrayBindingMap.put(javaType, iosType);
@@ -185,9 +187,13 @@ public class Types {
     loadPrimitiveAndWrapperTypes("void", "java.lang.Void");
   }
 
+  private JdtTypeBinding resolveWellKnownType(String name) {
+    return (JdtTypeBinding) BindingConverter.unwrapElement(env.resolve(name));
+  }
+
   private void loadPrimitiveAndWrapperTypes(String primitiveName, String wrapperName) {
-    ITypeBinding primitive = ast.resolveWellKnownType(primitiveName);
-    ITypeBinding wrapper = ast.resolveWellKnownType(wrapperName);
+    ITypeBinding primitive = resolveWellKnownType(primitiveName);
+    ITypeBinding wrapper = resolveWellKnownType(wrapperName);
     primitiveToWrapperTypes.put(primitive, wrapper);
     wrapperToPrimitiveTypes.put(wrapper, primitive);
   }
@@ -200,6 +206,10 @@ public class Types {
     if (binding == null) {  // happens when mapping a primitive type
       return null;
     }
+    // getTypeDeclaration will return the canonical binding for the type with
+    // type parameters and type annotations removed. Note that getErasure() does
+    // not strip type annotations.
+    binding = binding.getTypeDeclaration();
     if (binding.isArray()) {
       return resolveArrayType(binding.getComponentType());
     }
@@ -214,7 +224,7 @@ public class Types {
    * Given a fully-qualified type name, return its binding.
    */
   public ITypeBinding mapTypeName(String typeName) {
-    ITypeBinding binding = ast.resolveWellKnownType(typeName);
+    ITypeBinding binding = resolveWellKnownType(typeName);
     return mapType(binding);
   }
 
@@ -225,10 +235,14 @@ public class Types {
     return binding.isArray() || typeMap.containsKey(binding.getTypeDeclaration());
   }
 
+  public TypeMirror resolveJavaTypeMirror(String name) {
+    return BindingConverter.getType(resolveJavaType(name));
+  }
+
   public ITypeBinding resolveJavaType(String name) {
     ITypeBinding result = javaBindingMap.get(name);
     if (result == null) {
-      result = ast.resolveWellKnownType(name);
+      result = resolveWellKnownType(name);
     }
     return result;
   }
@@ -245,6 +259,10 @@ public class Types {
     return javaStringType.equals(type);
   }
 
+  public boolean isJavaStringType(TypeMirror type) {
+    return javaStringType.equals(BindingConverter.unwrapTypeMirrorIntoTypeBinding(type));
+  }
+
   public boolean isStringType(ITypeBinding type) {
     return javaStringType.isEqualTo(type) || NSString.isEqualTo(type);
   }
@@ -256,6 +274,16 @@ public class Types {
   public IOSTypeBinding resolveArrayType(ITypeBinding binding) {
     IOSTypeBinding arrayBinding = arrayBindingMap.get(binding);
     return arrayBinding != null ? arrayBinding : IOSObjectArray;
+  }
+
+  public TypeElement resolveArrayType(TypeMirror mirror) {
+    IOSTypeBinding arrayBinding = arrayBindingMap.get(
+        BindingConverter.unwrapTypeMirrorIntoBinding(mirror));
+    return BindingConverter.getTypeElement(arrayBinding != null ? arrayBinding : IOSObjectArray);
+  }
+
+  public TypeElement getObjectArrayElement() {
+    return BindingConverter.getTypeElement(IOSObjectArray);
   }
 
   public boolean isJavaVoidType(ITypeBinding type) {
@@ -270,8 +298,22 @@ public class Types {
     return wrapperToPrimitiveTypes.get(wrapperType);
   }
 
+  public TypeMirror getPrimitiveType(TypeMirror wrapperType) {
+    return BindingConverter.getType(wrapperToPrimitiveTypes.get(
+        BindingConverter.unwrapTypeMirrorIntoTypeBinding(wrapperType)));
+  }
+
+  public boolean isBoxedPrimitive(TypeElement type) {
+    return isBoxedPrimitive(BindingConverter.unwrapTypeElement(type));
+  }
+
   public boolean isBoxedPrimitive(ITypeBinding type) {
     return wrapperToPrimitiveTypes.containsKey(type);
+  }
+
+  public boolean isBoxedPrimitive(TypeMirror type) {
+    return wrapperToPrimitiveTypes.containsKey(
+        BindingConverter.unwrapTypeMirrorIntoTypeBinding(type));
   }
 
   public ITypeBinding getNSNumber() {
@@ -287,6 +329,10 @@ public class Types {
     return javaObjectType;
   }
 
+  public TypeElement getJavaObjectElement() {
+    return BindingConverter.getTypeElement(javaObjectType);
+  }
+
   public ITypeBinding getNSString() {
     return NSString;
   }
@@ -295,8 +341,20 @@ public class Types {
     return IOSClass;
   }
 
+  public TypeMirror getIOSClassMirror() {
+    return BindingConverter.getType(IOSClass);
+  }
+
   public ITypeBinding getIdType() {
     return idType;
+  }
+
+  public TypeMirror getIdTypeMirror() {
+    return BindingConverter.getType(idType);
+  }
+
+  public ITypeBinding getIOSObjectArray() {
+    return IOSObjectArray;
   }
 
   public PointerTypeBinding getPointerType(ITypeBinding type) {
@@ -308,9 +366,14 @@ public class Types {
     return result;
   }
 
+  public TypeMirror getPointerType(TypeMirror type) {
+    return BindingConverter.getType(getPointerType(
+        BindingConverter.unwrapTypeMirrorIntoTypeBinding(type)));
+  }
+
   public ITypeBinding getLocalRefType() {
     if (localRefType == null) {
-      ITypeBinding objectType = ast.resolveWellKnownType("java.lang.Object");
+      ITypeBinding objectType = resolveWellKnownType("java.lang.Object");
       GeneratedTypeBinding refType =
           GeneratedTypeBinding.newTypeBinding("com.google.j2objc.util.ScopedLocalRef",
           objectType, false);

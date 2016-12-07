@@ -41,12 +41,12 @@
 @class JavaIoOutputStream;
 @protocol ComGoogleProtobufMessageLite_Builder;
 
-@protocol ComGoogleProtobufMessageLite<ComGoogleProtobufMessageLiteOrBuilder, NSObject, JavaObject>
+@protocol ComGoogleProtobufMessageLite <ComGoogleProtobufMessageLiteOrBuilder, JavaObject>
 
 - (id<ComGoogleProtobufMessageLite_Builder>)toBuilder;
 - (id<ComGoogleProtobufMessageLite_Builder>)newBuilderForType NS_RETURNS_NOT_RETAINED;
 
-- (int)getSerializedSize;
+- (jint)getSerializedSize;
 - (ComGoogleProtobufByteString *)toByteString;
 - (IOSByteArray *)toByteArray;
 
@@ -59,8 +59,7 @@ J2OBJC_EMPTY_STATIC_INIT(ComGoogleProtobufMessageLite)
 
 J2OBJC_TYPE_LITERAL_HEADER(ComGoogleProtobufMessageLite)
 
-@protocol ComGoogleProtobufMessageLite_Builder
-    <ComGoogleProtobufMessageLiteOrBuilder, NSObject, JavaObject>
+@protocol ComGoogleProtobufMessageLite_Builder <ComGoogleProtobufMessageLiteOrBuilder, JavaObject>
 
 - (id<ComGoogleProtobufMessageLite>)build;
 
@@ -80,8 +79,8 @@ J2OBJC_TYPE_LITERAL_HEADER(ComGoogleProtobufMessageLite)
     mergeFromWithJavaIoInputStream:(JavaIoInputStream *)input
     withComGoogleProtobufExtensionRegistryLite:
         (ComGoogleProtobufExtensionRegistryLite *)extensionRegistry;
-- (BOOL)mergeDelimitedFromWithJavaIoInputStream:(JavaIoInputStream *)input;
-- (BOOL)mergeDelimitedFromWithJavaIoInputStream:(JavaIoInputStream *)input
+- (jboolean)mergeDelimitedFromWithJavaIoInputStream:(JavaIoInputStream *)input;
+- (jboolean)mergeDelimitedFromWithJavaIoInputStream:(JavaIoInputStream *)input
     withComGoogleProtobufExtensionRegistryLite:
         (ComGoogleProtobufExtensionRegistryLite *)extensionRegistry;
 

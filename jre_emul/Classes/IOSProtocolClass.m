@@ -18,7 +18,7 @@
 //
 
 #import "IOSProtocolClass.h"
-#import "JavaMetadata.h"
+#import "IOSReflection.h"
 #import "java/lang/reflect/Method.h"
 #import "java/lang/reflect/Modifier.h"
 #import "objc/runtime.h"
@@ -31,14 +31,14 @@
 
 @implementation IOSProtocolClass
 
-Class GetBackingClass(Protocol *protocol) {
+static Class GetBackingClass(Protocol *protocol) {
   return objc_lookUpClass(protocol_getName(protocol));
 }
 
 @synthesize objcProtocol = protocol_;
 
 - (instancetype)initWithProtocol:(Protocol *)protocol {
-  if ((self = [super initWithClass:GetBackingClass(protocol)])) {
+  if ((self = [super initWithMetadata:JreFindMetadata(GetBackingClass(protocol))])) {
     protocol_ = RETAIN_(protocol);
   }
   return self;
@@ -70,17 +70,23 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 }
 
 - (NSString *)getName {
-  JavaClassMetadata *metadata = [self getMetadata];
-  return metadata ? [metadata qualifiedName] : NSStringFromProtocol(protocol_);
+  NSString *name = JreClassQualifiedName([self getMetadata]);
+  return name ? name : NSStringFromProtocol(protocol_);
 }
 
 - (NSString *)getSimpleName {
-  JavaClassMetadata *metadata = [self getMetadata];
-  return metadata ? RETAIN_(metadata.typeName) : NSStringFromProtocol(protocol_);
+  const J2ObjcClassInfo *metadata = [self getMetadata];
+  return metadata ? JreClassTypeName(metadata) : NSStringFromProtocol(protocol_);
 }
 
 - (NSString *)objcName {
   return NSStringFromProtocol(protocol_);
+}
+
+- (void)appendMetadataName:(NSMutableString *)str {
+  [str appendString:@"L"];
+  [str appendString:NSStringFromProtocol(protocol_)];
+  [str appendString:@";"];
 }
 
 // Returns the class with the same name as the protocol, if it exists.
@@ -89,9 +95,9 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 }
 
 - (int)getModifiers {
-  JavaClassMetadata *metadata = [self getMetadata];
+  const J2ObjcClassInfo *metadata = [self getMetadata];
   if (metadata) {
-    return metadata.modifiers
+    return metadata->modifiers
         & (JavaLangReflectModifier_INTERFACE | JavaLangReflectModifier_interfaceModifiers());
   }
   return JavaLangReflectModifier_PUBLIC | JavaLangReflectModifier_INTERFACE |
@@ -104,95 +110,6 @@ static jboolean ConformsToProtocol(IOSClass *cls, IOSProtocolClass *protocol) {
 
 - (jboolean)isInterface {
   return true;
-}
-
-// All protocol methods are public, so publicOnly flag is ignored.
-- (void)collectMethods:(NSMutableDictionary *)methodMap
-            publicOnly:(jboolean)publicOnly {
-  JavaClassMetadata *metadata = [self getMetadata];
-  unsigned int count;
-  struct objc_method_description *descriptions =
-      protocol_copyMethodDescriptionList(protocol_, true, true, &count);
-  for (unsigned int i = 0; i < count; i++) {
-    struct objc_method_description *methodDesc = &descriptions[i];
-    SEL sel = methodDesc->name;
-    NSString *key = NSStringFromSelector(sel);
-    if (![methodMap objectForKey:key]) {
-      JavaMethodMetadata *methodMetadata = [metadata findMethodMetadata:key];
-      if (metadata && !methodMetadata) {
-        continue;  // Selector not in method list.
-      }
-      NSMethodSignature *signature = JreSignatureOrNull(methodDesc);
-      if (!signature) {
-        continue;
-      }
-      JavaLangReflectMethod *method =
-          [JavaLangReflectMethod methodWithMethodSignature:signature
-                                                  selector:sel
-                                                     class:self
-                                                  isStatic:false
-                                                  metadata:methodMetadata];
-      [methodMap setObject:method forKey:key];
-    }
-  }
-  free(descriptions);
-}
-
-- (JavaLangReflectMethod *)findMethodWithTranslatedName:(NSString *)objcName
-                                        checkSupertypes:(jboolean)checkSupertypes {
-  unsigned int count;
-  JavaLangReflectMethod *result = nil;
-  struct objc_method_description *descriptions =
-      protocol_copyMethodDescriptionList(protocol_, true, true, &count);
-  for (unsigned int i = 0; i < count; i++) {
-    struct objc_method_description *methodDesc = &descriptions[i];
-    SEL sel = methodDesc->name;
-    if ([objcName isEqualToString:NSStringFromSelector(sel)]) {
-      NSMethodSignature *signature = JreSignatureOrNull(methodDesc);
-      if (signature) {
-        JavaMethodMetadata *methodMetadata = [[self getMetadata] findMethodMetadata:objcName];
-        result = [JavaLangReflectMethod methodWithMethodSignature:signature
-                                                         selector:sel
-                                                            class:self
-                                                         isStatic:false
-                                                         metadata:methodMetadata];
-      }
-      break;
-    }
-  }
-  free(descriptions);
-  if (!result) {
-    // Search backing class, if any.
-    Class backingClass = objc_getClass(protocol_getName(protocol_));
-    if (backingClass) {
-      const char *name = [objcName UTF8String];
-      Method method = JreFindClassMethod(backingClass, name);
-      if (method) {
-        NSMethodSignature *signature = JreSignatureOrNull(method_getDescription(method));
-        if (signature) {
-          JavaClassMetadata *metadata = [self getMetadata];
-          JavaMethodMetadata *methodData = [metadata findMethodMetadata:objcName];
-          result = [JavaLangReflectMethod methodWithMethodSignature:signature
-                                                           selector:method_getName(method)
-                                                              class:self
-                                                           isStatic:true
-                                                           metadata:methodData];
-        }
-      }
-    }
-  }
-  if (!result && checkSupertypes) {
-    // Search super-interfaces.
-    for (IOSClass *cls in [self getInterfacesInternal]) {
-      if (cls != self) {
-        result = [cls findMethodWithTranslatedName:objcName checkSupertypes:checkSupertypes];
-        if (result) {
-          break;
-        }
-      }
-    }
-  }
-  return result;
 }
 
 - (IOSObjectArray *)getInterfacesInternal {

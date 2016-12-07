@@ -15,19 +15,23 @@
 package com.google.devtools.j2objc.translate;
 
 import com.google.devtools.j2objc.ast.Block;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.EnhancedForStatement;
 import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.FieldAccess;
 import com.google.devtools.j2objc.ast.InfixExpression;
+import com.google.devtools.j2objc.ast.LabeledStatement;
 import com.google.devtools.j2objc.ast.MethodInvocation;
 import com.google.devtools.j2objc.ast.PostfixExpression;
 import com.google.devtools.j2objc.ast.PrefixExpression;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.SingleVariableDeclaration;
 import com.google.devtools.j2objc.ast.Statement;
-import com.google.devtools.j2objc.ast.TreeVisitor;
+import com.google.devtools.j2objc.ast.TreeUtil;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationStatement;
 import com.google.devtools.j2objc.ast.WhileStatement;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.GeneratedVariableBinding;
 import com.google.devtools.j2objc.types.PointerTypeBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
@@ -42,13 +46,18 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
 import java.util.List;
+import javax.lang.model.element.VariableElement;
 
 /**
  * Rewrites Java enhanced for loops into appropriate C constructs.
  *
  * @author Keith Stanger
  */
-public class EnhancedForRewriter extends TreeVisitor {
+public class EnhancedForRewriter extends UnitTreeVisitor {
+
+  public EnhancedForRewriter(CompilationUnit unit) {
+    super(unit);
+  }
 
   @Override
   public void endVisit(EnhancedForStatement node) {
@@ -61,10 +70,9 @@ public class EnhancedForRewriter extends TreeVisitor {
     }
 
     if (expressionType.isArray()) {
-      node.replaceWith(makeArrayIterationBlock(
-          expression, expressionType, loopVariable, node.getBody()));
+      handleArrayIteration(node);
     } else if (emitJavaIteratorLoop(loopVariable)) {
-      node.replaceWith(makeIterableBlock(expression, expressionType, loopVariable, node.getBody()));
+      convertToJavaIteratorLoop(node);
     } else if (loopVariable.getType().isPrimitive()) {
       boxLoopVariable(node, expressionType, loopVariable);
     } else {
@@ -74,9 +82,10 @@ public class EnhancedForRewriter extends TreeVisitor {
     }
   }
 
-  private Block makeArrayIterationBlock(
-      Expression expression, ITypeBinding expressionType, IVariableBinding loopVariable,
-      Statement loopBody) {
+  private void handleArrayIteration(EnhancedForStatement node) {
+    Expression expression = node.getExpression();
+    ITypeBinding expressionType = expression.getTypeBinding();
+    IVariableBinding loopVariable = node.getParameter().getVariableBinding();
     ITypeBinding componentType = expressionType.getComponentType();
     ITypeBinding iosArrayType = typeEnv.resolveArrayType(componentType);
     PointerTypeBinding bufferType = typeEnv.getPointerType(componentType);
@@ -88,13 +97,13 @@ public class EnhancedForRewriter extends TreeVisitor {
     GeneratedVariableBinding endVariable = new GeneratedVariableBinding(
         "e__", 0, bufferType, false, false, null, null);
     endVariable.setTypeQualifiers("const*");
-    IVariableBinding bufferField = new GeneratedVariableBinding(
-        "buffer", Modifier.PUBLIC, bufferType, true, false, iosArrayType, null);
-    IVariableBinding sizeField = new GeneratedVariableBinding(
-        "size", Modifier.PUBLIC, typeEnv.resolveJavaType("int"), true, false, iosArrayType, null);
+    VariableElement bufferField = BindingConverter.getVariableElement(new GeneratedVariableBinding(
+        "buffer", Modifier.PUBLIC, bufferType, true, false, iosArrayType, null));
+    VariableElement sizeField = BindingConverter.getVariableElement(new GeneratedVariableBinding(
+        "size", Modifier.PUBLIC, typeEnv.resolveJavaType("int"), true, false, iosArrayType, null));
 
     VariableDeclarationStatement arrayDecl =
-        new VariableDeclarationStatement(arrayVariable, expression.copy());
+        new VariableDeclarationStatement(arrayVariable, TreeUtil.remove(expression));
     FieldAccess bufferAccess = new FieldAccess(bufferField, new SimpleName(arrayVariable));
     VariableDeclarationStatement bufferDecl =
         new VariableDeclarationStatement(bufferVariable, bufferAccess);
@@ -107,12 +116,15 @@ public class EnhancedForRewriter extends TreeVisitor {
     loop.setExpression(new InfixExpression(
         typeEnv.resolveJavaType("boolean"), InfixExpression.Operator.LESS,
         new SimpleName(bufferVariable), new SimpleName(endVariable)));
-    Block newLoopBody = makeBlock(loopBody.copy());
+    Block newLoopBody = makeBlock(TreeUtil.remove(node.getBody()));
     loop.setBody(newLoopBody);
-    newLoopBody.getStatements().add(0, new VariableDeclarationStatement(
+    newLoopBody.addStatement(0, new VariableDeclarationStatement(
         loopVariable, new PrefixExpression(
-            componentType, PrefixExpression.Operator.DEREFERENCE, new PostfixExpression(
-                bufferVariable, PostfixExpression.Operator.INCREMENT))));
+            BindingConverter.getType(componentType),
+            PrefixExpression.Operator.DEREFERENCE,
+            new PostfixExpression(
+                BindingConverter.getVariableElement(bufferVariable),
+                PostfixExpression.Operator.INCREMENT))));
 
     Block block = new Block();
     List<Statement> stmts = block.getStatements();
@@ -120,8 +132,7 @@ public class EnhancedForRewriter extends TreeVisitor {
     stmts.add(bufferDecl);
     stmts.add(endDecl);
     stmts.add(loop);
-
-    return block;
+    replaceLoop(node, block, loop);
   }
 
   private boolean emitJavaIteratorLoop(IVariableBinding loopVariable) {
@@ -138,9 +149,10 @@ public class EnhancedForRewriter extends TreeVisitor {
     return false;
   }
 
-  private Block makeIterableBlock(
-      Expression expression, ITypeBinding expressionType, IVariableBinding loopVariable,
-      Statement loopBody) {
+  private void convertToJavaIteratorLoop(EnhancedForStatement node) {
+    Expression expression = node.getExpression();
+    ITypeBinding expressionType = expression.getTypeBinding();
+    IVariableBinding loopVariable = node.getParameter().getVariableBinding();
     ITypeBinding iterableType = BindingUtil.findInterface(expressionType, "java.lang.Iterable");
     IMethodBinding iteratorMethod = BindingUtil.findDeclaredMethod(iterableType, "iterator");
     ITypeBinding iteratorType = iteratorMethod.getReturnType();
@@ -151,7 +163,8 @@ public class EnhancedForRewriter extends TreeVisitor {
     IVariableBinding iteratorVariable = new GeneratedVariableBinding(
         "iter__", 0, iteratorType, false, false, null, null);
 
-    MethodInvocation iteratorInvocation = new MethodInvocation(iteratorMethod, expression.copy());
+    MethodInvocation iteratorInvocation =
+        new MethodInvocation(iteratorMethod, TreeUtil.remove(expression));
     VariableDeclarationStatement iteratorDecl =
         new VariableDeclarationStatement(iteratorVariable, iteratorInvocation);
     MethodInvocation hasNextInvocation =
@@ -159,8 +172,8 @@ public class EnhancedForRewriter extends TreeVisitor {
     MethodInvocation nextInvocation =
         new MethodInvocation(nextMethod, new SimpleName(iteratorVariable));
 
-    Block newLoopBody = makeBlock(loopBody.copy());
-    newLoopBody.getStatements().add(
+    Block newLoopBody = makeBlock(TreeUtil.remove(node.getBody()));
+    newLoopBody.addStatement(
         0, new VariableDeclarationStatement(loopVariable, nextInvocation));
 
     WhileStatement whileLoop = new WhileStatement();
@@ -171,8 +184,18 @@ public class EnhancedForRewriter extends TreeVisitor {
     List<Statement> stmts = block.getStatements();
     stmts.add(iteratorDecl);
     stmts.add(whileLoop);
+    replaceLoop(node, block, whileLoop);
+  }
 
-    return block;
+  private void replaceLoop(EnhancedForStatement oldLoop, Statement replacement, Statement newLoop) {
+    if (oldLoop.getParent() instanceof LabeledStatement) {
+      LabeledStatement labeledStmt = (LabeledStatement) oldLoop.getParent();
+      labeledStmt.replaceWith(replacement);
+      newLoop.replaceWith(labeledStmt);
+      labeledStmt.setBody(newLoop);
+    } else {
+      oldLoop.replaceWith(replacement);
+    }
   }
 
   private void boxLoopVariable(
@@ -186,7 +209,7 @@ public class EnhancedForRewriter extends TreeVisitor {
     IVariableBinding boxVariable = new GeneratedVariableBinding(
         "boxed__", 0, typeArgs[0], false, false, null, null);
     node.setParameter(new SingleVariableDeclaration(boxVariable));
-    makeBlock(node.getBody()).getStatements().add(
+    makeBlock(node.getBody()).addStatement(
         0, new VariableDeclarationStatement(loopVariable, new SimpleName(boxVariable)));
   }
 
@@ -198,7 +221,7 @@ public class EnhancedForRewriter extends TreeVisitor {
     if (stmt.getParent() != null) {
       stmt.replaceWith(block);
     }
-    block.getStatements().add(stmt);
+    block.addStatement(stmt);
     return block;
   }
 }

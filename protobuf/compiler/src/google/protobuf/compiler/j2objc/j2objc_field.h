@@ -40,16 +40,9 @@
 #include <set>
 #include <string>
 
-#include <google/protobuf/stubs/common.h>
-#include <google/protobuf/descriptor.h>
+#include "google/protobuf/compiler/j2objc/common.h"
 
 namespace google {
-namespace protobuf {
-  namespace io {
-    class Printer;             // printer.h
-  }
-}
-
 namespace protobuf {
 namespace compiler {
 namespace j2objc {
@@ -134,7 +127,7 @@ class FieldGeneratorMap {
 
  private:
   const Descriptor* descriptor_;
-  scoped_array<scoped_ptr<FieldGenerator> > field_generators_;
+  std::unique_ptr<std::unique_ptr<FieldGenerator> []> field_generators_;
 
   static FieldGenerator* MakeGenerator(const FieldDescriptor* field);
 

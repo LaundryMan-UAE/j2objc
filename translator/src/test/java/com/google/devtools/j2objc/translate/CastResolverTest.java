@@ -50,8 +50,7 @@ public class CastResolverTest extends GenerationTest {
     List<Statement> stmts = translateStatements(source);
     assertEquals(1, stmts.size());
     String result = generateStatement(stmts.get(0));
-    assertEquals("jint i = ((jint) [((NSException *) "
-        + "[new_NSException_init() autorelease]) hash]);", result);
+    assertEquals("jint i = ((jint) [create_NSException_init() hash]);", result);
   }
 
   // b/5872710: generic return type needs to be cast if chaining invocations.
@@ -108,9 +107,9 @@ public class CastResolverTest extends GenerationTest {
         + "  }"
         + "}", "Test", "Test.m");
     // Verify foo.derivedMethod() has cast of appropriate type variable.
-    assertTranslation(translation, "[((Test_DerivedFoo *) foo_) derivedMethod];");
+    assertTranslation(translation, "[((Test_DerivedFoo *) nil_chk(foo_)) derivedMethod];");
     // Verify that a cast can be added to a QualifiedName node.
-    assertTranslation(translation, "return ((Test_DerivedFoo *) foo_)->myInt_;");
+    assertTranslation(translation, "return ((Test_DerivedFoo *) nil_chk(foo_))->myInt_;");
   }
 
   public void testCapturedType() throws IOException {
@@ -160,11 +159,10 @@ public class CastResolverTest extends GenerationTest {
     assertTranslatedLines(translation,
         "- (id<Test_I>)test {",
         // Type cast must contain both "Test_C" and "Test_I".
-        "  [((Test_C<Test_I> *) nil_chk([self genericMethodWithId:[new_Test_Bar_init() autorelease]"
-          + " withId:[new_Test_Baz_init() autorelease]])) foo];",
+        "  [((Test_C<Test_I> *) nil_chk([self genericMethodWithId:create_Test_Bar_init()"
+          + " withId:create_Test_Baz_init()])) foo];",
         // No need for a cast because genericMethodWithId:withId: is declared to return "id".
-        "  return [self genericMethodWithId:[new_Test_Bar_init() autorelease]"
-          + " withId:[new_Test_Baz_init() autorelease]];",
+        "  return [self genericMethodWithId:create_Test_Bar_init() withId:create_Test_Baz_init()];",
         "}");
   }
 
@@ -234,5 +232,23 @@ public class CastResolverTest extends GenerationTest {
     // Need to check the cast because the erasure of E[] is String[].
     assertTranslation(translation,
         "return (IOSObjectArray *) cast_check(o, IOSClass_arrayType(NSString_class_(), 1));");
+  }
+
+  public void testAssignmentCast() throws IOException {
+    String translation = translateSourceFile(
+        "class Test implements java.io.Serializable {"
+        + " static class A<T extends java.io.Serializable> { T foo; }"
+        + " void test (A<Test> a, Test t) { if (a != null) { t = a.foo; } } }", "Test", "Test.m");
+    assertTranslation(translation, "t = ((Test *) a->foo_);");
+  }
+
+  public void testCastInConditionalExpression() throws IOException {
+    String translation = translateSourceFile(
+        "class Test implements java.io.Serializable {"
+        + " static class A<T extends java.io.Serializable> { T foo; }"
+        + " Test test (A<Test> a1, A<Test> a2, boolean b) {"
+        + " if (a1 == null || a2 == null) return null; return b ? a1.foo : a2.foo; } }",
+        "Test", "Test.m");
+    assertTranslation(translation, "return b ? ((Test *) a1->foo_) : ((Test *) a2->foo_);");
   }
 }

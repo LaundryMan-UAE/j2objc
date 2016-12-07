@@ -22,10 +22,7 @@ public class TypeDeclarationStatement extends Statement {
   private final ChildLink<AbstractTypeDeclaration> declaration =
       ChildLink.create(AbstractTypeDeclaration.class, this);
 
-  public TypeDeclarationStatement(org.eclipse.jdt.core.dom.TypeDeclarationStatement jdtNode) {
-    super(jdtNode);
-    declaration.set((AbstractTypeDeclaration) TreeConverter.convert(jdtNode.getDeclaration()));
-  }
+  public TypeDeclarationStatement() {}
 
   public TypeDeclarationStatement(TypeDeclarationStatement other) {
     super(other);
@@ -39,6 +36,11 @@ public class TypeDeclarationStatement extends Statement {
 
   public AbstractTypeDeclaration getDeclaration() {
     return declaration.get();
+  }
+
+  public TypeDeclarationStatement setDeclaration(AbstractTypeDeclaration decl) {
+    declaration.set(decl);
+    return this;
   }
 
   @Override

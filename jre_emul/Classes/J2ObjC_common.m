@@ -20,6 +20,7 @@
 
 #import "FastPointerLookup.h"
 #import "IOSClass.h"
+#import "JreRetainedWith.h"
 #import "java/lang/AbstractStringBuilder.h"
 #import "java/lang/AssertionError.h"
 #import "java/lang/ClassCastException.h"
@@ -28,6 +29,7 @@
 #import "java/util/logging/Logger.h"
 #import "java_lang_IntegralToString.h"
 #import "java_lang_RealToString.h"
+#import "objc/runtime.h"
 
 void JreThrowNullPointerException() {
   @throw AUTORELEASE([[JavaLangNullPointerException alloc] init]);
@@ -85,20 +87,22 @@ id JreStrongAssignAndConsume(__strong id *pIvar, NS_RELEASES_ARGUMENT id value) 
 // property accessors, and the hashing used here is inspired by Apple's
 // implementation:
 // http://www.opensource.apple.com/source/objc4/objc4-532.2/runtime/Accessors.subproj/objc-accessors.mm
-// Note that normally a spin lock only requires acquire/release semantics, but
-// we use sequencially consistent ordering when acquiring and releasing the spin
-// locks to provide sequencial consistency of all volatile accesses.
+// Spin locks are unsafe to use on iOS because of the potential for priority
+// inversion so we use pthread_mutex.
 #define VOLATILE_POWER 7
-#define VOLATILE_MASK ((1 << VOLATILE_POWER) - 1)
+#define VOLATILE_NLOCKS (1 << VOLATILE_POWER)
+#define VOLATILE_MASK (VOLATILE_NLOCKS - 1)
 #define VOLATILE_HASH(x) (((long)x >> 5) & VOLATILE_MASK)
 #define VOLATILE_GETLOCK(ptr) &volatile_locks[VOLATILE_HASH(ptr)]
-#define VOLATILE_LOCK(l) while (__c11_atomic_exchange(l, 1, __ATOMIC_SEQ_CST)) {}
-#define VOLATILE_UNLOCK(l) __c11_atomic_store(l, 0, __ATOMIC_SEQ_CST)
-typedef _Atomic(uint8_t) volatile_lock_t;
-static volatile_lock_t volatile_locks[1 << VOLATILE_POWER] = { 0 };
+#define VOLATILE_LOCK(l) pthread_mutex_lock(l)
+#define VOLATILE_UNLOCK(l) pthread_mutex_unlock(l)
+
+typedef pthread_mutex_t *volatile_lock_t;
+static pthread_mutex_t volatile_locks[VOLATILE_NLOCKS] =
+  { [0 ... VOLATILE_MASK] = PTHREAD_MUTEX_INITIALIZER };
 
 id JreLoadVolatileId(volatile_id *pVar) {
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pVar);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pVar);
   VOLATILE_LOCK(lock);
   id value = [*(id *)pVar retain];
   VOLATILE_UNLOCK(lock);
@@ -106,7 +110,7 @@ id JreLoadVolatileId(volatile_id *pVar) {
 }
 
 id JreAssignVolatileId(volatile_id *pVar, id value) {
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pVar);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pVar);
   VOLATILE_LOCK(lock);
   *(id *)pVar = value;
   VOLATILE_UNLOCK(lock);
@@ -115,7 +119,7 @@ id JreAssignVolatileId(volatile_id *pVar, id value) {
 
 static inline id JreVolatileStrongAssignInner(
     volatile_id *pIvar, NS_RELEASES_ARGUMENT id value) {
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pIvar);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pIvar);
   VOLATILE_LOCK(lock);
   id oldValue = *(id *)pIvar;
   *(id *)pIvar = value;
@@ -133,7 +137,7 @@ id JreVolatileStrongAssignAndConsume(volatile_id *pIvar, NS_RELEASES_ARGUMENT id
 }
 
 jboolean JreCompareAndSwapVolatileStrongId(volatile_id *pVar, id expected, id newValue) {
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pVar);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pVar);
   VOLATILE_LOCK(lock);
   jboolean result = *(id *)pVar == expected;
   if (result) {
@@ -148,7 +152,7 @@ jboolean JreCompareAndSwapVolatileStrongId(volatile_id *pVar, id expected, id ne
 
 id JreExchangeVolatileStrongId(volatile_id *pVar, id newValue) {
   [newValue retain];
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pVar);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pVar);
   VOLATILE_LOCK(lock);
   id oldValue = *(id *)pVar;
   *(id *)pVar = newValue;
@@ -165,7 +169,7 @@ void JreReleaseVolatile(volatile_id *pVar) {
 }
 
 void JreCloneVolatile(volatile_id *pVar, volatile_id *pOther) {
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pOther);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pOther);
   VOLATILE_LOCK(lock);
   *(id *)pVar = *(id *)pOther;
   VOLATILE_UNLOCK(lock);
@@ -176,105 +180,86 @@ void JreCloneVolatileStrong(volatile_id *pVar, volatile_id *pOther) {
   // still within Object.clone() we know that pVar isn't visible to other
   // threads yet, so we don't need to use it's lock. However, we do the
   // assignment within pOther's lock to provide sequencial consistency.
-  volatile_lock_t *lock = VOLATILE_GETLOCK(pOther);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pOther);
   VOLATILE_LOCK(lock);
   *(id *)pVar = [*(id *)pOther retain];
   VOLATILE_UNLOCK(lock);
 }
 
-// Block flag position for copy dispose, (1 << 25).
-#define COPY_DISPOSE_FLAG 0x02000000
-
-// Modified from clang block implementation http://clang.llvm.org/docs/Block-ABI-Apple.html
-typedef struct Block_literal_1 {
-  void *isa;
-  int flags;
-  int reserved;
-  void (*invoke)(void *, ...);
-  struct Block_descriptor_1 {
-    unsigned long int reserved;
-    unsigned long int size;
-    // There will be 2 function pointers at the beginning of the signature if the copy_dispose flag
-    // is set.
-    void *signature[1];
-  } *descriptor;
-} Block_literal;
-
-// Returns a type string from a block.
-const char *blockTypeSignature(id block) {
-  Block_literal *blockLiteral = (__bridge void *) block;
-  // Offset for optional function pointers.
-  int i = (blockLiteral->flags & COPY_DISPOSE_FLAG) ? 2 : 0;
-  return (const char *) blockLiteral->descriptor->signature[i];
+id JreRetainedWithAssign(id parent, __strong id *pIvar, id value) {
+  if (*pIvar) {
+    JreRetainedWithCheckPreviousValue(parent, *pIvar);
+    [*pIvar autorelease];
+  }
+  // This retain makes sure that the child object has a retain count of at
+  // least 2 which is required by JreRetainedWithInitialize.
+  [value retain];
+  JreRetainedWithInitialize(parent, value);
+  return *pIvar = value;
 }
 
-typedef struct {
-  void *id;
-} LambdaHolder;
-
-static void *LambdaLookup(void *ptr) {
-  LambdaHolder *lh = malloc(sizeof(LambdaHolder));
-  lh->id = nil;
-  return lh;
+id JreVolatileRetainedWithAssign(id parent, volatile_id *pIvar, id value) {
+  // This retain makes sure that the child object has a retain count of at
+  // least 2 which is required by JreRetainedWithInitialize.
+  [value retain];
+  JreRetainedWithInitialize(parent, value);
+  volatile_lock_t lock = VOLATILE_GETLOCK(pIvar);
+  VOLATILE_LOCK(lock);
+  id oldValue = *(id *)pIvar;
+  *(id *)pIvar = value;
+  VOLATILE_UNLOCK(lock);
+  if (oldValue) {
+    JreRetainedWithCheckPreviousValue(parent, oldValue);
+    [oldValue autorelease];
+  }
+  return value;
 }
 
-static FastPointerLookup_t lambdaLookup = FAST_POINTER_LOOKUP_INIT(&LambdaLookup);
+void JreRetainedWithRelease(id parent, id value) {
+  JreRetainedWithHandleDealloc(parent, value);
+  [value release];
+}
 
-// Method to handle dynamic creation of class wrappers surrounding blocks which come from lambdas
-// not requiring a capture.
-id GetNonCapturingLambda(Protocol *protocol, NSString *blockClassName,
-    SEL methodSelector, id block) {
-  // Relies on lambda names being constant strings with matching pointers for matching names.
-  // This should happen as a clang optimization, as all string constants are kept on the stack for
-  // the program duration.
-  LambdaHolder *lambdaHolder = FastPointerLookup(&lambdaLookup, (__bridge void*) blockClassName);
-  @synchronized(blockClassName) {
-    if (lambdaHolder->id == nil) {
-      Class blockClass = objc_allocateClassPair([NSObject class], [blockClassName UTF8String], 0);
-      // Fail quickly if we can't create the runtime class.
-      if (!class_addProtocol(blockClass, protocol)) {
-        @throw AUTORELEASE([[JavaLangAssertionError alloc]
-            initWithId:@"Unable to add protocol to non-capturing lambda class."]);
-      }
-      IMP block_implementation = imp_implementationWithBlock(block);
-      if (!class_addMethod(blockClass, methodSelector, block_implementation,
-          blockTypeSignature(block))) {
-        @throw AUTORELEASE([[JavaLangAssertionError alloc]
-            initWithId:@"Unable to add method to non-capturing lambda class."]);
-      }
-      objc_registerClassPair(blockClass);
-      lambdaHolder->id = (void*)[[blockClass alloc] init];
+void JreVolatileRetainedWithRelease(id parent, volatile_id *pVar) {
+  JreRetainedWithHandleDealloc(parent, *(id *)pVar);
+  // This is only called from a dealloc method, so we can assume there are no
+  // concurrent threads with access to this address. Therefore, synchronization
+  // is unnecessary.
+  [*(id *)pVar release];
+}
+
+// empty implementation base class for lambdas
+@implementation LambdaBase
+@end
+
+Class CreatePossiblyCapturingClass(
+    const char *lambdaName, jint numProtocols, Protocol *protocols[],
+    jint numMethods, SEL selectors[], IMP impls[], const char *signatures[]) {
+  Class cls = objc_allocateClassPair([LambdaBase class], lambdaName, 0);
+  for (jint i = 0; i < numProtocols; i++) {
+    class_addProtocol(cls, protocols[i]);
+  }
+  for (jint i = 0; i < numMethods; i++) {
+    class_addMethod(cls, selectors[i], impls[i], signatures[i]);
+  }
+  objc_registerClassPair(cls);
+  return cls;
+};
+
+id CreateNonCapturing(
+    const char *lambdaName, jint numProtocols, Protocol *protocols[],
+    jint numMethods, SEL selectors[], IMP impls[], const char *signatures[]) {
+  return NSAllocateObject(CreatePossiblyCapturingClass(lambdaName, numProtocols,
+      protocols, numMethods, selectors, impls, signatures), 0, nil);
+};
+
+jint JreIndexOfStr(NSString *str, NSString **values, jint size) {
+  for (int i = 0; i < size; i++) {
+    if ([str isEqualToString:values[i]]) {
+      return i;
     }
   }
-  return (__bridge id) lambdaHolder->id;
-}
-
-// Method to handle dynamic creation of class wrappers surrounding blocks from lambdas requiring
-// a capture.
-id GetCapturingLambda(Protocol *protocol, NSString *blockClassName,
-    SEL methodSelector, id blockWrapper, id block) {
-  LambdaHolder *lambdaHolder = FastPointerLookup(&lambdaLookup, (__bridge void*) blockClassName);
-  @synchronized(blockClassName) {
-    if (lambdaHolder->id == nil) {
-      Class lambdaClass = objc_allocateClassPair([NSObject class], [blockClassName UTF8String], 0);
-      // Fail quickly if we can't create the runtime class.
-      if (!class_addProtocol(lambdaClass, protocol)) {
-        @throw AUTORELEASE([[JavaLangAssertionError alloc]
-            initWithId:@"Unable to add protocol to capturing lambda class."]);
-      }
-      IMP block_implementation = imp_implementationWithBlock(blockWrapper);
-      if (!class_addMethod([lambdaClass class], methodSelector, block_implementation,
-          blockTypeSignature(blockWrapper))) {
-        @throw AUTORELEASE([[JavaLangAssertionError alloc]
-          initWithId:@"Unable to add method to capturing lambda class."]);
-      }
-      objc_registerClassPair(lambdaClass);
-      lambdaHolder->id = (void*)[lambdaClass class];
-    }
-  }
-  id instance = [[(id) lambdaHolder->id alloc] init];
-  objc_setAssociatedObject(instance, (void*) 0, block, OBJC_ASSOCIATION_COPY_NONATOMIC);
-  return instance;
+  return -1;
 }
 
 // Counts the number of object types in a string concatenation.

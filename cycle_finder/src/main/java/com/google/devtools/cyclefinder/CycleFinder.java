@@ -17,14 +17,15 @@ package com.google.devtools.cyclefinder;
 import com.google.common.base.Strings;
 import com.google.common.io.Files;
 import com.google.devtools.j2objc.ast.CompilationUnit;
-import com.google.devtools.j2objc.ast.TreeConverter;
 import com.google.devtools.j2objc.file.RegularInputFile;
+import com.google.devtools.j2objc.jdt.JdtParser;
 import com.google.devtools.j2objc.pipeline.J2ObjCIncompatibleStripper;
+import com.google.devtools.j2objc.translate.LambdaTypeElementAdder;
 import com.google.devtools.j2objc.translate.OuterReferenceResolver;
+import com.google.devtools.j2objc.util.CaptureInfo;
 import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
-import com.google.devtools.j2objc.util.JdtParser;
-
+import com.google.devtools.j2objc.util.Parser;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -51,11 +52,14 @@ public class CycleFinder {
 
   public CycleFinder(Options options) throws IOException {
     this.options = options;
-    com.google.devtools.j2objc.Options.load(new String[] { "-encoding", options.fileEncoding() });
+    com.google.devtools.j2objc.Options.load(new String[] {
+      "-encoding", options.fileEncoding(),
+      "-source",   options.sourceVersion().flag()
+    });
   }
 
-  private static JdtParser createParser(Options options) {
-    JdtParser parser = new JdtParser();
+  private static Parser createParser(Options options) {
+    Parser parser = new JdtParser();
     parser.addSourcepathEntries(Strings.nullToEmpty(options.getSourcepath()));
     parser.addClasspathEntries(Strings.nullToEmpty(options.getBootclasspath()));
     parser.addClasspathEntries(Strings.nullToEmpty(options.getClasspath()));
@@ -92,7 +96,7 @@ public class CycleFinder {
   }
 
   private File stripIncompatible(
-      List<String> sourceFileNames, JdtParser parser) throws IOException {
+      List<String> sourceFileNames, Parser parser) throws IOException {
     File strippedDir = null;
     for (int i = 0; i < sourceFileNames.size(); i++) {
       String fileName = sourceFileNames.get(i);
@@ -119,29 +123,21 @@ public class CycleFinder {
 
   public List<List<Edge>> findCycles() throws IOException {
     final TypeCollector typeCollector = new TypeCollector();
-    JdtParser parser = createParser(options);
-    final OuterReferenceResolver outerResolver = new OuterReferenceResolver();
+    Parser parser = createParser(options);
+    final CaptureInfo captureInfo = new CaptureInfo();
 
     List<String> sourceFiles = options.getSourceFiles();
     File strippedDir = stripIncompatible(sourceFiles, parser);
 
-    JdtParser.Handler handler = new JdtParser.Handler() {
+    Parser.Handler handler = new Parser.Handler() {
       @Override
-      public void handleParsedUnit(String path, org.eclipse.jdt.core.dom.CompilationUnit jdtUnit) {
-        String source = "";
-        RegularInputFile file = new RegularInputFile(path);
-        try {
-          source = FileUtil.readFile(file);
-        } catch (IOException e) {
-          ErrorUtil.error("Error reading file " + path + ": " + e.getMessage());
-        }
-        CompilationUnit unit = TreeConverter.convertCompilationUnit(
-            jdtUnit, path, FileUtil.getMainTypeName(file), source, null);
+      public void handleParsedUnit(String path, CompilationUnit unit) {
+        new LambdaTypeElementAdder(unit).run();
         typeCollector.visitAST(unit);
-        outerResolver.run(unit);
+        new OuterReferenceResolver(unit, captureInfo).run();
       }
     };
-    parser.parseFiles(sourceFiles, handler);
+    parser.parseFiles(sourceFiles, handler, options.sourceVersion());
 
     FileUtil.deleteTempDir(strippedDir);
 
@@ -151,7 +147,7 @@ public class CycleFinder {
 
     // Construct the graph and find cycles.
     ReferenceGraph graph = new ReferenceGraph(
-        typeCollector, outerResolver, NameList.createFromFiles(options.getWhitelistFiles()),
+        typeCollector, captureInfo, NameList.createFromFiles(options.getWhitelistFiles()),
         getBlacklist());
     return graph.findCycles();
   }

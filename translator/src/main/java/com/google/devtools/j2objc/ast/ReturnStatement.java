@@ -21,10 +21,7 @@ public class ReturnStatement extends Statement {
 
   private ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
 
-  public ReturnStatement(org.eclipse.jdt.core.dom.ReturnStatement jdtNode) {
-    super(jdtNode);
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-  }
+  public ReturnStatement() {}
 
   public ReturnStatement(ReturnStatement other) {
     super(other);
@@ -44,8 +41,9 @@ public class ReturnStatement extends Statement {
     return expression.get();
   }
 
-  public void setExpression(Expression newExpression) {
+  public ReturnStatement setExpression(Expression newExpression) {
     expression.set(newExpression);
+    return this;
   }
 
   @Override

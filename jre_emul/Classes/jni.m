@@ -28,9 +28,11 @@
 #include "IOSPrimitiveArray.h"
 #include "NSException+JavaThrowable.h"
 #include "java/lang/ClassNotFoundException.h"
+#include "java/lang/InstantiationException.h"
 #include "java/lang/reflect/Constructor.h"
 #include "java/lang/reflect/Field.h"
 #include "java/lang/reflect/Method.h"
+#include "java/lang/reflect/Modifier.h"
 #include "java/nio/Buffer.h"
 #include "java/nio/DirectByteBuffer.h"
 
@@ -467,7 +469,7 @@ static jfieldID GetStaticFieldID(JNIEnv *env, jclass clazz, const char *name, co
 static jmethodID GetMethodID(JNIEnv *env, jclass clazz, const char *name, const char *sig) {
   IOSClass *iosClass = (IOSClass *) clazz;
   JNIMethodSignature methodSig = JNIParseMethodSignature(sig);
-  ExecutableMember *result = nil;
+  JavaLangReflectExecutable *result = nil;
   if (strcmp(name, "<init>") == 0) {
     result = [iosClass getConstructor:methodSig.paramTypes];
   } else {
@@ -506,11 +508,11 @@ static jmethodID GetStaticMethodID(JNIEnv *env, jclass clazz, const char *name, 
   va_end(args);                                 \
   return result
 
-static void ToArgsArray(const char *paramTypes, jvalue *jargs, va_list args) {
-  const char *paramType = paramTypes;
+static void ToArgsArray(IOSObjectArray *paramTypes, jvalue *jargs, va_list args) {
   jvalue *value = jargs;
-  while (*paramType) {
-    switch (*paramType) {
+  for (IOSClass *param in paramTypes) {
+    unichar p = [param isPrimitive] ? [[param binaryName] characterAtIndex:0] : 'L';
+    switch (p) {
       // On 32 bit architectures, each var arg size is promoted to at least
       // sizeof(int) for integral types, or sizeof(double) for float types.
       // TODO: verify this works for 64 bit architectures.
@@ -524,9 +526,18 @@ static void ToArgsArray(const char *paramTypes, jvalue *jargs, va_list args) {
       case 'Z': value->z = (jboolean) va_arg(args, int); break;
       default: value->l = (jobject) va_arg(args, jobject); break;
     }
-    paramType++;
     value++;
   }
+}
+
+static jobject AllocObject(JNIEnv *env, jclass clazz) {
+  nil_chk(clazz);
+  jint modifiers = [clazz getModifiers];
+  if ((modifiers & (JavaLangReflectModifier_ABSTRACT | JavaLangReflectModifier_INTERFACE)) > 0
+      || [clazz isArray] || [clazz isEnum]) {
+    @throw create_JavaLangInstantiationException_initWithNSString_([clazz getName]);
+  }
+  return [clazz.objcClass alloc];
 }
 
 static jobject NewObjectA(JNIEnv *env, jclass clazz, jmethodID methodID, const jvalue *args) {
@@ -535,8 +546,8 @@ static jobject NewObjectA(JNIEnv *env, jclass clazz, jmethodID methodID, const j
 }
 
 static jobject NewObjectV(JNIEnv *env, jclass clazz, jmethodID methodID, va_list args) {
-  const char *paramTypes = [(JavaLangReflectMethod *)methodID getBinaryParameterTypes];
-  size_t numArgs = strlen(paramTypes);
+  IOSObjectArray *paramTypes = [(JavaLangReflectConstructor *)methodID getParameterTypesInternal];
+  size_t numArgs = paramTypes->size_;
 
   ALLOC_JARGS(jargs, numArgs);
   ToArgsArray(paramTypes, jargs, args);
@@ -556,8 +567,8 @@ static void CallMethodA(JNIEnv *env, jobject obj, jmethodID methodID, const jval
 }
 
 static void CallMethodV(JNIEnv *env, jobject obj, jmethodID methodID, va_list args, jvalue *result) {
-  const char *paramTypes = [(JavaLangReflectMethod *)methodID getBinaryParameterTypes];
-  size_t numArgs = strlen(paramTypes);
+  IOSObjectArray *paramTypes = [(JavaLangReflectMethod *)methodID getParameterTypesInternal];
+  size_t numArgs = paramTypes->size_;
 
   ALLOC_JARGS(jargs, numArgs);
   ToArgsArray(paramTypes, jargs, args);
@@ -871,6 +882,7 @@ static struct JNINativeInterface JNI_JNIEnvTable = {
   &GetStaticFieldID,
   &GetMethodID,
   &GetStaticMethodID,
+  &AllocObject,
   &NewObject,
   &NewObjectV,
   &NewObjectA,

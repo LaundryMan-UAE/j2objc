@@ -34,9 +34,8 @@ TEST_DIR = $(BUILD_DIR)/test
 SOURCEPATH = $(CWD):$(JAVA_SOURCE_DIR)
 BASE_PACKAGE = com/google/devtools/j2objc
 
-JAR_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(JSR305_JAR) j2objc_joda_time.jar j2objc_joda_convert.jar j2objc_annotations.jar
 DIST_DEPS = $(JSR305_JAR) j2objc_annotations.jar
-INTERNAL_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(ASM_JAR) $(JSR305_JAR)
+INTERNAL_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(ASM_JAR) $(JSR305_JAR) $(JAVAC_JAR)
 JAR_DEPS_DIST = $(DIST_DEPS:%=$(DIST_JAR_DIR)/%) $(INTERNAL_DEPS:%=$(JAVA_DEPS_JAR_DIR)/%)
 JAR_DEPS_PATH = $(subst $(eval) ,:,$(strip $(JAR_DEPS_DIST)))
 JUNIT_JAR_DIST = $(DIST_JAR_DIR)/$(JUNIT_JAR)
@@ -80,6 +79,7 @@ JAVA_SOURCES = \
 	ast/ClassInstanceCreation.java \
 	ast/CommaExpression.java \
 	ast/Comment.java \
+	ast/CommonTypeDeclaration.java \
 	ast/CompilationUnit.java \
 	ast/ConditionalExpression.java \
 	ast/ConstructorInvocation.java \
@@ -100,6 +100,7 @@ JAVA_SOURCES = \
 	ast/ForStatement.java \
 	ast/FunctionDeclaration.java \
 	ast/FunctionInvocation.java \
+	ast/FunctionalExpression.java \
 	ast/IfStatement.java \
 	ast/InfixExpression.java \
 	ast/Initializer.java \
@@ -149,7 +150,6 @@ JAVA_SOURCES = \
 	ast/TextElement.java \
 	ast/ThisExpression.java \
 	ast/ThrowStatement.java \
-	ast/TreeConverter.java \
 	ast/TreeNode.java \
 	ast/TreeUtil.java \
 	ast/TreeVisitor.java \
@@ -161,6 +161,7 @@ JAVA_SOURCES = \
 	ast/TypeLiteral.java \
 	ast/TypeMethodReference.java \
 	ast/UnionType.java \
+	ast/UnitTreeVisitor.java \
 	ast/VariableDeclaration.java \
 	ast/VariableDeclarationExpression.java \
 	ast/VariableDeclarationFragment.java \
@@ -174,12 +175,10 @@ JAVA_SOURCES = \
 	gen/GenerationUnit.java \
 	gen/JavadocGenerator.java \
 	gen/LiteralGenerator.java \
-	gen/MetadataGenerator.java \
 	gen/ObjectiveCHeaderGenerator.java \
 	gen/ObjectiveCImplementationGenerator.java \
 	gen/ObjectiveCSegmentedHeaderGenerator.java \
 	gen/ObjectiveCSourceFileGenerator.java \
-	gen/RuntimeAnnotationGenerator.java \
 	gen/SignatureGenerator.java \
 	gen/SourceBuilder.java \
 	gen/StatementGenerator.java \
@@ -187,6 +186,42 @@ JAVA_SOURCES = \
 	gen/TypeGenerator.java \
 	gen/TypeImplementationGenerator.java \
 	gen/TypePrivateDeclarationGenerator.java \
+	javac/JavacEnvironment.java \
+	javac/JavacParser.java \
+	javac/TreeConverter.java \
+	jdt/BindingConverter.java \
+	jdt/JdtAnnotationBinding.java \
+	jdt/JdtAnnotationMirror.java \
+	jdt/JdtAnnotationValue.java \
+	jdt/JdtArrayType.java \
+	jdt/JdtBinding.java \
+	jdt/JdtDeclaredType.java \
+	jdt/JdtElement.java \
+	jdt/JdtElements.java \
+	jdt/JdtExecutableElement.java \
+	jdt/JdtExecutableType.java \
+	jdt/JdtExtendedModifier.java \
+	jdt/JdtIntersectionType.java \
+	jdt/JdtMemberValuePairBinding.java \
+	jdt/JdtMethodBinding.java \
+	jdt/JdtNoType.java \
+	jdt/JdtNativeType.java \
+	jdt/JdtNullType.java \
+	jdt/JdtPackageBinding.java \
+	jdt/JdtPackageElement.java \
+	jdt/JdtParser.java \
+	jdt/JdtPrimitiveType.java \
+	jdt/JdtTypeBinding.java \
+	jdt/JdtTypeElement.java \
+	jdt/JdtTypeMirror.java \
+	jdt/JdtTypeParameterElement.java \
+	jdt/JdtTypes.java \
+	jdt/JdtTypeVariable.java \
+	jdt/JdtVariableBinding.java \
+	jdt/JdtVariableElement.java \
+	jdt/JdtWildcardType.java \
+	jdt/StringName.java \
+	jdt/TreeConverter.java \
 	pipeline/AnnotationPreProcessor.java \
 	pipeline/BuildClosureQueue.java \
 	pipeline/FileProcessor.java \
@@ -196,6 +231,7 @@ JAVA_SOURCES = \
 	pipeline/ProcessingContext.java \
 	pipeline/TranslationProcessor.java \
 	translate/AbstractMethodRewriter.java \
+	translate/AnnotationRewriter.java \
 	translate/AnonymousClassConverter.java \
 	translate/ArrayRewriter.java \
 	translate/Autoboxer.java \
@@ -203,6 +239,8 @@ JAVA_SOURCES = \
 	translate/ComplexExpressionExtractor.java \
 	translate/ConstantBranchPruner.java \
 	translate/DeadCodeEliminator.java \
+	translate/DefaultConstructorAdder.java \
+	translate/DefaultMethodShimGenerator.java \
 	translate/DestructorGenerator.java \
 	translate/EnhancedForRewriter.java \
 	translate/EnumRewriter.java \
@@ -212,45 +250,60 @@ JAVA_SOURCES = \
 	translate/InnerClassExtractor.java \
 	translate/JavaCloneWriter.java \
 	translate/JavaToIOSMethodTranslator.java \
+	translate/LabelRewriter.java \
+	translate/MetadataWriter.java \
+	translate/LambdaTypeElementAdder.java \
+	translate/LambdaRewriter.java \
 	translate/NilCheckResolver.java \
 	translate/OcniExtractor.java \
 	translate/OperatorRewriter.java \
 	translate/OuterReferenceFixer.java \
 	translate/OuterReferenceResolver.java \
+	translate/PackageInfoRewriter.java \
 	translate/PrivateDeclarationResolver.java \
 	translate/Rewriter.java \
+	translate/RuntimeAnnotationGenerator.java \
 	translate/StaticVarRewriter.java \
 	translate/SuperMethodInvocationRewriter.java \
+	translate/SwitchRewriter.java \
 	translate/UnsequencedExpressionRewriter.java \
 	translate/VarargsRewriter.java \
 	translate/VariableRenamer.java \
-	types/AbstractBinding.java \
 	types/AbstractTypeBinding.java \
 	types/FunctionBinding.java \
+	types/GeneratedElement.java \
+	types/GeneratedExecutableElement.java \
 	types/GeneratedMethodBinding.java \
 	types/GeneratedPackageBinding.java \
 	types/GeneratedTypeBinding.java \
+	types/GeneratedTypeElement.java \
 	types/GeneratedVariableBinding.java \
+	types/GeneratedVariableElement.java \
 	types/HeaderImportCollector.java \
 	types/IOSMethodBinding.java \
 	types/IOSTypeBinding.java \
 	types/ImplementationImportCollector.java \
 	types/Import.java \
-	types/LambdaTypeBinding.java \
-	types/NullTypeBinding.java \
+	types/LambdaTypeElement.java \
+	types/NativeType.java \
+	types/NativeTypeBinding.java \
 	types/PointerTypeBinding.java \
 	types/Types.java \
 	util/BindingUtil.java \
+	util/CaptureInfo.java \
 	util/DeadCodeMap.java \
+	util/ElementUtil.java \
 	util/ErrorUtil.java \
 	util/FileUtil.java \
 	util/HeaderMap.java \
-	util/JdtParser.java \
 	util/NameTable.java \
 	util/PackagePrefixes.java \
+	util/Parser.java \
 	util/ProGuardUsageParser.java \
+	util/SourceVersion.java \
 	util/TimeTracker.java \
 	util/TranslationUtil.java \
+	util/TypeUtil.java \
 	util/UnicodeUtils.java \
 	util/Version.java
 
@@ -285,12 +338,12 @@ $(J2OBJC_JAR): $(MANIFEST) $(RESOURCE_FILES) $(JAVA_SOURCES_FULL) \
   | $(BUILD_DIR) java_deps_dist annotations_dist
 	@echo building j2objc jar
 	@javac -Xlint:unchecked -sourcepath $(SOURCEPATH) -classpath $(CLASSPATH) \
-	    -d $(CLASS_DIR) -encoding UTF-8 -source 1.7 -target 1.7 -nowarn \
+	    -d $(CLASS_DIR) -encoding UTF-8 -source 1.8 -target 1.8 -nowarn \
 	    $(JAVA_SOURCES_FULL)
 	@for lib in $(JAR_DEPS_DIST); do unzip -oq $$lib -d $(CLASS_DIR); done
 	@rm -rf $(UNUSED_JAR_CONTENTS)
 	@jar cfm $@-combined $(MANIFEST) -C $(CLASS_DIR) .
-	@java -jar $(JAVA_DEPS_JAR_DIR)/$(JARJAR) process jarjar.rules $@-combined $@
+	@java -jar $(JAVA_DEPS_JAR_DIR)/$(JARJAR_JAR) process jarjar.rules $@-combined $@
 
 # Format manifest classpath with each jar on a separate line, to avoid
 # maximum line length of 72 bytes in UTF-8 encoding.

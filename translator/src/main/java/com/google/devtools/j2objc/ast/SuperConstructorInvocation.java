@@ -14,37 +14,35 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.ExecutableElement;
+import org.eclipse.jdt.core.dom.IMethodBinding;
 
 /**
  * Node for a super constructor invocation. (i.e. "super(...);")
  */
 public class SuperConstructorInvocation extends Statement {
 
-  private IMethodBinding methodBinding = null;
+  private ExecutableElement method = null;
   private final ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
   private final ChildList<Expression> arguments = ChildList.create(Expression.class, this);
 
-  public SuperConstructorInvocation(org.eclipse.jdt.core.dom.SuperConstructorInvocation jdtNode) {
-    super(jdtNode);
-    methodBinding = jdtNode.resolveConstructorBinding();
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-    for (Object argument : jdtNode.arguments()) {
-      arguments.add((Expression) TreeConverter.convert(argument));
-    }
-  }
+  public SuperConstructorInvocation() {}
 
   public SuperConstructorInvocation(SuperConstructorInvocation other) {
     super(other);
-    methodBinding = other.getMethodBinding();
+    method = other.getExecutableElement();
     expression.copyFrom(other.getExpression());
     arguments.copyFrom(other.getArguments());
   }
 
+  public SuperConstructorInvocation(ExecutableElement executableElement) {
+    method = executableElement;
+  }
+
   public SuperConstructorInvocation(IMethodBinding methodBinding) {
-    this.methodBinding = methodBinding;
+    method = BindingConverter.getExecutableElement(methodBinding);
   }
 
   @Override
@@ -53,23 +51,43 @@ public class SuperConstructorInvocation extends Statement {
   }
 
   public IMethodBinding getMethodBinding() {
-    return methodBinding;
+    return (IMethodBinding) BindingConverter.unwrapElement(method);
   }
 
   public void setMethodBinding(IMethodBinding newMethodBinding) {
-    methodBinding = newMethodBinding;
+    method = BindingConverter.getExecutableElement(newMethodBinding);
+  }
+
+  public ExecutableElement getExecutableElement() {
+    return method;
+  }
+
+  public SuperConstructorInvocation setExecutableElement(ExecutableElement element) {
+    method = element;
+    return this;
   }
 
   public Expression getExpression() {
     return expression.get();
   }
 
-  public void setExpression(Expression newExpression) {
+  public SuperConstructorInvocation setExpression(Expression newExpression) {
     expression.set(newExpression);
+    return this;
   }
 
   public List<Expression> getArguments() {
     return arguments;
+  }
+
+  public SuperConstructorInvocation addArgument(Expression arg) {
+    arguments.add(arg);
+    return this;
+  }
+
+  public SuperConstructorInvocation addArgument(int index, Expression arg) {
+    arguments.add(index, arg);
+    return this;
   }
 
   @Override

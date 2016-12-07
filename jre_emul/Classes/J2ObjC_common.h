@@ -23,10 +23,6 @@
 
 @class IOSClass;
 
-// TODO(kstanger): Remove this after users have migrated
-#define J2OBJC_RENAME_ALIASES 1
-@compatibility_alias JavaLangThrowable NSException;
-
 #ifndef __has_feature
 #define __has_feature(x) 0  // Compatibility with non-clang compilers.
 #endif
@@ -68,6 +64,18 @@
  #define J2OBJC_DISABLE_ARRAY_TYPE_CHECKS 1
 #endif
 
+// An empty struct type to declare the capture state in LambdaBase.
+// Actual capturing lambdas will be allocated with extra bytes to
+// accommodate their captures.
+typedef struct LambdaCaptures {
+} LambdaCaptures;
+// A base type for all lambdas to inherit.
+@interface LambdaBase : NSObject {
+  @public
+  LambdaCaptures captures_;
+}
+@end
+
 CF_EXTERN_C_BEGIN
 
 void JreThrowNullPointerException() __attribute__((noreturn));
@@ -85,6 +93,11 @@ id JreExchangeVolatileStrongId(volatile_id *pVar, id newValue);
 void JreCloneVolatile(volatile_id *pVar, volatile_id *pOther);
 void JreCloneVolatileStrong(volatile_id *pVar, volatile_id *pOther);
 void JreReleaseVolatile(volatile_id *pVar);
+
+id JreRetainedWithAssign(id parent, __strong id *pIvar, id value);
+id JreVolatileRetainedWithAssign(id parent, volatile_id *pIvar, id value);
+void JreRetainedWithRelease(id parent, id child);
+void JreVolatileRetainedWithRelease(id parent, volatile_id *pVar);
 
 NSString *JreStrcat(const char *types, ...);
 
@@ -116,6 +129,11 @@ __attribute__((always_inline)) inline id JreAutoreleasedAssign(
   return *pIvar = value;
 }
 #endif
+
+/*!
+ * Utility macro for passing an argument that contains a comma.
+ */
+#define J2OBJC_ARG(...) __VA_ARGS__
 
 #define J2OBJC_VOLATILE_ACCESS_DEFN(NAME, TYPE) \
   __attribute__((always_inline)) inline TYPE JreLoadVolatile##NAME(volatile_##TYPE *pVar) { \

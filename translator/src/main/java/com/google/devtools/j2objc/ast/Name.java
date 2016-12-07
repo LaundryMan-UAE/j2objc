@@ -14,59 +14,61 @@
 
 package com.google.devtools.j2objc.ast;
 
-import com.google.devtools.j2objc.util.BindingUtil;
-
-import org.eclipse.jdt.core.dom.IBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.element.Element;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.ITypeBinding;
 
 /**
  * Base node class for a name.
  */
 public abstract class Name extends Expression {
 
-  private IBinding binding;
+  private Element element;
 
-  public Name(org.eclipse.jdt.core.dom.Name jdtNode) {
-    super(jdtNode);
-    binding = jdtNode.resolveBinding();
-  }
+  public Name() {}
 
   public Name(Name other) {
     super(other);
-    binding = other.getBinding();
+    element = other.getElement();
   }
 
-  public Name(IBinding binding) {
-    this.binding = binding;
+  public Name(Element element) {
+    this.element = element;
   }
 
-  public static Name newName(Name qualifier, IBinding binding) {
-    return qualifier == null ? new SimpleName(binding) : new QualifiedName(binding, qualifier);
+  public static Name newName(Name qualifier, Element element) {
+    return qualifier == null ? new SimpleName(element) : new QualifiedName(element, qualifier);
   }
 
-  public static Name newName(List<? extends IBinding> path) {
+  public static Name newName(List<? extends Element> path) {
     Name name = null;
-    for (IBinding binding : path) {
-      name = newName(name, binding);
+    for (Element element : path) {
+      name = newName(name, element);
     }
     return name;
   }
 
   public abstract String getFullyQualifiedName();
 
-  public IBinding getBinding() {
-    return binding;
+  public Element getElement() {
+    return element;
+  }
+
+  public Name setElement(Element newElement) {
+    element = newElement;
+    return this;
   }
 
   @Override
   public ITypeBinding getTypeBinding() {
-    return BindingUtil.toTypeBinding(binding);
+    return BindingConverter.unwrapTypeMirrorIntoTypeBinding(element.asType());
   }
 
-  public void setBinding(IBinding newBinding) {
-    binding = newBinding;
+  @Override
+  public TypeMirror getTypeMirror() {
+    return element.asType();
   }
 
   public boolean isQualifiedName() {

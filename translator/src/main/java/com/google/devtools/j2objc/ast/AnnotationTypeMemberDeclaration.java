@@ -14,30 +14,23 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
+import javax.lang.model.element.ExecutableElement;
 
 /**
  * Node for an annotation type member declaration.
  */
-public class AnnotationTypeMemberDeclaration extends BodyDeclaration {
+public final class AnnotationTypeMemberDeclaration extends BodyDeclaration {
 
-  private IMethodBinding methodBinding = null;
+  private ExecutableElement element = null;
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
   private ChildLink<Expression> defaultValue = ChildLink.create(Expression.class, this);
 
-  public AnnotationTypeMemberDeclaration(
-      org.eclipse.jdt.core.dom.AnnotationTypeMemberDeclaration jdtNode) {
-    super(jdtNode);
-    methodBinding = jdtNode.resolveBinding();
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-    defaultValue.set((Expression) TreeConverter.convert(jdtNode.getDefault()));
-  }
+  public AnnotationTypeMemberDeclaration() {}
 
   public AnnotationTypeMemberDeclaration(AnnotationTypeMemberDeclaration other) {
     super(other);
-    methodBinding = other.getMethodBinding();
+    element = other.getElement();
     type.copyFrom(other.getType());
     name.copyFrom(other.getName());
     defaultValue.copyFrom(other.getDefault());
@@ -48,8 +41,8 @@ public class AnnotationTypeMemberDeclaration extends BodyDeclaration {
     return Kind.ANNOTATION_TYPE_MEMBER_DECLARATION;
   }
 
-  public IMethodBinding getMethodBinding() {
-    return methodBinding;
+  public ExecutableElement getElement() {
+    return element;
   }
 
   public Type getType() {
@@ -79,5 +72,25 @@ public class AnnotationTypeMemberDeclaration extends BodyDeclaration {
   @Override
   public AnnotationTypeMemberDeclaration copy() {
     return new AnnotationTypeMemberDeclaration(this);
+  }
+
+  public AnnotationTypeMemberDeclaration setDefault(Expression newDefault) {
+    defaultValue.set(newDefault);
+    return this;
+  }
+
+  public AnnotationTypeMemberDeclaration setElement(ExecutableElement newElement) {
+    element = newElement;
+    return this;
+  }
+
+  public AnnotationTypeMemberDeclaration setName(SimpleName newName) {
+    name.set(newName);
+    return this;
+  }
+
+  public AnnotationTypeMemberDeclaration setType(Type newType) {
+    type.set(newType);
+    return this;
   }
 }

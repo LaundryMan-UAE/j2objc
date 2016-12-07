@@ -22,15 +22,19 @@
 #import "IOSArrayClass.h"
 #import "IOSObjectArray.h"
 #import "IOSPrimitiveClass.h"
+#import "IOSReflection.h"
 #import "NSCopying+JavaCloneable.h"
 #import "java/io/Serializable.h"
 #import "java/lang/InstantiationException.h"
+#import "java/lang/NoSuchFieldException.h"
+#import "java/lang/reflect/Field.h"
+#import "java/lang/reflect/Method.h"
 #import "java/lang/reflect/Modifier.h"
 
 @implementation IOSArrayClass
 
 - (instancetype)initWithComponentType:(IOSClass *)type {
-  if ((self = [super initWithClass:NULL])) {
+  if ((self = [super initWithMetadata:&JreEmptyClassInfo])) {
     componentType_ = RETAIN_(type);
   }
   return self;
@@ -73,6 +77,11 @@
   return [[[self getComponentType] objcName] stringByAppendingString:@"Array"];
 }
 
+- (void)appendMetadataName:(NSMutableString *)str {
+  [str appendString:@"["];
+  [componentType_ appendMetadataName:str];
+}
+
 - (NSString *)getCanonicalName {
   return [NSString stringWithFormat:@"%@[]", [componentType_ getCanonicalName]];
 }
@@ -98,6 +107,22 @@
 - (int)getModifiers {
   return JavaLangReflectModifier_PUBLIC | JavaLangReflectModifier_ABSTRACT
       | JavaLangReflectModifier_FINAL;
+}
+
+- (IOSObjectArray *)getDeclaredFields {
+  return [IOSObjectArray arrayWithLength:0 type:JavaLangReflectField_class_()];
+}
+
+- (IOSObjectArray *)getFields {
+  return [IOSObjectArray arrayWithLength:0 type:JavaLangReflectField_class_()];
+}
+
+- (JavaLangReflectField *)getDeclaredField:(NSString *)name {
+  @throw create_JavaLangNoSuchFieldException_initWithNSString_(name);
+}
+
+- (JavaLangReflectField *)getField:(NSString *)name {
+  @throw create_JavaLangNoSuchFieldException_initWithNSString_(name);
 }
 
 - (BOOL)isEqual:(id)anObject {

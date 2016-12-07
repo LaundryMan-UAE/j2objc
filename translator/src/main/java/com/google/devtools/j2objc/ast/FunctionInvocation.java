@@ -14,11 +14,14 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.FunctionBinding;
 
 import org.eclipse.jdt.core.dom.ITypeBinding;
 
 import java.util.List;
+
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Function invocation node type.
@@ -27,19 +30,25 @@ public class FunctionInvocation extends Expression {
 
   private FunctionBinding functionBinding = null;
   // The context-specific known type of this expression.
-  private ITypeBinding typeBinding = null;
+  private TypeMirror typeMirror = null;
+  private boolean hasRetainedResult = false;
   private final ChildList<Expression> arguments = ChildList.create(Expression.class, this);
 
   public FunctionInvocation(FunctionInvocation other) {
     super(other);
     functionBinding = other.getFunctionBinding();
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
     arguments.copyFrom(other.getArguments());
   }
 
   public FunctionInvocation(FunctionBinding functionBinding, ITypeBinding typeBinding) {
     this.functionBinding = functionBinding;
-    this.typeBinding = typeBinding;
+    this.typeMirror = BindingConverter.getType(typeBinding);
+  }
+
+  public FunctionInvocation(FunctionBinding functionBinding, TypeMirror typeMirror) {
+    this.functionBinding = functionBinding;
+    this.typeMirror = typeMirror;
   }
 
   @Override
@@ -52,12 +61,29 @@ public class FunctionInvocation extends Expression {
   }
 
   public String getName() {
-    return functionBinding.getName();
+    return hasRetainedResult ? functionBinding.getRetainedResultName() : functionBinding.getName();
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
+  }
+
+  public boolean hasRetainedResult() {
+    return hasRetainedResult;
+  }
+
+  public void setHasRetainedResult(boolean hasRetainedResult) {
+    this.hasRetainedResult = hasRetainedResult;
+  }
+
+  public FunctionInvocation addArgument(Expression arg) {
+    arguments.add(arg);
+    return this;
+  }
+
+  public Expression getArgument(int index) {
+    return arguments.get(index);
   }
 
   public List<Expression> getArguments() {

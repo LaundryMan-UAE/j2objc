@@ -20,6 +20,7 @@ J2OBJC_ROOT = ../..
 
 include $(J2OBJC_ROOT)/make/common.mk
 include $(J2OBJC_ROOT)/make/j2objc_deps.mk
+include $(J2OBJC_ROOT)/java_deps/jars.mk
 
 SRCS = \
   com/google/protobuf/ByteString.m \
@@ -42,24 +43,18 @@ DIST_JAR = $(DIST_JAR_DIR)/protobuf_runtime.jar
 
 OBJC_SOURCES_MANIFEST = $(BUILD_DIR)/objc_sources.mf
 
-
-ifneq "$(findstring clean,$(MAKECMDGOALS))" "clean"
 ifndef PROTOBUF_ROOT_DIR
+ifndef IS_CLEAN_GOAL
 $(error PROTOBUF_ROOT_DIR not defined)
 endif
 endif
 
 PROTO_PATH = $(PROTOBUF_ROOT_DIR)/src
-PROTOBUF_JAVA_DIR = $(PROTOBUF_ROOT_DIR)/java/src/main/java
-DESCRIPTOR_PROTO = $(PROTO_PATH)/google/protobuf/descriptor.proto
+DESCRIPTOR_PROTO_RELATIVE = google/protobuf/descriptor.proto
+PROTOC = protoc
+DESCRIPTOR_PROTO = $(PROTO_PATH)/$(DESCRIPTOR_PROTO_RELATIVE)
 DESCRIPTOR_PROTO_M = $(GEN_OBJC_DIR)/com/google/protobuf/DescriptorProtos.m
 DESCRIPTOR_PROTO_H = $(DESCRIPTOR_PROTO_M:.m=.h)
-DESCRIPTOR_PROTO_JAVA = $(DESCRIPTOR_PROTO_M:$(GEN_OBJC_DIR)/%.m=$(GEN_JAVA_DIR)/%.java)
-
-CREATE_JAR_NAME = protobuf_runtime
-CREATE_JAR_SOURCES := $(shell find $(PROTOBUF_JAVA_DIR) -name *.java) $(DESCRIPTOR_PROTO_JAVA)
-CREATE_JAR_JAVAC_ARGS = -nowarn
-include $(J2OBJC_ROOT)/make/create_jar.mk
 
 SOURCE_HEADERS := $(shell find src -name '*.h')
 SOURCE_HEADERS := $(SOURCE_HEADERS:src/%=%)
@@ -74,7 +69,8 @@ ALL_SOURCES_FULL = $(HEADERS) $(SOURCES_FULL)
 J2OBJCC = $(ARCH_BIN_DIR)/j2objcc
 
 C_FLAGS = $(DEBUGFLAGS) -Werror -Wobjc-missing-property-synthesis -Wshorten-64-to-32 \
-  -Wsign-compare -fobjc-abi-version=2 -fobjc-legacy-dispatch -stdlib=libc++
+  -Wsign-compare -fobjc-abi-version=2 -fobjc-legacy-dispatch -stdlib=libc++ \
+  -Wno-nullability-completeness
 INCLUDE_DIRS = src $(GEN_OBJC_DIR)
 
 FAT_LIB_NAME = protobuf_runtime
@@ -93,8 +89,8 @@ fat_lib_dependencies: jre_emul_dist $(DESCRIPTOR_PROTO_H)
 PROTOBUF_LICENSE = ../LICENSE
 PROTOBUF_LICENSE_DIST = $(DIST_LICENSE_DIR)/protobuf_license.txt
 
-PROTOC = $(DIST_DIR)/j2objc_protoc
-$(PROTOC): protobuf_compiler_dist
+PROTOC_PLUGIN = $(DIST_DIR)/j2objc_protoc_plugin
+$(PROTOC_PLUGIN): protobuf_compiler_dist
 	@:
 
 dist: $(DIST_JAR) $(FAT_LIBS_DIST) $(ARCH_BUILD_DIR)/.dist_headers $(PROTOBUF_LICENSE_DIST)
@@ -125,23 +121,26 @@ clean:
 	@rm -rf $(PROTOBUF_LICENSE_DIST)
 	@rm -rf $(STATIC_FRAMEWORK_DIR)
 
-$(DESCRIPTOR_PROTO_M): $(DESCRIPTOR_PROTO) $(PROTOC)
+DESCRIPTOR_PROTO_M_CMD = $(PROTOC) --plugin=protoc-gen-j2objc=$(PROTOC_PLUGIN) \
+  --proto_path=$(PROTO_PATH) --j2objc_out=$(GEN_OBJC_DIR)
+DESCRIPTOR_PROTO_M_CMD += $(DESCRIPTOR_PROTO)
+
+$(DESCRIPTOR_PROTO_M): $(DESCRIPTOR_PROTO) $(PROTOC_PLUGIN)
 	@mkdir -p $(@D)
-	$(PROTOC) --proto_path=$(PROTO_PATH) --j2objc_out=$(GEN_OBJC_DIR) $<
+	$(DESCRIPTOR_PROTO_M_CMD)
 
 $(DESCRIPTOR_PROTO_H): $(DESCRIPTOR_PROTO_M)
 	@:
-
-$(DESCRIPTOR_PROTO_JAVA): $(DESCRIPTOR_PROTO) $(PROTOC)
-	@mkdir -p $(@D)
-	$(PROTOC) --proto_path=$(PROTO_PATH) --java_out=$(GEN_JAVA_DIR) $<
-
-$(DIST_JAR): $(CREATE_JAR_RESULT)
-	@mkdir -p $(@D)
-	install -m 0644 $< $@
 
 $(ARCH_BUILD_DIR)/.dist_headers: $(HEADERS)
 	@mkdir -p $(ARCH_INCLUDE_DIR)
 	tar cf - -C src $(SOURCE_HEADERS) | tar xfpm - -C $(ARCH_INCLUDE_DIR)
 	tar cf - -C $(GEN_OBJC_DIR) $(GENERATED_HEADERS) | tar xfpm - -C $(ARCH_INCLUDE_DIR)
 	@touch $@
+
+
+RUNTIME_JAR = $(JAVA_DEPS_JAR_DIR)/$(PROTOBUF_JAR)
+
+$(DIST_JAR): $(RUNTIME_JAR)
+	@mkdir -p $(@D)
+	install -m 0644 $< $@

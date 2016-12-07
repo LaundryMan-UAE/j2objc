@@ -14,9 +14,11 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.IBinding;
-
+import com.google.devtools.j2objc.jdt.TreeConverter;
+import com.google.devtools.j2objc.util.ElementUtil;
 import java.util.List;
+import javax.lang.model.element.Element;
+import org.eclipse.jdt.core.dom.IBinding;
 
 /**
  * Base class for all declarations that may appear in the body of a type declaration.
@@ -29,9 +31,12 @@ public abstract class BodyDeclaration extends TreeNode {
   protected ChildLink<Javadoc> javadoc = ChildLink.create(Javadoc.class, this);
   protected ChildList<Annotation> annotations = ChildList.create(Annotation.class, this);
 
-  public BodyDeclaration() {}
+  BodyDeclaration() {
+    super();
+  }
 
-  public BodyDeclaration(org.eclipse.jdt.core.dom.BodyDeclaration jdtNode) {
+  // TODO(tball): remove when all subclasses are converted.
+  BodyDeclaration(org.eclipse.jdt.core.dom.BodyDeclaration jdtNode) {
     super(jdtNode);
     modifiers = jdtNode.getModifiers();
     javadoc.set((Javadoc) TreeConverter.convert(jdtNode.getJavadoc()));
@@ -50,16 +55,22 @@ public abstract class BodyDeclaration extends TreeNode {
     annotations.copyFrom(other.getAnnotations());
   }
 
+  // TODO(tball): remove when all subclasses are converted.
   public BodyDeclaration(IBinding binding) {
     modifiers = binding.getModifiers();
+  }
+
+  public BodyDeclaration(Element element) {
+    modifiers = ElementUtil.fromModifierSet(element.getModifiers());
   }
 
   public int getModifiers() {
     return modifiers;
   }
 
-  public void setModifiers(int newModifiers) {
+  public BodyDeclaration setModifiers(int newModifiers) {
     modifiers = newModifiers;
+    return this;
   }
 
   public void addModifiers(int modifiersToAdd) {
@@ -74,16 +85,27 @@ public abstract class BodyDeclaration extends TreeNode {
     return hasPrivateDeclaration;
   }
 
-  public void setHasPrivateDeclaration(boolean value) {
+  public BodyDeclaration setHasPrivateDeclaration(boolean value) {
     hasPrivateDeclaration = value;
+    return this;
   }
 
   public Javadoc getJavadoc() {
     return javadoc.get();
   }
 
+  public BodyDeclaration setJavadoc(Javadoc newJavadoc) {
+    javadoc.set(newJavadoc);
+    return this;
+  }
+
   public List<Annotation> getAnnotations() {
     return annotations;
+  }
+
+  public BodyDeclaration setAnnotations(List<Annotation> newAnnotations) {
+    annotations.replaceAll(newAnnotations);
+    return this;
   }
 
   @Override

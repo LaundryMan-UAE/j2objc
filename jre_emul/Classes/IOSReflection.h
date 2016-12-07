@@ -20,94 +20,66 @@
 #ifndef JreEmulation_IOSReflection_h
 #define JreEmulation_IOSReflection_h
 
-#import "J2ObjC_common.h"
+#include "IOSMetadata.h"
+#include "J2ObjC_common.h"
+#include "java/lang/reflect/Modifier.h"
+
 #import "objc/runtime.h"
 
-@protocol JavaLangReflectType;
 @class IOSClass;
+@class JavaLangReflectConstructor;
+@class JavaLangReflectMethod;
 
-// Current metadata structure version
-#define J2OBJC_METADATA_VERSION 2
+// An empty class info struct to be used by certain kinds of class objects like
+// arrays and proxies.
+FOUNDATION_EXPORT const J2ObjcClassInfo JreEmptyClassInfo;
 
-// A raw value is the union of all possible native types.
-typedef union {
-  void *asId;
-  char asChar;
-  unichar asUnichar;
-  short asShort;
-  int asInt;
-  long long asLong;
-  float asFloat;
-  double asDouble;
-  jboolean asBOOL;
-} J2ObjcRawValue;
+CF_EXTERN_C_BEGIN
 
-// C data structures that hold "raw" metadata for use by the methods that
-// implement Java reflection. This information is necessary because not
-// all information provided by the reflection API is discoverable via the
-// Objective-C runtime.
+// JreFindMetadata is not threadsafe.
+const J2ObjcClassInfo *JreFindMetadata(Class cls);
+IOSClass *JreClassForString(const char *str);
+IOSObjectArray *JreParseClassList(const char *listStr);
+Method JreFindInstanceMethod(Class cls, SEL selector);
+Method JreFindClassMethod(Class cls, SEL selector);
 
-// Use same data types that the translator generates.
-typedef union J2ObjcConstantValue {
-  jboolean boolean;
-  char byte;
-  unichar char_;
-  double double_;
-  float float_;
-  int int_;
-  long long long_;
-  short short_;
-  const char *string;
-} J2ObjcConstantValue;
+__attribute__((always_inline)) inline const void *JrePtrAtIndex(const void **ptrTable, ptr_idx i) {
+  return i < 0 ? NULL : ptrTable[i];
+}
 
-typedef struct J2ObjcMethodInfo {
-  const char *selector;
-  const char *javaName;
-  const char *returnType;
-  uint16_t modifiers;
-  const char *exceptions;
-  const char *genericSignature;
-} J2ObjcMethodInfo;
+// J2ObjcClassInfo accessor functions.
+NSString *JreClassTypeName(const J2ObjcClassInfo *metadata);
+NSString *JreClassQualifiedName(const J2ObjcClassInfo *metadata);
+NSString *JreClassPackageName(const J2ObjcClassInfo *metadata);
 
-typedef struct J2ObjcFieldInfo {
-  const char *name;
-  const char *javaName;
-  uint16_t modifiers;
-  const char *type;
-  const void *staticRef;
-  const char *genericSignature;
-  J2ObjcRawValue constantValue;
-} J2ObjcFieldInfo;
+// Field and method lookup functions.
+const J2ObjcFieldInfo *JreFindFieldInfo(const J2ObjcClassInfo *metadata, const char *fieldName);
+// Find a method or constructor declared in the given class.
+JavaLangReflectMethod *JreMethodWithNameAndParamTypes(
+    IOSClass *iosClass, NSString *name, IOSObjectArray *paramTypes);
+JavaLangReflectConstructor *JreConstructorWithParamTypes(
+    IOSClass *iosClass, IOSObjectArray *paramTypes);
+JavaLangReflectMethod *JreMethodForSelector(IOSClass *iosClass, SEL selector);
+JavaLangReflectConstructor *JreConstructorForSelector(IOSClass *iosClass, SEL selector);
+// Find a method in the given class or its hierarchy.
+JavaLangReflectMethod *JreMethodWithNameAndParamTypesInherited(
+    IOSClass *iosClass, NSString *name, IOSObjectArray *types);
+JavaLangReflectMethod *JreMethodForSelectorInherited(IOSClass *iosClass, SEL selector);
 
-typedef struct J2ObjCEnclosingMethodInfo {
-  const char *typeName;
-  const char *selector;
-} J2ObjCEnclosingMethodInfo;
+// J2ObjcMethodInfo accessor functions.
+NSString *JreMethodGenericString(const J2ObjcMethodInfo *metadata, const void **ptrTable);
 
-typedef struct J2ObjcClassInfo {
-  const unsigned version;
-  const char *typeName;
-  const char *packageName;
-  const char *enclosingName;
-  uint16_t modifiers;
-  uint16_t methodCount;
-  const J2ObjcMethodInfo *methods;
-  uint16_t fieldCount;
-  const J2ObjcFieldInfo *fields;
-  uint16_t superclassTypeArgsCount;
-  const char **superclassTypeArgs;
-  uint16_t innerClassCount;
-  const char **innerClassnames;
-  const J2ObjCEnclosingMethodInfo *enclosingMethod;
-  const char *genericSignature;
-} J2ObjcClassInfo;
+__attribute__((always_inline)) inline const char *JreMethodJavaName(
+    const J2ObjcMethodInfo *metadata, const void **ptrTable) {
+  const char *javaName = JrePtrAtIndex(ptrTable, metadata->javaNameIdx);
+  return javaName ? javaName : sel_getName(metadata->selector);
+}
 
-// Autoboxing support.
+// metadata must not be NULL.
+__attribute__((always_inline)) inline SEL JreMethodSelector(const J2ObjcMethodInfo *metadata) {
+  return metadata->selector;
+}
 
-extern id<JavaLangReflectType> JreTypeForString(const char *typeStr);
-extern IOSClass *TypeToClass(id<JavaLangReflectType>);
-extern Method JreFindInstanceMethod(Class cls, const char *name);
-extern Method JreFindClassMethod(Class cls, const char *name);
-extern NSMethodSignature *JreSignatureOrNull(struct objc_method_description *methodDesc);
+CF_EXTERN_C_END
 
 #endif // JreEmulation_IOSReflection_h

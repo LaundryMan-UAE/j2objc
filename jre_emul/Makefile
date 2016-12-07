@@ -28,8 +28,8 @@ IOS_PUBLIC_OBJS = \
 	IOSClass.o \
 	IOSObjectArray.o \
 	IOSPrimitiveArray.o \
-	IOSReflection.o \
 	J2ObjC_common.o \
+	JreRetainedWith.o \
 	NSCopying+JavaCloneable.o \
 	NSDataInputStream.o \
 	NSDataOutputStream.o \
@@ -38,8 +38,7 @@ IOS_PUBLIC_OBJS = \
 	NSNumber+JavaNumber.o \
 	NSObject+JavaObject.o \
 	NSString+JavaString.o \
-	java/lang/reflect/ExecutableMember.o \
-	java/lang/reflect/TypeVariableImpl.o \
+	java/lang/reflect/Executable.o \
 	jni.o
 
 IOS_PRIVATE_OBJS = \
@@ -49,18 +48,22 @@ IOS_PRIVATE_OBJS = \
 	IOSArrayClass.o \
 	IOSConcreteClass.o \
 	IOSLocaleData.o \
-	IOSMappedClass.o \
 	IOSPrimitiveClass.o \
 	IOSProtocolClass.o \
+	IOSProxyClass.o \
 	IOSReference.o \
+	IOSReflection.o \
 	J2ObjC_icu.o \
-	JavaMetadata.o \
 	JavaToIOSInputStreamAdapter.o \
+	java_lang_Character.o \
 	java_lang_IntegralToString.o \
+	java_lang_Math.o \
 	java_lang_RealToString.o \
+	java_lang_StrictMath.o \
 	java_lang_StringToReal.o \
 	java_util_regex_Matcher.o \
 	java_util_regex_Pattern.o \
+	sun_misc_Unsafe.o
 
 IOS_OBJS = $(IOS_PUBLIC_OBJS) $(IOS_PRIVATE_OBJS)
 
@@ -76,8 +79,7 @@ IOS_JAVA_OBJS = \
 	java/lang/reflect/AccessibleObject.o \
 	java/lang/reflect/Constructor.o \
 	java/lang/reflect/Field.o \
-	java/lang/reflect/Method.o \
-	javax/annotation/Resource.o
+	java/lang/reflect/Method.o
 
 # Java sources that should not be translated but should be included in the jar.
 JAR_ONLY_SOURCES = \
@@ -88,6 +90,7 @@ MAIN_OBJ = J2ObjCMain.o
 JAVA_SOURCES_MANIFEST = $(BUILD_DIR)/java_sources.mf
 
 STUB_JAVA_SOURCES := $(shell find $(STUBS_DIR) -name *.java)
+LAMBDA_SOURCES := $(shell find $(LAMBDA_DIR) -name *.java)
 ALL_JAVA_SOURCES = $(JAVA_SOURCES) $(IOS_JAVA_OBJS:.o=.java) $(JAR_ONLY_SOURCES)
 JAVA_TO_TRANSLATE = $(JAVA_SOURCES)
 EMULATION_HEADERS := $(shell find $(EMULATION_CLASS_DIR) -name *.h)
@@ -164,11 +167,11 @@ DIST_LIBS = $(LIBS:$(ARCH_BUILD_DIR)/%=$(ARCH_LIB_DIR)/%)
 # This list overlaps with EMULATION_HEADERS, but only includes those headers
 # supported for use by native code.
 PUBLIC_EMULATION_HEADERS = \
+    IOSMetadata.h \
     J2ObjC_header.h \
     J2ObjC_source.h \
     J2ObjC_types.h \
     JavaObject.h \
-    java/lang/Throwable.h \
     JreEmulation.h \
     $(IOS_PUBLIC_OBJS:.o=.h) \
     $(IOS_JAVA_OBJS:.o=.h)
@@ -270,19 +273,21 @@ $(EMULATION_JAR_DIST): $(EMULATION_JAR) | $(DIST_JAR_DIR)
 $(EMULATION_SRC_JAR_DIST): $(EMULATION_SRC_JAR) | $(DIST_JAR_DIR)
 	@install -m 0644 $< $@
 
-$(EMULATION_JAR): $(ALL_JAVA_SOURCES) $(STUB_JAVA_SOURCES) $(SOURCE_RETENTION_ANNOTATIONS) \
-	  | $(BUILD_DIR)
+$(EMULATION_JAR): $(ALL_JAVA_SOURCES) $(STUB_JAVA_SOURCES) $(LAMBDA_SOURCES) \
+  $(SOURCE_RETENTION_ANNOTATIONS) | $(BUILD_DIR)
 	@echo "building jre_emul.jar"
 	@stage_dir=`mktemp -d -t j2objc-jre_emul`; \
-    ../scripts/javac_no_deprecated_warnings.sh $(JAVAC) -bootclasspath $(STUBS_DIR) \
+    ../scripts/javac_no_deprecated_warnings.sh $(JAVAC) \
+      -bootclasspath $(STUBS_DIR):$(LAMBDA_DIR) \
 	    -classpath $(ANNOTATIONS_JAR) \
-	    -d $$stage_dir -encoding UTF-8 -source 1.7 -target 1.7 -nowarn $^; \
+	    -d $$stage_dir -encoding UTF-8 -source 1.8 -target 1.8 -nowarn $^; \
 	jar cf $(EMULATION_JAR) -C $$stage_dir .; \
 	rm -rf $$stage_dir
 
-$(EMULATION_SRC_JAR): $(ALL_JAVA_SOURCES) $(STUB_JAVA_SOURCES) | $(BUILD_DIR)
+$(EMULATION_SRC_JAR): $(ALL_JAVA_SOURCES) $(STUB_JAVA_SOURCES) $(LAMBDA_SOURCES) | $(BUILD_DIR)
 	@echo "building jre_emul-src.jar"
-	@../scripts/gen_java_source_jar.py -sourcepath $(JRE_SRC):$(STUBS_DIR) -o $(EMULATION_SRC_JAR) $^
+	@../scripts/gen_java_source_jar.py -sourcepath $(JRE_SRC):$(STUBS_DIR):$(LAMBDA_DIR) \
+	  -o $(EMULATION_SRC_JAR) $^
 
 $(JAVA_SOURCES_MANIFEST): $(ALL_JAVA_SOURCES) $(STUB_JAVA_SOURCES) | $(BUILD_DIR)
 	@echo "building $$(basename $@)"
@@ -329,7 +334,7 @@ objc_sources_manifest: $(OBJC_SOURCES_MANIFEST)
 all_objc_sources_manifests: $(OBJC_SOURCES_MANIFESTS)
 
 find_cycles: cycle_finder_dist $(JAVA_SOURCES_MANIFEST)
-	$(DIST_DIR)/cycle_finder -w cycle_whitelist.txt `cat $(JAVA_SOURCES_MANIFEST)`
+	$(DIST_DIR)/cycle_finder -source 1.8 -w cycle_whitelist.txt -s $(JAVA_SOURCES_MANIFEST)
 
 licenses: $(JRE_EMUL_LICENSES)
 	@:

@@ -14,28 +14,23 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
+import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Node for accessing a field via "super" keyword.
  */
 public class SuperFieldAccess extends Expression {
 
-  private IVariableBinding variableBinding = null;
+  private VariableElement variableElement = null;
   private ChildLink<Name> qualifier = ChildLink.create(Name.class, this);
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
 
-  public SuperFieldAccess(org.eclipse.jdt.core.dom.SuperFieldAccess jdtNode) {
-    super(jdtNode);
-    variableBinding = jdtNode.resolveFieldBinding();
-    qualifier.set((Name) TreeConverter.convert(jdtNode.getQualifier()));
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-  }
+  public SuperFieldAccess() {}
 
   public SuperFieldAccess(SuperFieldAccess other) {
     super(other);
-    variableBinding = other.getVariableBinding();
+    variableElement = other.getVariableElement();
     qualifier.copyFrom(other.getQualifier());
     name.copyFrom(other.getName());
   }
@@ -45,21 +40,36 @@ public class SuperFieldAccess extends Expression {
     return Kind.SUPER_FIELD_ACCESS;
   }
 
-  public IVariableBinding getVariableBinding() {
-    return variableBinding;
+  public VariableElement getVariableElement() {
+    return variableElement;
+  }
+
+  public SuperFieldAccess setVariableElement(VariableElement var) {
+    variableElement = var;
+    return this;
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return variableBinding != null ? variableBinding.getType() : null;
+  public TypeMirror getTypeMirror() {
+    return variableElement != null ? variableElement.asType() : null;
   }
 
   public Name getQualifier() {
     return qualifier.get();
   }
 
+  public SuperFieldAccess setQualifier(Name newQualifier) {
+    qualifier.set(newQualifier);
+    return this;
+  }
+
   public SimpleName getName() {
     return name.get();
+  }
+
+  public SuperFieldAccess setName(SimpleName newName) {
+    name.set(newName);
+    return this;
   }
 
   @Override

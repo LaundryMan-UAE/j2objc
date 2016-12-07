@@ -22,11 +22,7 @@ public class MemberValuePair extends TreeNode {
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
   private ChildLink<Expression> value = ChildLink.create(Expression.class, this);
 
-  public MemberValuePair(org.eclipse.jdt.core.dom.MemberValuePair jdtNode) {
-    super(jdtNode);
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-    value.set((Expression) TreeConverter.convert(jdtNode.getValue()));
-  }
+  public MemberValuePair() {}
 
   public MemberValuePair(MemberValuePair other) {
     super(other);
@@ -43,8 +39,18 @@ public class MemberValuePair extends TreeNode {
     return name.get();
   }
 
+  public MemberValuePair setName(SimpleName newName) {
+    name.set(newName);
+    return this;
+  }
+
   public Expression getValue() {
     return value.get();
+  }
+
+  public MemberValuePair setValue(Expression newValue) {
+    value.set(newValue);
+    return this;
   }
 
   @Override

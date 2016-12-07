@@ -21,11 +21,7 @@ public class ExpressionMethodReference extends MethodReference {
   private ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
 
-  public ExpressionMethodReference(org.eclipse.jdt.core.dom.ExpressionMethodReference jdtNode) {
-    super(jdtNode);
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-  }
+  public ExpressionMethodReference() {}
 
   public ExpressionMethodReference(ExpressionMethodReference other) {
     super(other);
@@ -42,25 +38,28 @@ public class ExpressionMethodReference extends MethodReference {
     return expression.get();
   }
 
-  public void setExpression(Expression newExpression) {
+  public ExpressionMethodReference setExpression(Expression newExpression) {
     expression.set(newExpression);
+    return this;
   }
 
   public SimpleName getName() {
     return name.get();
   }
 
-  public void setName(SimpleName newName) {
+  public ExpressionMethodReference setName(SimpleName newName) {
     name.set(newName);
+    return this;
   }
 
   @Override
   protected void acceptInner(TreeVisitor visitor) {
     if (visitor.visit(this)) {
+      lambdaOuterArg.accept(visitor);
+      lambdaCaptureArgs.accept(visitor);
       expression.accept(visitor);
       typeArguments.accept(visitor);
       name.accept(visitor);
-      invocation.accept(visitor);
     }
     visitor.endVisit(this);
   }

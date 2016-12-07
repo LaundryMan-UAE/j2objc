@@ -30,6 +30,8 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Command-line tests for java.lang.Class support (IOSClass)
@@ -113,6 +115,18 @@ public class ClassTest extends TestCase {
     Method runMethod = runnableClass.getMethod("run", new Class<?>[0]);
     assertEquals("run", runMethod.getName());
     assertEquals(0, runMethod.getParameterTypes().length);
+  }
+
+  public void testGetArrayMethods() throws Exception {
+    Method[] methods = int[].class.getDeclaredMethods();
+    assertEquals(0, methods.length);
+    methods = int[].class.getMethods();
+    Set<String> methodNames = new HashSet<>();
+    for (Method m : methods) {
+      methodNames.add(m.getName());
+    }
+    assertTrue(methodNames.contains("equals"));
+    assertTrue(methodNames.contains("toString"));
   }
 
   public void testInterfaceMethodInvocation() throws Exception {
@@ -333,6 +347,18 @@ public class ClassTest extends TestCase {
     assertNotNull(cls);
     cls = Class.forName("com.google.j2objc.mappedpkg.TestClass$Inner");
     assertNotNull(cls);
+  }
+
+  public void testDefaultEnumMethods() throws Exception {
+    Method[] methods = InnerEnum.class.getDeclaredMethods();
+    assertEquals(2, methods.length);
+    Method valuesMethod = InnerEnum.class.getDeclaredMethod("values");
+    assertNotNull(valuesMethod);
+    assertEquals("[Lcom.google.j2objc.ClassTest$InnerEnum;",
+        valuesMethod.getReturnType().getName());
+    Method valueOfMethod = InnerEnum.class.getDeclaredMethod("valueOf", String.class);
+    assertNotNull(valueOfMethod);
+    assertEquals(InnerEnum.class, valueOfMethod.getReturnType());
   }
 
   boolean canCallAsSubclass(Class<?> x, Class<?> y) {

@@ -20,6 +20,8 @@ import com.google.devtools.j2objc.ast.Assignment;
 import com.google.devtools.j2objc.ast.BooleanLiteral;
 import com.google.devtools.j2objc.ast.CStringLiteral;
 import com.google.devtools.j2objc.ast.CharacterLiteral;
+import com.google.devtools.j2objc.ast.CommaExpression;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.FieldAccess;
 import com.google.devtools.j2objc.ast.FunctionInvocation;
@@ -30,22 +32,24 @@ import com.google.devtools.j2objc.ast.QualifiedName;
 import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.StringLiteral;
 import com.google.devtools.j2objc.ast.SuperFieldAccess;
+import com.google.devtools.j2objc.ast.ThisExpression;
 import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
+import com.google.devtools.j2objc.ast.VariableDeclarationStatement;
 import com.google.devtools.j2objc.types.FunctionBinding;
+import com.google.devtools.j2objc.types.GeneratedVariableBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
 import com.google.devtools.j2objc.util.TranslationUtil;
 import com.google.devtools.j2objc.util.UnicodeUtils;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
-
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.ITypeBinding;
+import org.eclipse.jdt.core.dom.IVariableBinding;
 
 /**
  * Rewrites certain operators, such as object assignment, into appropriate
@@ -53,7 +57,11 @@ import java.util.List;
  *
  * @author Keith Stanger
  */
-public class OperatorRewriter extends TreeVisitor {
+public class OperatorRewriter extends UnitTreeVisitor {
+
+  public OperatorRewriter(CompilationUnit unit) {
+    super(unit);
+  }
 
   @Override
   public void endVisit(Assignment node) {
@@ -93,7 +101,7 @@ public class OperatorRewriter extends TreeVisitor {
         Expression rightOperand = operandIter.next();
         operandIter.remove();
         FunctionBinding binding = new FunctionBinding(funcName, nodeType, null);
-        binding.addParameters(leftOperand.getTypeBinding(), rightOperand.getTypeBinding());
+        binding.addParameters(leftOperand.getTypeMirror(), rightOperand.getTypeMirror());
         FunctionInvocation invocation = new FunctionInvocation(binding, nodeType);
         List<Expression> args = invocation.getArguments();
         args.add(leftOperand);
@@ -146,22 +154,22 @@ public class OperatorRewriter extends TreeVisitor {
   private void rewriteVolatileLoad(Expression node) {
     IVariableBinding var = TreeUtil.getVariableBinding(node);
     if (var != null && BindingUtil.isVolatile(var) && !TranslationUtil.isAssigned(node)) {
-      ITypeBinding type = node.getTypeBinding();
-      ITypeBinding idType = typeEnv.resolveIOSType("id");
-      ITypeBinding declaredType = type.isPrimitive() ? type : idType;
-      String funcName = "JreLoadVolatile" + NameTable.capitalize(declaredType.getName());
+      TypeMirror type = node.getTypeMirror();
+      TypeMirror idType = typeEnv.getIdTypeMirror();
+      TypeMirror declaredType = type.getKind().isPrimitive() ? type : idType;
+      String funcName = "JreLoadVolatile" + NameTable.capitalize(declaredType.toString());
       FunctionBinding binding = new FunctionBinding(funcName, declaredType, null);
-      binding.addParameter(typeEnv.getPointerType(idType));
+      binding.addParameters(typeEnv.getPointerType(idType));
       FunctionInvocation invocation = new FunctionInvocation(binding, type);
       node.replaceWith(invocation);
-      invocation.getArguments().add(new PrefixExpression(
+      invocation.addArgument(new PrefixExpression(
           typeEnv.getPointerType(type), PrefixExpression.Operator.ADDRESS_OF, node));
     }
   }
 
-  private String getAssignmentFunctionName(Assignment node) {
-    IVariableBinding var = TreeUtil.getVariableBinding(node.getLeftHandSide());
-    if (var == null || !var.isField() || var.isEnumConstant()) {
+  private String getAssignmentFunctionName(
+      Assignment node, IVariableBinding var, boolean isRetainedWith) {
+    if (!var.isField() || var.isEnumConstant()) {
       return null;
     }
     ITypeBinding type = var.getType();
@@ -169,6 +177,9 @@ public class OperatorRewriter extends TreeVisitor {
     boolean isStrong = !isPrimitive && !BindingUtil.isWeakReference(var);
     boolean isVolatile = BindingUtil.isVolatile(var);
 
+    if (isRetainedWith) {
+      return isVolatile ? "JreVolatileRetainedWithAssign" : "JreRetainedWithAssign";
+    }
     if (isStrong) {
       String funcName = null;
       if (isVolatile) {
@@ -192,21 +203,54 @@ public class OperatorRewriter extends TreeVisitor {
     return null;
   }
 
+  // Counter to create unique local variables for the RetainedWith target.
+  private int rwCount = 0;
+
+  // Gets the target object for a call to the RetainedWith wrapper.
+  private Expression getRetainedWithTarget(Assignment node, IVariableBinding var) {
+    Expression lhs = node.getLeftHandSide();
+    if (!(lhs instanceof FieldAccess)) {
+      return new ThisExpression(var.getDeclaringClass());
+    }
+    // To avoid duplicating the target expression we must save the result to a local variable.
+    FieldAccess fieldAccess = (FieldAccess) lhs;
+    Expression target = fieldAccess.getExpression();
+    GeneratedVariableBinding targetVar = new GeneratedVariableBinding(
+        "__rw$" + rwCount++, 0, target.getTypeBinding(), false, false, null, null);
+    TreeUtil.asStatementList(TreeUtil.getOwningStatement(lhs))
+        .add(0, new VariableDeclarationStatement(targetVar, null));
+    fieldAccess.setExpression(new SimpleName(targetVar));
+    CommaExpression commaExpr = new CommaExpression(
+        new Assignment(new SimpleName(targetVar), target));
+    node.replaceWith(commaExpr);
+    commaExpr.addExpression(node);
+    return new SimpleName(targetVar);
+  }
+
   private void rewriteRegularAssignment(Assignment node) {
-    String funcName = getAssignmentFunctionName(node);
+    IVariableBinding var = TreeUtil.getVariableBinding(node.getLeftHandSide());
+    if (var == null) {
+      return;
+    }
+    boolean isRetainedWith = BindingUtil.isRetainedWithField(var);
+    String funcName = getAssignmentFunctionName(node, var, isRetainedWith);
     if (funcName == null) {
       return;
     }
-    ITypeBinding type = node.getTypeBinding();
-    ITypeBinding idType = typeEnv.resolveIOSType("id");
-    ITypeBinding declaredType = type.isPrimitive() ? type : idType;
+    TypeMirror type = node.getTypeMirror();
+    TypeMirror idType = typeEnv.getIdTypeMirror();
+    TypeMirror declaredType = type.getKind().isPrimitive() ? type : idType;
     Expression lhs = node.getLeftHandSide();
     FunctionBinding binding = new FunctionBinding(funcName, declaredType, null);
-    binding.addParameters(typeEnv.getPointerType(idType), idType);
     FunctionInvocation invocation = new FunctionInvocation(binding, type);
     List<Expression> args = invocation.getArguments();
+    if (isRetainedWith) {
+      binding.addParameters(idType);
+      args.add(getRetainedWithTarget(node, var));
+    }
+    binding.addParameters(typeEnv.getPointerType(idType), idType);
     args.add(new PrefixExpression(
-        typeEnv.getPointerType(lhs.getTypeBinding()), PrefixExpression.Operator.ADDRESS_OF,
+        typeEnv.getPointerType(lhs.getTypeMirror()), PrefixExpression.Operator.ADDRESS_OF,
         TreeUtil.remove(lhs)));
     args.add(TreeUtil.remove(node.getRightHandSide()));
     node.replaceWith(invocation);
@@ -308,12 +352,12 @@ public class OperatorRewriter extends TreeVisitor {
     }
     Expression lhs = node.getLeftHandSide();
     Expression rhs = node.getRightHandSide();
-    ITypeBinding lhsType = lhs.getTypeBinding();
-    ITypeBinding lhsPointerType = typeEnv.getPointerType(lhsType);
+    TypeMirror lhsType = lhs.getTypeMirror();
+    TypeMirror lhsPointerType = typeEnv.getPointerType(lhsType);
     String funcName = "Jre" + node.getOperator().getName() + (isVolatile(lhs) ? "Volatile" : "")
-        + NameTable.capitalize(lhsType.getName()) + getPromotionSuffix(node);
+        + NameTable.capitalize(lhsType.toString()) + getPromotionSuffix(node);
     FunctionBinding binding = new FunctionBinding(funcName, lhsType, null);
-    binding.addParameters(lhsPointerType, rhs.getTypeBinding());
+    binding.addParameters(lhsPointerType, rhs.getTypeMirror());
     FunctionInvocation invocation = new FunctionInvocation(binding, lhsType);
     List<Expression> args = invocation.getArguments();
     args.add(new PrefixExpression(
@@ -343,7 +387,7 @@ public class OperatorRewriter extends TreeVisitor {
 
     ITypeBinding stringType = typeEnv.resolveIOSType("NSString");
     FunctionBinding binding = new FunctionBinding("JreStrcat", stringType, null);
-    binding.addParameter(typeEnv.getPointerType(typeEnv.resolveJavaType("char")));
+    binding.addParameters(typeEnv.getPointerType(typeEnv.resolveJavaTypeMirror("char")));
     binding.setIsVarargs(true);
     FunctionInvocation invocation = new FunctionInvocation(binding, stringType);
     List<Expression> args = invocation.getArguments();
@@ -369,12 +413,13 @@ public class OperatorRewriter extends TreeVisitor {
   private void rewriteStringAppend(Assignment node) {
     List<Expression> operands = getStringAppendOperands(node);
     Expression lhs = node.getLeftHandSide();
-    ITypeBinding lhsType = lhs.getTypeBinding();
-    ITypeBinding idType = typeEnv.resolveIOSType("id");
+    TypeMirror lhsType = lhs.getTypeMirror();
+    TypeMirror idType = typeEnv.getIdTypeMirror();
     String funcName = "JreStrAppend" + TranslationUtil.getOperatorFunctionModifier(lhs);
     FunctionBinding binding = new FunctionBinding(funcName, idType, null);
     binding.addParameters(
-        typeEnv.getPointerType(idType), typeEnv.getPointerType(typeEnv.resolveJavaType("char")));
+        typeEnv.getPointerType(idType), typeEnv.getPointerType(
+        typeEnv.resolveJavaTypeMirror("char")));
     FunctionInvocation invocation = new FunctionInvocation(binding, lhsType);
     List<Expression> args = invocation.getArguments();
     args.add(new PrefixExpression(

@@ -21,11 +21,7 @@ public class TypeMethodReference extends MethodReference {
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
   private ChildLink<SimpleName> name = ChildLink.create(SimpleName.class, this);
 
-  public TypeMethodReference(org.eclipse.jdt.core.dom.TypeMethodReference jdtNode) {
-    super(jdtNode);
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-    name.set((SimpleName) TreeConverter.convert(jdtNode.getName()));
-  }
+  public TypeMethodReference() {}
 
   public TypeMethodReference(TypeMethodReference other) {
     super(other);
@@ -42,17 +38,28 @@ public class TypeMethodReference extends MethodReference {
     return name.get();
   }
 
+  public TypeMethodReference setName(SimpleName newName) {
+    name.set(newName);
+    return this;
+  }
+
   public Type getType() {
     return type.get();
+  }
+
+  public TypeMethodReference setType(Type newType) {
+    type.set(newType);
+    return this;
   }
 
   @Override
   protected void acceptInner(TreeVisitor visitor) {
     if (visitor.visit(this)) {
+      lambdaOuterArg.accept(visitor);
+      lambdaCaptureArgs.accept(visitor);
       type.accept(visitor);
       typeArguments.accept(visitor);
       name.accept(visitor);
-      invocation.accept(visitor);
     }
     visitor.endVisit(this);
   }

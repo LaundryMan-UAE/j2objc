@@ -21,10 +21,7 @@ public class ParameterizedType extends Type {
 
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
 
-  public ParameterizedType(org.eclipse.jdt.core.dom.ParameterizedType jdtNode) {
-    super(jdtNode);
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-  }
+  public ParameterizedType() {}
 
   public ParameterizedType(ParameterizedType other) {
     super(other);
@@ -38,6 +35,11 @@ public class ParameterizedType extends Type {
 
   public Type getType() {
     return type.get();
+  }
+
+  public ParameterizedType setType(Type newType) {
+    type.set(newType);
+    return this;
   }
 
   @Override

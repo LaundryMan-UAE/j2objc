@@ -15,10 +15,12 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.common.collect.Lists;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 
 import java.util.List;
+
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Native expression node type.
@@ -26,19 +28,24 @@ import java.util.List;
 public class NativeExpression extends Expression {
 
   private String code = null;
-  private ITypeBinding typeBinding = null;
+  private TypeMirror typeMirror = null;
   private List<ITypeBinding> importTypes = Lists.newArrayList();
 
   public NativeExpression(NativeExpression other) {
     super(other);
     code = other.getCode();
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
     importTypes.addAll(other.getImportTypes());
   }
 
   public NativeExpression(String code, ITypeBinding type) {
     this.code = code;
-    this.typeBinding = type;
+    typeMirror = BindingConverter.getType(type);
+  }
+
+  public NativeExpression(String code, TypeMirror type) {
+    this.code = code;
+    typeMirror = type;
   }
 
   @Override
@@ -51,8 +58,8 @@ public class NativeExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
   }
 
   public List<ITypeBinding> getImportTypes() {
@@ -68,5 +75,10 @@ public class NativeExpression extends Expression {
   @Override
   public NativeExpression copy() {
     return new NativeExpression(this);
+  }
+
+  public NativeExpression addImportType(ITypeBinding type) {
+    importTypes.add(type);
+    return this;
   }
 }

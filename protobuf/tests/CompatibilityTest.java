@@ -22,6 +22,8 @@ import com.google.protobuf.Descriptors.FieldDescriptor.Type;
 import com.google.protobuf.ExtensionRegistry;
 import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.GeneratedMessage;
+import com.google.protobuf.GeneratedMessage.ExtendableMessageOrBuilder;
+import com.google.protobuf.Internal;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.MessageLite;
@@ -100,6 +102,7 @@ public class CompatibilityTest extends ProtobufTest {
   }
 
   public void testObjcClassPrefix() throws Exception {
+    @SuppressWarnings("unused")
     PrefixDummy2 dummy2 = PrefixDummy2.newBuilder().build();
   }
 
@@ -242,6 +245,10 @@ public class CompatibilityTest extends ProtobufTest {
         .build();
     ProtocolMessageEnum type = data.getMyEnumType();
     assertEquals(1, type.getNumber());
+
+    // Test casting to ProtocolMessageEnum.
+    Object value = TypicalData.EnumType.VALUE2;
+    type = (ProtocolMessageEnum) value;
   }
 
   public void testMergeFrom() throws Exception {
@@ -279,6 +286,7 @@ public class CompatibilityTest extends ProtobufTest {
     checkMergeAndParse(
         TypicalData.newBuilder().mergeFrom(new ByteArrayInputStream(rawData)).build(), false);
     checkMergeAndParse(TypicalData.parseFrom(new ByteArrayInputStream(rawData)), false);
+
   }
 
   public void testMergeAndParseDelimitedFromInputStream() throws Exception {
@@ -346,6 +354,7 @@ public class CompatibilityTest extends ProtobufTest {
   public void testMergeFromInvalidProtocolBufferException() throws Exception {
     try {
       ByteArrayInputStream in = new ByteArrayInputStream(new byte[]{ 0x00 });
+      @SuppressWarnings("unused")
       TypicalData output = TypicalData.newBuilder()
           .mergeFrom(in, ExtensionRegistry.getEmptyRegistry())
           .build();
@@ -369,6 +378,7 @@ public class CompatibilityTest extends ProtobufTest {
 
   public void testParseFromInvalidProtocolBufferException() throws Exception {
     try {
+      @SuppressWarnings("unused")
       TypicalData output = TypicalData.parseFrom(new byte[]{ 0x08 });
       fail("Expected InvalidProtocolBufferException to be thrown.");
     } catch (InvalidProtocolBufferException e) {
@@ -379,6 +389,7 @@ public class CompatibilityTest extends ProtobufTest {
   public void testParseDelimitedFromInvalidProtocolBufferException() throws Exception {
     try {
       ByteArrayInputStream in = new ByteArrayInputStream(new byte[]{ 0x03, 0x01, 0x02 });
+      @SuppressWarnings("unused")
       TypicalData output = TypicalData.parseDelimitedFrom(in);
       fail("Expected InvalidProtocolBufferException to be thrown.");
     } catch (InvalidProtocolBufferException e) {
@@ -531,14 +542,14 @@ public class CompatibilityTest extends ProtobufTest {
   }
 
 
- public void testEnumValueOf() throws Exception {
-   assertEquals(TypicalData.EnumType.VALUE1, TypicalData.EnumType.valueOf(1));
-   assertEquals(TypicalData.EnumType.VALUE2, TypicalData.EnumType.valueOf(2));
-   assertEquals(TypicalData.EnumType.VALUE3, TypicalData.EnumType.valueOf(3));
-   assertEquals(TypicalData.EnumType.VALUE4, TypicalData.EnumType.valueOf(4));
-   assertEquals(TypicalData.EnumType.VALUE9, TypicalData.EnumType.valueOf(9));
-   assertNull(TypicalData.EnumType.valueOf(5));
- }
+  public void testEnumValueOf() throws Exception {
+    assertEquals(TypicalData.EnumType.VALUE1, TypicalData.EnumType.valueOf(1));
+    assertEquals(TypicalData.EnumType.VALUE2, TypicalData.EnumType.valueOf(2));
+    assertEquals(TypicalData.EnumType.VALUE3, TypicalData.EnumType.valueOf(3));
+    assertEquals(TypicalData.EnumType.VALUE4, TypicalData.EnumType.valueOf(4));
+    assertEquals(TypicalData.EnumType.VALUE9, TypicalData.EnumType.valueOf(9));
+    assertNull(TypicalData.EnumType.valueOf(5));
+  }
 
   public void testEnumValueOfWithString() throws Exception {
     assertEquals(TypicalData.EnumType.VALUE1, TypicalData.EnumType.valueOf("VALUE1"));
@@ -884,12 +895,16 @@ public class CompatibilityTest extends ProtobufTest {
   }
 
   public void testFunnyNames() throws Exception {
+    @SuppressWarnings("unused")
     Foo_bar msg1 = Foo_bar.newBuilder().build();
+    @SuppressWarnings("unused")
     Foo2bar msg2 = Foo2bar.newBuilder().build();
+    @SuppressWarnings("unused")
     fooBar msg3 = fooBar.newBuilder().build();
   }
 
   public void testPackagePrefix() throws Exception {
+    @SuppressWarnings("unused")
     PrefixDummy dummy = PrefixDummy.newBuilder().build();
   }
 
@@ -1217,6 +1232,11 @@ public class CompatibilityTest extends ProtobufTest {
     assertNotNull(registryLite2);
   }
 
+  public void testExtensionRegistryGetEmpty() throws Exception {
+    assertNotNull(ExtensionRegistry.getEmptyRegistry());
+    assertNotNull(ExtensionRegistryLite.getEmptyRegistry());
+  }
+
   public void testMessageLiteToBuilderAndMergeFrom() throws Exception {
     TypicalData input = TypicalData.newBuilder().setMyInt(123).build();
     MessageLite msg = TypicalData.getDefaultInstance();
@@ -1297,5 +1317,20 @@ public class CompatibilityTest extends ProtobufTest {
     expectSubstringIndexOutOfBounds(bs1, -1, 1);
     expectSubstringIndexOutOfBounds(bs1, 0, 17);
     expectSubstringIndexOutOfBounds(bs1, 7, 6);
+  }
+
+  public void testExtendableMessageOrBuilder() throws Exception {
+    TypicalData.Builder builder = TypicalData.newBuilder().setMyInt(42);
+    TypicalData data = builder.build();
+    Object o = builder;
+    ExtendableMessageOrBuilder emob = (ExtendableMessageOrBuilder) o;
+    o = data;
+    emob = (ExtendableMessageOrBuilder) o;
+  }
+
+  public void testInternalEnumLite() throws Exception {
+    Object value = TypicalData.EnumType.VALUE9;
+    assertTrue(value instanceof Internal.EnumLite);
+    assertEquals(9, ((Internal.EnumLite) value).getNumber());
   }
 }

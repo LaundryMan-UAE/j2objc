@@ -19,6 +19,7 @@ package com.google.devtools.j2objc;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
+import com.google.devtools.j2objc.Options.TimingLevel;
 import com.google.devtools.j2objc.pipeline.AnnotationPreProcessor;
 import com.google.devtools.j2objc.pipeline.GenerationBatch;
 import com.google.devtools.j2objc.pipeline.InputFilePreprocessor;
@@ -27,10 +28,9 @@ import com.google.devtools.j2objc.pipeline.TranslationProcessor;
 import com.google.devtools.j2objc.util.DeadCodeMap;
 import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
-import com.google.devtools.j2objc.util.JdtParser;
+import com.google.devtools.j2objc.util.Parser;
 import com.google.devtools.j2objc.util.ProGuardUsageParser;
 import com.google.devtools.j2objc.util.UnicodeUtils;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -71,8 +71,8 @@ public class J2ObjC {
   }
 
   @VisibleForTesting
-  public static JdtParser createParser() {
-    JdtParser parser = new JdtParser();
+  public static Parser createParser() {
+    Parser parser = Options.newParser();
     parser.addClasspathEntries(Options.getClassPathEntries());
     parser.addClasspathEntries(Options.getBootClasspath());
     parser.addSourcepathEntries(Options.getSourcePathEntries());
@@ -83,7 +83,14 @@ public class J2ObjC {
   }
 
   private static DeadCodeMap loadDeadCodeMap() {
-    File file = Options.getProGuardUsageFile();
+    return parseDeadCodeFile(Options.getProGuardUsageFile());
+  }
+  
+  private static DeadCodeMap loadTreeShakerMap() {
+    return parseDeadCodeFile(Options.getTreeShakerUsageFile());
+  }
+
+  private static DeadCodeMap parseDeadCodeFile(File file) {
     if (file != null) {
       try {
         return ProGuardUsageParser.parse(Files.asCharSource(file, Charset.defaultCharset()));
@@ -102,7 +109,7 @@ public class J2ObjC {
     File preProcessorTempDir = null;
     File strippedSourcesDir = null;
     try {
-      JdtParser parser = createParser();
+      Parser parser = createParser();
 
       List<ProcessingContext> inputs = Lists.newArrayList();
       GenerationBatch batch = new GenerationBatch();
@@ -113,8 +120,8 @@ public class J2ObjC {
       }
 
       AnnotationPreProcessor preProcessor = new AnnotationPreProcessor();
-      preProcessor.process(fileArgs);
-      preProcessor.collectInputs(inputs);
+      List<ProcessingContext> generatedInputs = preProcessor.process(fileArgs, inputs);
+      inputs.addAll(generatedInputs); // Ensure all generatedInputs are at end of input list.
       preProcessorTempDir = preProcessor.getTemporaryDirectory();
       if (ErrorUtil.errorCount() > 0) {
         return;
@@ -135,7 +142,7 @@ public class J2ObjC {
 
       Options.getHeaderMap().loadMappings();
       TranslationProcessor translationProcessor =
-          new TranslationProcessor(parser, loadDeadCodeMap());
+          new TranslationProcessor(parser, loadDeadCodeMap(), loadTreeShakerMap());
       translationProcessor.processInputs(inputs);
       translationProcessor.processBuildClosureDependencies();
       if (ErrorUtil.errorCount() > 0) {
@@ -160,6 +167,8 @@ public class J2ObjC {
     if (args.length == 0) {
       Options.help(true);
     }
+    long startTime = System.currentTimeMillis();
+
     String[] files = null;
     try {
       files = Options.load(args);
@@ -173,6 +182,12 @@ public class J2ObjC {
 
     run(Arrays.asList(files));
 
+    TimingLevel timingLevel = Options.timingLevel();
+    if (timingLevel == TimingLevel.TOTAL || timingLevel == TimingLevel.ALL) {
+      System.out.printf("j2objc execution time: %d ms\n", System.currentTimeMillis() - startTime);
+    }
+
+    // Run last, since it calls System.exit() with the number of errors.
     checkErrors();
   }
 }

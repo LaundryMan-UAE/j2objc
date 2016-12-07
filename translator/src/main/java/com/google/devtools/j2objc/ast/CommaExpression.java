@@ -14,10 +14,10 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
 import java.util.Arrays;
 import java.util.List;
+
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Comma expression node type. eg. "(expr1, expr2, expr3)"
@@ -41,8 +41,8 @@ public class CommaExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return expressions.get(expressions.size() - 1).getTypeBinding();
+  public TypeMirror getTypeMirror() {
+    return expressions.get(expressions.size() - 1).getTypeMirror();
   }
 
   public List<Expression> getExpressions() {
@@ -60,5 +60,10 @@ public class CommaExpression extends Expression {
   @Override
   public CommaExpression copy() {
     return new CommaExpression(this);
+  }
+
+  public CommaExpression addExpression(Expression e) {
+    expressions.add(e);
+    return this;
   }
 }

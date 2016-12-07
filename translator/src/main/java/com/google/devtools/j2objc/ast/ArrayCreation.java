@@ -14,11 +14,11 @@
 
 package com.google.devtools.j2objc.ast;
 
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.Types;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.ITypeBinding;
 
 /**
  * Node type for array creation.
@@ -34,14 +34,7 @@ public class ArrayCreation extends Expression {
   private final ChildLink<ArrayInitializer> initializer =
       ChildLink.create(ArrayInitializer.class, this);
 
-  public ArrayCreation(org.eclipse.jdt.core.dom.ArrayCreation jdtNode) {
-    super(jdtNode);
-    arrayType.set((ArrayType) TreeConverter.convert(jdtNode.getType()));
-    for (Object dimension : jdtNode.dimensions()) {
-      dimensions.add((Expression) TreeConverter.convert(dimension));
-    }
-    initializer.set((ArrayInitializer) TreeConverter.convert(jdtNode.getInitializer()));
-  }
+  public ArrayCreation() {}
 
   public ArrayCreation(ArrayCreation other) {
     super(other);
@@ -51,6 +44,10 @@ public class ArrayCreation extends Expression {
   }
 
   public ArrayCreation(ITypeBinding type, Types typeEnv, int... dimensions) {
+    this((javax.lang.model.type.ArrayType) BindingConverter.getType(type), typeEnv, dimensions);
+  }
+
+  public ArrayCreation(javax.lang.model.type.ArrayType type, Types typeEnv, int... dimensions) {
     arrayType.set(new ArrayType(type));
     for (int i : dimensions) {
       this.dimensions.add(NumberLiteral.newIntLiteral(i, typeEnv));
@@ -58,7 +55,7 @@ public class ArrayCreation extends Expression {
   }
 
   public ArrayCreation(ArrayInitializer initializer) {
-    arrayType.set(new ArrayType(initializer.getTypeBinding()));
+    arrayType.set(new ArrayType((javax.lang.model.type.ArrayType) initializer.getTypeMirror()));
     this.initializer.set(initializer);
   }
 
@@ -68,9 +65,9 @@ public class ArrayCreation extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
+  public TypeMirror getTypeMirror() {
     ArrayType arrayTypeNode = arrayType.get();
-    return arrayTypeNode != null ? arrayTypeNode.getTypeBinding() : null;
+    return arrayTypeNode != null ? arrayTypeNode.getTypeMirror() : null;
   }
 
   public boolean hasRetainedResult() {
@@ -85,16 +82,27 @@ public class ArrayCreation extends Expression {
     return arrayType.get();
   }
 
+  public ArrayCreation setType(ArrayType newType) {
+    arrayType.set(newType);
+    return this;
+  }
+
   public List<Expression> getDimensions() {
     return dimensions;
+  }
+
+  public ArrayCreation setDimensions(List<Expression> newDimensions) {
+    dimensions.replaceAll(newDimensions);
+    return this;
   }
 
   public ArrayInitializer getInitializer() {
     return initializer.get();
   }
 
-  public void setInitializer(ArrayInitializer newInitializer) {
+  public ArrayCreation setInitializer(ArrayInitializer newInitializer) {
     initializer.set(newInitializer);
+    return this;
   }
 
   @Override

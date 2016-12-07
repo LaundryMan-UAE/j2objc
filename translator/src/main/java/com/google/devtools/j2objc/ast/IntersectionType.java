@@ -13,9 +13,8 @@
  */
 package com.google.devtools.j2objc.ast;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Type node for an intersection type in a cast expression (added in JLS8, section 4.9).
@@ -24,17 +23,12 @@ public class IntersectionType extends Type {
 
   private ChildList<Type> types = ChildList.create(Type.class, this);
 
-  public IntersectionType(org.eclipse.jdt.core.dom.IntersectionType jdtNode) {
-    super(jdtNode);
-    typeBinding = jdtNode.resolveBinding();
-    for (Object x : jdtNode.types()) {
-      types.add((Type) TreeConverter.convert(x));
-    }
+  public IntersectionType(TypeMirror typeMirror) {
+    super(typeMirror);
   }
 
   public IntersectionType(IntersectionType other) {
     super(other);
-    typeBinding = other.getTypeBinding();
     types.copyFrom(other.types);
   }
 
@@ -47,6 +41,12 @@ public class IntersectionType extends Type {
     return types;
   }
 
+  public IntersectionType addType(Type type) {
+    types.add(type);
+    return this;
+  }
+
+  @Override
   public boolean isIntersectionType() {
     return true;
   }
@@ -62,11 +62,5 @@ public class IntersectionType extends Type {
   @Override
   public IntersectionType copy() {
     return new IntersectionType(this);
-  }
-
-  @Override
-  public void validateInner() {
-    super.validateInner();
-    Preconditions.checkNotNull(typeBinding);
   }
 }

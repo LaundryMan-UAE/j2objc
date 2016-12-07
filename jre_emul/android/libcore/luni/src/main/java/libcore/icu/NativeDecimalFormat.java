@@ -177,8 +177,7 @@ public final class NativeDecimalFormat implements Cloneable {
 
     public char[] formatBigDecimal(BigDecimal value, FieldPosition field) {
         FieldPositionIterator fpi = FieldPositionIterator.forFieldPosition(field);
-        // iOS doesn't have native support for big decimal formatting.
-        char[] result = value.toPlainString().toCharArray();
+        char[] result = formatBigNumber(nsFormatter, value).toCharArray();
         if (fpi != null) {
             FieldPositionIterator.setFieldPosition(fpi, field);
         }
@@ -187,13 +186,19 @@ public final class NativeDecimalFormat implements Cloneable {
 
     public char[] formatBigInteger(BigInteger value, FieldPosition field) {
         FieldPositionIterator fpi = FieldPositionIterator.forFieldPosition(field);
-        // iOS doesn't have native support for big integer formatting.
-        char[] result = value.toString().toCharArray();
+        char[] result = formatBigNumber(nsFormatter, value).toCharArray();
         if (fpi != null) {
             FieldPositionIterator.setFieldPosition(fpi, field);
         }
         return result;
     }
+
+    private static native String formatBigNumber(Object nativeFormatter, Object value) /*-[
+      NSDecimalNumber *decimalNumber =
+          [NSDecimalNumber decimalNumberWithString:[value description]];
+      NSNumberFormatter *formatter = (NSNumberFormatter *)nativeFormatter;
+      return [formatter stringFromNumber:decimalNumber];
+    ]-*/;
 
     public char[] formatLong(long value, FieldPosition field) {
         FieldPositionIterator fpi = FieldPositionIterator.forFieldPosition(field);
@@ -599,6 +604,7 @@ public final class NativeDecimalFormat implements Cloneable {
      */
     private static native void applyPatternImpl(Object nativeFormatter, boolean localized,
         String pattern) /*-[
+      nil_chk(pattern);
       NSNumberFormatter *formatter = (NSNumberFormatter *) nativeFormatter;
       NSArray *formats = [pattern componentsSeparatedByString:@";"];
       [formatter setPositiveFormat:[formats objectAtIndex:0]];
@@ -658,8 +664,8 @@ public final class NativeDecimalFormat implements Cloneable {
 
     private static native Number parse(Object nativeFormatter, String string,
         ParsePosition position, boolean parseBigDecimal) /*-[
+      nil_chk(string);
       NSNumberFormatter *formatter = (NSNumberFormatter *) nativeFormatter;
-      NSNumber *result;
       int start = [position getIndex];
       NSRange range = NSMakeRange(start, [string length] - start);
 
@@ -684,12 +690,14 @@ public final class NativeDecimalFormat implements Cloneable {
         }
       }
 
+      NSNumber *result = nil;
       NSError *error = nil;
       BOOL success = [formatter getObjectValue:&result
                                      forString:string
                                          range:&range
                                          error:&error];
-      if (success && (error == nil)) {
+      // On an empty string NSNumberFormatter returns YES but leaves the result value nil.
+      if (success && !error && result) {
         [position setIndexWithInt:start + (int) range.length];
         if (fmod([result doubleValue], 1.0) == 0) {
           return JavaLangLong_valueOfWithLong_([result longLongValue]);

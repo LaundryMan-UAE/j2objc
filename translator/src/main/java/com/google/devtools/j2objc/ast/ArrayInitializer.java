@@ -14,34 +14,34 @@
 
 package com.google.devtools.j2objc.ast;
 
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.ITypeBinding;
 
 /**
  * Array initializer node type.
  */
 public class ArrayInitializer extends Expression {
 
-  private ITypeBinding typeBinding = null;
+  private TypeMirror typeMirror = null;
+
   private ChildList<Expression> expressions = ChildList.create(Expression.class, this);
 
-  public ArrayInitializer(org.eclipse.jdt.core.dom.ArrayInitializer jdtNode) {
-    super(jdtNode);
-    typeBinding = jdtNode.resolveTypeBinding();
-    for (Object expression : jdtNode.expressions()) {
-      expressions.add((Expression) TreeConverter.convert(expression));
-    }
-  }
+  public ArrayInitializer() {}
 
   public ArrayInitializer(ArrayInitializer other) {
     super(other);
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
     expressions.copyFrom(other.getExpressions());
   }
 
   public ArrayInitializer(ITypeBinding typeBinding) {
-    this.typeBinding = typeBinding;
+    typeMirror = BindingConverter.getType(typeBinding);
+  }
+
+  public ArrayInitializer(TypeMirror typeMirror) {
+    this.typeMirror = typeMirror;
   }
 
   @Override
@@ -50,12 +50,22 @@ public class ArrayInitializer extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
+  }
+
+  public ArrayInitializer setTypeMirror(TypeMirror newTypeMirror) {
+    typeMirror = newTypeMirror;
+    return this;
   }
 
   public List<Expression> getExpressions() {
     return expressions;
+  }
+
+  public ArrayInitializer setExpressions(List<Expression> newExpressions) {
+    expressions.replaceAll(newExpressions);
+    return this;
   }
 
   @Override
@@ -71,5 +81,10 @@ public class ArrayInitializer extends Expression {
   @Override
   public ArrayInitializer copy() {
     return new ArrayInitializer(this);
+  }
+
+  public ArrayInitializer addExpression(Expression e) {
+    expressions.add(e);
+    return this;
   }
 }

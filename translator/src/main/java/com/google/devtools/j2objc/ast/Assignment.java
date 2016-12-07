@@ -15,15 +15,13 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.common.collect.Maps;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
 import java.util.Map;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Node type for an assignment.
  */
-public class Assignment extends Expression {
+public final class Assignment extends Expression {
 
   /**
    * Assignment operators.
@@ -66,9 +64,9 @@ public class Assignment extends Expression {
       return opString;
     }
 
-    public static Operator fromJdtOperator(
-        org.eclipse.jdt.core.dom.Assignment.Operator jdtOperator) {
-      Operator result = stringLookup.get(jdtOperator.toString());
+    // TODO(tball): remove when javac is front-end.
+    public static Operator fromJdtOperatorName(String jdtOperatorName) {
+      Operator result = stringLookup.get(jdtOperatorName);
       assert result != null;
       return result;
     }
@@ -78,12 +76,7 @@ public class Assignment extends Expression {
   private ChildLink<Expression> leftHandSide = ChildLink.create(Expression.class, this);
   private ChildLink<Expression> rightHandSide = ChildLink.create(Expression.class, this);
 
-  public Assignment(org.eclipse.jdt.core.dom.Assignment jdtNode) {
-    super(jdtNode);
-    operator = Operator.fromJdtOperator(jdtNode.getOperator());
-    leftHandSide.set((Expression) TreeConverter.convert(jdtNode.getLeftHandSide()));
-    rightHandSide.set((Expression) TreeConverter.convert(jdtNode.getRightHandSide()));
-  }
+  public Assignment() {}
 
   public Assignment(Assignment other) {
     super(other);
@@ -104,33 +97,36 @@ public class Assignment extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
+  public TypeMirror getTypeMirror() {
     Expression leftHandSideNode = leftHandSide.get();
-    return leftHandSideNode != null ? leftHandSideNode.getTypeBinding() : null;
+    return leftHandSideNode != null ? leftHandSideNode.getTypeMirror() : null;
   }
 
   public Operator getOperator() {
     return operator;
   }
 
-  public void setOperator(Operator newOperator) {
+  public Assignment setOperator(Operator newOperator) {
     operator = newOperator;
+    return this;
   }
 
   public Expression getLeftHandSide() {
     return leftHandSide.get();
   }
 
-  public void setLeftHandSide(Expression newLeftHandSide) {
+  public Assignment setLeftHandSide(Expression newLeftHandSide) {
     leftHandSide.set(newLeftHandSide);
+    return this;
   }
 
   public Expression getRightHandSide() {
     return rightHandSide.get();
   }
 
-  public void setRightHandSide(Expression newRightHandSide) {
+  public Assignment setRightHandSide(Expression newRightHandSide) {
     rightHandSide.set(newRightHandSide);
+    return this;
   }
 
   @Override

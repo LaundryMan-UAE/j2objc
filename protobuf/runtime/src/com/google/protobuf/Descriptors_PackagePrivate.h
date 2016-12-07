@@ -36,6 +36,8 @@
 
 #import "com/google/protobuf/Descriptors.h"
 
+#import "objc/runtime.h"
+
 typedef union {
   jint valueInt;
   jlong valueLong;
@@ -69,7 +71,7 @@ typedef NS_OPTIONS(uint32_t, CGPFieldFlags) {
 typedef struct CGPFieldData {
   const char *name;
   const char *javaName;
-  int number;
+  jint number;
   CGPFieldFlags flags;
   CGPFieldType type;
   CGPValue defaultValue;
@@ -125,7 +127,7 @@ typedef struct CGPFieldData {
 @interface ComGoogleProtobufDescriptors_EnumValueDescriptor () {
  @package
   JavaLangEnum<ComGoogleProtobufProtocolMessageEnum> *enum_;
-  int number_;
+  jint number_;
 }
 @end
 
@@ -161,7 +163,7 @@ CGPEnumDescriptor *CGPInitializeEnumType(
 
 void CGPFieldFixDefaultValue(CGPFieldDescriptor *descriptor);
 
-CGP_ALWAYS_INLINE inline int CGPFieldGetNumber(const CGPFieldDescriptor *field) {
+CGP_ALWAYS_INLINE inline jint CGPFieldGetNumber(const CGPFieldDescriptor *field) {
   return field->data_->number;
 }
 
@@ -205,8 +207,8 @@ CGP_ALWAYS_INLINE inline BOOL CGPJavaTypeIsEnum(CGPFieldJavaType type) {
   return type == ComGoogleProtobufDescriptors_FieldDescriptor_JavaType_Enum_ENUM;
 }
 
-CGP_ALWAYS_INLINE inline int CGPEnumGetIntValue(CGPEnumDescriptor *descriptor, id enumObj) {
-  return *(int *)((char *)enumObj + descriptor->valueOffset_);
+CGP_ALWAYS_INLINE inline jint CGPEnumGetIntValue(CGPEnumDescriptor *descriptor, id enumObj) {
+  return *(jint *)((char *)enumObj + descriptor->valueOffset_);
 }
 
 CGPDescriptor *CGPFieldGetContainingType(CGPFieldDescriptor *field);
@@ -217,7 +219,7 @@ BOOL CGPIsRetainedType(CGPFieldJavaType type);
 
 size_t CGPGetTypeSize(CGPFieldJavaType type);
 
-CGPEnumValueDescriptor *CGPEnumValueDescriptorFromInt(CGPEnumDescriptor *enumType, int value);
+CGPEnumValueDescriptor *CGPEnumValueDescriptorFromInt(CGPEnumDescriptor *enumType, jint value);
 
 CF_EXTERN_C_END
 
@@ -235,8 +237,6 @@ J2OBJC_FIELD_SETTER(ComGoogleProtobufDescriptors_FieldDescriptor_Type, javaType_
 
 __attribute__((unused)) static void ComGoogleProtobufDescriptors_FieldDescriptor_Type_initWithComGoogleProtobufDescriptors_FieldDescriptor_JavaType_withNSString_withInt_(ComGoogleProtobufDescriptors_FieldDescriptor_Type *self, ComGoogleProtobufDescriptors_FieldDescriptor_JavaType *javaType, NSString *__name, jint __ordinal);
 
-__attribute__((unused)) static ComGoogleProtobufDescriptors_FieldDescriptor_Type *new_ComGoogleProtobufDescriptors_FieldDescriptor_Type_initWithComGoogleProtobufDescriptors_FieldDescriptor_JavaType_withNSString_withInt_(ComGoogleProtobufDescriptors_FieldDescriptor_JavaType *javaType, NSString *__name, jint __ordinal) NS_RETURNS_RETAINED;
-
 @interface ComGoogleProtobufDescriptors_FieldDescriptor_JavaType () {
  @public
   id defaultDefault_;
@@ -247,7 +247,5 @@ __attribute__((unused)) static ComGoogleProtobufDescriptors_FieldDescriptor_Type
 J2OBJC_FIELD_SETTER(ComGoogleProtobufDescriptors_FieldDescriptor_JavaType, defaultDefault_, id)
 
 __attribute__((unused)) static void ComGoogleProtobufDescriptors_FieldDescriptor_JavaType_initWithId_withNSString_withInt_(ComGoogleProtobufDescriptors_FieldDescriptor_JavaType *self, id defaultDefault, NSString *__name, jint __ordinal);
-
-__attribute__((unused)) static ComGoogleProtobufDescriptors_FieldDescriptor_JavaType *new_ComGoogleProtobufDescriptors_FieldDescriptor_JavaType_initWithId_withNSString_withInt_(id defaultDefault, NSString *__name, jint __ordinal) NS_RETURNS_RETAINED;
 
 #endif // __ComGoogleProtobufDescriptors_PackagePrivate_H__

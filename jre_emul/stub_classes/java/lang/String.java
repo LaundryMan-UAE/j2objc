@@ -312,6 +312,14 @@ public class String implements CharSequence, Comparable<String>, Serializable {
     return false;
   }
 
+  public static String join(CharSequence delimiter, CharSequence... elements) {
+    return null;
+  }
+
+  public static String join(CharSequence delimiter, Iterable<? extends CharSequence> elements) {
+    return null;
+  }
+
   private static class CaseInsensitiveComparator
       implements Comparator<String>, java.io.Serializable {
     private static final long serialVersionUID = 8575799808933029326L;
@@ -320,11 +328,5 @@ public class String implements CharSequence, Comparable<String>, Serializable {
       return 0;
     }
   }
-
-  /* Unimplemented/mapped methods.
-  String(byte[] bytes, int i, int j, java.nio.charset.Charset charset)
-  String(byte[] bytes, java.nio.charset.Charset charset)
-  byte[] getBytes(java.nio.charset.Charset charset)
-  int offsetByCodePoints(int i, int j)
-  */
 }
+

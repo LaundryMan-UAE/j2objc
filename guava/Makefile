@@ -21,7 +21,7 @@ default: dist
 include environment.mk
 
 JAVA_SOURCES_INCLUDE = $(BUILD_DIR)/java_sources.mk
-ifneq ($(findstring clean,$(notdir $(MAKECMDGOALS))),clean)
+ifndef IS_CLEAN_GOAL
 -include $(JAVA_SOURCES_INCLUDE)
 endif
 
@@ -32,11 +32,14 @@ CLASSPATH = $(DIST_JAR_DIR)/$(JSR305_JAR):$(DIST_JAR_DIR)/j2objc_annotations.jar
 INCLUDE_DIRS = $(GEN_OBJC_DIR)
 
 J2OBJCC := $(ARCH_BIN_DIR)/j2objcc -c -fobjc-abi-version=2 -fobjc-legacy-dispatch \
-  $(INCLUDE_DIRS:%=-I%) -Wno-nullability -Wno-nonnull
+  $(INCLUDE_DIRS:%=-I%) $(CC_WARNINGS)
+
+# Headers are installed in dist/include/guava/, so that developers can translate
+# and use other versions of Guava without conflict.
 DIST_GUAVA_INCLUDE_DIR = $(ARCH_INCLUDE_DIR)/guava
 
 TRANSLATE_ARGS = --segmented-headers --extract-unsequenced --batch-translate-max=300 \
-    -cp $(CLASSPATH) -encoding UTF-8 -J-Xmx2G \
+    -cp $(CLASSPATH) -encoding UTF-8 -J-Xmx2G -source 1.7 \
     --hide-private-members --final-methods-as-functions -q
 
 TRANSLATE_MARK = $(BUILD_DIR)/.translate_mark
@@ -56,7 +59,7 @@ include ../make/static_framework.mk
 
 fat_lib_dependencies: jre_emul_dist jsr305_dist
 
-DIST_JAR = $(DIST_JAR_DIR)/j2objc_guava.jar
+DIST_JAR = $(DIST_JAR_DIR)/$(GUAVA_JAR)
 
 dist: $(FAT_LIBS_DIST) $(DIST_JAR) $(DIST_HEADERS)
 
@@ -66,7 +69,7 @@ clean:
 
 java: $(DIST_JAR)
 
-$(SRC_JAR): | java_deps_dist
+$(SRC_JAR) $(JAR): | java_deps_dist
 	@:
 
 $(JAVA_SOURCES_INCLUDE): $(SRC_JAR)
@@ -91,7 +94,7 @@ $(TRANSLATE_MARK): $(DIST_DIR)/j2objc $(SRC_JAR)
 $(OBJC_SOURCES) $(OBJC_HEADERS): $(TRANSLATE_MARK)
 	@:
 
-$(DIST_JAR): $(SRC_JAR)
+$(DIST_JAR): $(JAR)
 	@mkdir -p $(@D)
 	@install -m 0644 $< $@
 

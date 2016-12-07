@@ -19,8 +19,8 @@
 //  Created by Tom Ball on 11/07/11.
 //
 
+#import "IOSReflection.h"
 #import "J2ObjC_source.h"
-#import "JavaMetadata.h"
 #import "java/lang/AssertionError.h"
 #import "java/lang/ClassLoader.h"
 #import "java/lang/IllegalArgumentException.h"
@@ -35,87 +35,31 @@
 
 @implementation JavaLangReflectMethod
 
-- (instancetype)initWithMethodSignature:(NSMethodSignature *)methodSignature
-                               selector:(SEL)selector
-                                  class:(IOSClass *)aClass
-                               isStatic:(jboolean)isStatic
-                               metadata:(JavaMethodMetadata *)metadata {
-  if (self = [super initWithMethodSignature:methodSignature
-                                   selector:selector
-                                      class:aClass
-                                   metadata:metadata]) {
-    isStatic_ = isStatic;
-  }
-  return self;
++ (instancetype)methodWithDeclaringClass:(IOSClass *)aClass
+                                metadata:(const J2ObjcMethodInfo *)metadata {
+  return [[[JavaLangReflectMethod alloc] initWithDeclaringClass:aClass
+                                                       metadata:metadata] autorelease];
 }
 
-+ (instancetype)methodWithMethodSignature:(NSMethodSignature *)methodSignature
-                                 selector:(SEL)selector
-                                    class:(IOSClass *)aClass
-                                 isStatic:(jboolean)isStatic
-                                 metadata:(JavaMethodMetadata *)metadata {
-  return [[[JavaLangReflectMethod alloc] initWithMethodSignature:methodSignature
-                                                        selector:selector
-                                                           class:aClass
-                                                        isStatic:isStatic
-                                                        metadata:metadata] autorelease];
+static bool IsStatic(const J2ObjcMethodInfo *metadata) {
+  return (metadata->modifiers & JavaLangReflectModifier_STATIC) > 0;
 }
 
 // Returns method name.
 - (NSString *)getName {
-  NSString *javaName = [metadata_ javaName];
-  if (javaName) {
-    return javaName;
-  }
-
-  // Demangle signature to retrieve original method name.
-  NSString *name = NSStringFromSelector(selector_);
-  NSRange range = [name rangeOfString:@":"];
-  if (range.location == NSNotFound) {
-    return name;  // It's not mangled.
-  }
-
-  // The name ends with the last "WithType" before the first colon.
-  range = [name rangeOfString:@"With" options:NSBackwardsSearch
-      range:NSMakeRange(0, range.location)];
-  if (range.location == NSNotFound) {
-    return name;
-  }
-  return [name substringToIndex:range.location];
+  return [NSString stringWithUTF8String:JreMethodJavaName(metadata_, ptrTable_)];
 }
 
 - (int)getModifiers {
-  int mods = [super getModifiers];
-  if (isStatic_) {
-    mods |= JavaLangReflectModifier_STATIC;
-  }
-  return mods;
+  return metadata_->modifiers;
 }
 
 - (IOSClass *)getReturnType {
-  id<JavaLangReflectType> returnType = [metadata_ returnType];
-  if (returnType) {
-    if (![returnType isKindOfClass:[IOSClass class]]) {
-      return NSObject_class_();
-    } else {
-      return (IOSClass *) returnType;
-    }
-  }
-  const char *argType = [methodSignature_ methodReturnType];
-  if (strlen(argType) != 1) {
-    NSString *errorMsg =
-        [NSString stringWithFormat:@"unexpected return type: %s", argType];
-    id exception = [[JavaLangAssertionError alloc] initWithId:errorMsg];
-#if ! __has_feature(objc_arc)
-    [exception autorelease];
-#endif
-    @throw exception;
-  }
-  return decodeTypeEncoding(argType);
+  return JreClassForString(metadata_->returnType);
 }
 
 - (id<JavaLangReflectType>)getGenericReturnType {
-  NSString *genericSignature = [metadata_ genericSignature];
+  NSString *genericSignature = JreMethodGenericString(metadata_, ptrTable_);
   if (genericSignature) {
     LibcoreReflectGenericSignatureParser *parser =
         [[LibcoreReflectGenericSignatureParser alloc]
@@ -128,24 +72,17 @@
     [parser release];
     return result;
   }
-
-  id<JavaLangReflectType> returnType = [metadata_ returnType];
-  if (returnType) {
-    if (returnType && [returnType conformsToProtocol:@protocol(JavaLangReflectTypeVariable)]) {
-      return returnType;
-    }
-  }
   return [self getReturnType];
 }
 
 - (id)invokeWithId:(id)object
     withNSObjectArray:(IOSObjectArray *)arguments {
-  if (!isStatic_ && object == nil) {
+  if (!IsStatic(metadata_) && object == nil) {
     @throw AUTORELEASE([[JavaLangNullPointerException alloc] initWithNSString:
       @"null object specified for non-final method"]);
   }
 
-  IOSObjectArray *paramTypes = [self getParameterTypes];
+  IOSObjectArray *paramTypes = [self getParameterTypesInternal];
   jint nArgs = arguments ? arguments->size_ : 0;
   if (nArgs != paramTypes->size_) {
     @throw AUTORELEASE([[JavaLangIllegalArgumentException alloc] initWithNSString:
@@ -177,7 +114,7 @@
                    args:(const J2ObjcRawValue *)args
                  result:(J2ObjcRawValue *)result {
   NSInvocation *invocation = [self invocationForTarget:object];
-  for (int i = 0; i < [self getNumParams]; i++) {
+  for (int i = 0; i < [self getParameterTypesInternal]->size_; i++) {
     [invocation setArgument:(void *)&args[i] atIndex:i + SKIPPED_ARGUMENTS];
   }
 
@@ -188,41 +125,43 @@
   }
 }
 
+// Creates a unique method selector by prepending the class name.
+static SEL GetPrivatizedMethodSelector(Class cls, SEL sel) {
+  NSMutableString *str = [NSMutableString stringWithUTF8String:class_getName(cls)];
+  [str appendString:@"_"];
+  [str appendString:NSStringFromSelector(sel)];
+  return sel_registerName([str UTF8String]);
+}
+
 - (NSInvocation *)invocationForTarget:(id)object {
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:methodSignature_];
-  [invocation setSelector:selector_];
+  NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:[self getSignature]];
+  SEL sel = JreMethodSelector(metadata_);
   if (object == nil || [object isKindOfClass:[IOSClass class]]) {
     [invocation setTarget:class_.objcClass];
   } else {
     [invocation setTarget:object];
+    if ((metadata_->modifiers & JavaLangReflectModifier_PRIVATE) > 0 &&
+        class_ != [object getClass]) {
+      // Private methods do not have virtual invocation. If an overriding class "overrides" this
+      // private method then the NSInvocation would incorrectly call the overriding method.
+      // To work around this we add a new method to the declaring class with a uniquified name.
+      Class cls = class_.objcClass;
+      Method method = class_getInstanceMethod(cls, sel);
+      sel = GetPrivatizedMethodSelector(cls, sel);
+      class_addMethod(cls, sel, method_getImplementation(method), method_getTypeEncoding(method));
+    }
   }
+  [invocation setSelector:sel];
   return invocation;
 }
 
 - (void)invoke:(NSInvocation *)invocation object:(id)object {
-  IOSClass *declaringClass = [self getDeclaringClass];
   NSException *exception = nil;
-  if (object &&
-      ([self getModifiers] & JavaLangReflectModifier_PRIVATE) > 0 &&
-      declaringClass != [object getClass]) {
-    // A superclass's private instance method is invoked, so temporarily
-    // change the object's type to the superclass.
-    Class originalClass = object_setClass(object, declaringClass.objcClass);
-    @try {
-      [invocation invoke];
-    }
-    @catch (NSException *t) {
-      exception = t;
-    }
-    object_setClass(object, originalClass);
-  } else {
-    @try {
-      [invocation invoke];
-    }
-    @catch (NSException *t) {
-      exception = t;
-    }
+  @try {
+    [invocation invoke];
+  }
+  @catch (NSException *t) {
+    exception = t;
   }
   if (exception) {
     @throw AUTORELEASE([[JavaLangReflectInvocationTargetException alloc]
@@ -230,13 +169,27 @@
   }
 }
 
+- (NSMethodSignature *)getSignature {
+  SEL sel = JreMethodSelector(metadata_);
+  Protocol *protocol = class_.objcProtocol;
+  if (protocol) {
+    struct objc_method_description methodDesc =
+        protocol_getMethodDescription(protocol, sel, YES, YES);
+    return [NSMethodSignature signatureWithObjCTypes:methodDesc.types];
+  }
+  Class cls = class_.objcClass;
+  bool isStatic = (metadata_->modifiers & JavaLangReflectModifier_STATIC) > 0;
+  Method method = isStatic ? class_getClassMethod(cls, sel) : class_getInstanceMethod(cls, sel);
+  return [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
+}
+
 - (NSString *)description {
   NSMutableString *s = [NSMutableString string];
-  NSString *modifiers = JavaLangReflectModifier_toStringWithInt_([self getModifiers]);
+  NSString *modifiers = JavaLangReflectModifier_toStringWithInt_(metadata_->modifiers);
   NSString *returnType = [[self getReturnType] getName];
   NSString *declaringClass = [[self getDeclaringClass] getName];
   [s appendFormat:@"%@ %@ %@.%@(", modifiers, returnType, declaringClass, [self getName]];
-  IOSObjectArray *params = [self getParameterTypes];
+  IOSObjectArray *params = [self getParameterTypesInternal];
   jint n = params->size_;
   if (n > 0) {
     [s appendString:[(IOSClass *) params->buffer_[0] getName]];
@@ -259,23 +212,32 @@
 - (id)getDefaultValue {
   if ([self->class_ isAnnotation]) {
     // Invoke the class method for this method name plus "Default". For example, if this
-    // method is named "foo", then return the result from "fooDefault()".
+    // method is named "foo", then return the result from "fooDefault".
     NSString *defaultName = [[self getName] stringByAppendingString:@"Default"];
-    @try {
-      JavaLangReflectMethod *defaultMethod =
-          [self->class_ getDeclaredMethod:defaultName
-                   parameterTypes:[IOSObjectArray arrayWithLength:0 type:IOSClass_class_()]];
-      if (defaultMethod) {
-        return [defaultMethod invokeWithId:self->class_
-                         withNSObjectArray:[IOSObjectArray arrayWithLength:0
-                                                                      type:NSObject_class_()]];
-      }
-    }
-    @catch (JavaLangNoSuchMethodException *exception) {
-      // Fall-through.
+    Class cls = class_.objcClass;
+    Method defaultValueMethod = JreFindClassMethod(cls, sel_registerName([defaultName UTF8String]));
+    if (defaultValueMethod) {
+      struct objc_method_description *methodDesc = method_getDescription(defaultValueMethod);
+      NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:
+          [NSMethodSignature signatureWithObjCTypes:methodDesc->types]];
+      [invocation setSelector:methodDesc->name];
+      [invocation invokeWithTarget:cls];
+      J2ObjcRawValue returnValue;
+      [invocation getReturnValue:&returnValue];
+      return [[self getReturnType] __boxValue:&returnValue];
     }
   }
   return nil;
+}
+
+- (jboolean)isDefault {
+  // Default methods are public, non-abstract instance methods declared in an interface.
+  BOOL isPublicNonAbstractInstance =
+      ((metadata_->modifiers & (JavaLangReflectModifier_ABSTRACT
+                               | JavaLangReflectModifier_PUBLIC
+                               | JavaLangReflectModifier_STATIC))
+       == JavaLangReflectModifier_PUBLIC);
+  return isPublicNonAbstractInstance && [self->class_ isInterface];
 }
 
 // A method's hash is the hash of its declaring class's name XOR its name.
@@ -284,34 +246,58 @@
 }
 
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "getName", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "getModifiers", NULL, "I", 0x1, NULL, NULL },
-    { "getReturnType", NULL, "Ljava.lang.Class;", 0x1, NULL, NULL },
-    { "getGenericReturnType", NULL, "Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
-    { "getDeclaringClass", NULL, "Ljava.lang.Class;", 0x1, NULL, "()Ljava/lang/Class<*>;" },
-    { "getParameterTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL, NULL },
-    { "getGenericParameterTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
-    { "invokeWithId:withNSObjectArray:", "invoke", "Ljava.lang.Object;", 0x81,
-      "Ljava.lang.IllegalAccessException;Ljava.lang.IllegalArgumentException;"
-      "Ljava.lang.reflect.InvocationTargetException;", NULL },
-    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL,
-      "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" },
-    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "getParameterAnnotations", NULL, "[[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "getTypeParameters", NULL, "[Ljava.lang.reflect.TypeVariable;", 0x1, NULL, NULL },
-    { "isSynthetic", NULL, "Z", 0x1, NULL, NULL },
-    { "getExceptionTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL, NULL },
-    { "getGenericExceptionTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
-    { "toGenericString", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "isBridge", NULL, "Z", 0x1, NULL, NULL },
-    { "isVarArgs", NULL, "Z", 0x1, NULL, NULL },
-    { "getDefaultValue", NULL, "Ljava.lang.Object;", 0x1, NULL, NULL },
-    { "init", NULL, NULL, 0x1, NULL, NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, "LNSString;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LIOSClass;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LJavaLangReflectType;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LIOSClass;", 0x1, -1, -1, -1, 0, -1, -1 },
+    { NULL, "[LIOSClass;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangReflectType;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSObject;", 0x81, 1, 2, 3, -1, -1, -1 },
+    { NULL, "LJavaLangAnnotationAnnotation;", 0x1, 4, 5, -1, 6, -1, -1 },
+    { NULL, "[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangReflectTypeVariable;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LIOSClass;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangReflectType;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSString;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSObject;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, NULL, 0x1, -1, -1, -1, -1, -1, -1 },
   };
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(getName);
+  methods[1].selector = @selector(getModifiers);
+  methods[2].selector = @selector(getReturnType);
+  methods[3].selector = @selector(getGenericReturnType);
+  methods[4].selector = @selector(getDeclaringClass);
+  methods[5].selector = @selector(getParameterTypes);
+  methods[6].selector = @selector(getGenericParameterTypes);
+  methods[7].selector = @selector(invokeWithId:withNSObjectArray:);
+  methods[8].selector = @selector(getAnnotationWithIOSClass:);
+  methods[9].selector = @selector(getDeclaredAnnotations);
+  methods[10].selector = @selector(getParameterAnnotations);
+  methods[11].selector = @selector(getTypeParameters);
+  methods[12].selector = @selector(isSynthetic);
+  methods[13].selector = @selector(getExceptionTypes);
+  methods[14].selector = @selector(getGenericExceptionTypes);
+  methods[15].selector = @selector(toGenericString);
+  methods[16].selector = @selector(isVarArgs);
+  methods[17].selector = @selector(getDefaultValue);
+  methods[18].selector = @selector(isDefault);
+  methods[19].selector = @selector(init);
+  #pragma clang diagnostic pop
+  static const void *ptrTable[] = {
+    "()Ljava/lang/Class<*>;", "invoke", "LNSObject;[LNSObject;",
+    "LJavaLangIllegalAccessException;LJavaLangIllegalArgumentException;"
+    "LJavaLangReflectInvocationTargetException;", "getAnnotation", "LIOSClass;",
+    "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" };
   static const J2ObjcClassInfo _JavaLangReflectMethod = {
-    2, "Method", "java.lang.reflect", NULL, 0x1, 20, methods, 0, NULL, 0, NULL, 0, NULL, NULL, NULL
-  };
+    "Method", "java.lang.reflect", ptrTable, methods, NULL, 7, 0x1, 20, 0, -1, -1, -1, -1, -1 };
   return &_JavaLangReflectMethod;
 }
 

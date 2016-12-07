@@ -14,13 +14,12 @@
 
 package com.google.devtools.j2objc.ast;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import java.util.List;
 import java.util.Map;
+import javax.lang.model.type.TypeMirror;
+import org.eclipse.jdt.core.dom.ITypeBinding;
 
 /**
  * Infix expression node type.
@@ -69,9 +68,8 @@ public class InfixExpression extends Expression {
       return opString;
     }
 
-    public static Operator fromJdtOperator(
-        org.eclipse.jdt.core.dom.InfixExpression.Operator jdtOperator) {
-      Operator result = stringLookup.get(jdtOperator.toString());
+    public static Operator parse(String op) {
+      Operator result = stringLookup.get(op);
       assert result != null;
       return result;
     }
@@ -79,73 +77,22 @@ public class InfixExpression extends Expression {
 
   // In theory the type binding can be resolved from the operator and operands
   // but we'll keep it simple for now.
-  private ITypeBinding typeBinding = null;
+  private TypeMirror typeMirror = null;
   private Operator operator = null;
   private ChildList<Expression> operands = ChildList.create(Expression.class, this);
 
-  public InfixExpression(org.eclipse.jdt.core.dom.InfixExpression jdtNode) {
-    super(jdtNode);
-    typeBinding = jdtNode.resolveTypeBinding();
-    operator = Operator.fromJdtOperator(jdtNode.getOperator());
-
-    // The JDT parser apparently does not always take advantage of extended
-    // operands, resulting in potentially very deep trees that can overflow the
-    // stack. This code traverses the subtree non-recursively and merges all
-    // children that have the same operator into this node using extended
-    // operands.
-    List<StackState> stack = Lists.newArrayList();
-    stack.add(new StackState(jdtNode));
-    while (!stack.isEmpty()) {
-      StackState currentState = stack.get(stack.size() - 1);
-      org.eclipse.jdt.core.dom.Expression child = currentState.nextChild();
-      if (child == null) {
-        stack.remove(stack.size() - 1);
-        continue;
-      }
-      if (child instanceof org.eclipse.jdt.core.dom.InfixExpression) {
-        org.eclipse.jdt.core.dom.InfixExpression infixChild =
-            (org.eclipse.jdt.core.dom.InfixExpression) child;
-        if (infixChild.getOperator().equals(jdtNode.getOperator())) {
-          stack.add(new StackState(infixChild));
-          continue;
-        }
-      }
-      operands.add((Expression) TreeConverter.convert(child));
-    }
-  }
-
-  private static class StackState {
-    private final org.eclipse.jdt.core.dom.InfixExpression expression;
-    private int nextChild = -2;
-
-    private StackState(org.eclipse.jdt.core.dom.InfixExpression expr) {
-      expression = expr;
-    }
-
-    private org.eclipse.jdt.core.dom.Expression nextChild() {
-      int childIdx = nextChild++;
-      if (childIdx == -2) {
-        return expression.getLeftOperand();
-      } else if (childIdx == -1) {
-        return expression.getRightOperand();
-      } else if (childIdx < expression.extendedOperands().size()) {
-        return (org.eclipse.jdt.core.dom.Expression) expression.extendedOperands().get(childIdx);
-      } else {
-        return null;
-      }
-    }
-  }
+  public InfixExpression() {}
 
   public InfixExpression(InfixExpression other) {
     super(other);
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
     operator = other.getOperator();
     operands.copyFrom(other.getOperands());
   }
 
   public InfixExpression(
       ITypeBinding typeBinding, Operator operator, Expression... operands) {
-    this.typeBinding = typeBinding;
+    typeMirror = BindingConverter.getType(typeBinding);
     this.operator = operator;
     for (Expression operand : operands) {
       this.operands.add(operand);
@@ -158,16 +105,35 @@ public class InfixExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
   }
 
-  public void setTypeBinding(ITypeBinding newTypeBinding) {
-    typeBinding = newTypeBinding;
+  public InfixExpression setTypeMirror(TypeMirror newType) {
+    typeMirror = newType;
+    return this;
   }
 
   public Operator getOperator() {
     return operator;
+  }
+
+  public InfixExpression setOperator(Operator newOp) {
+    operator = newOp;
+    return this;
+  }
+
+  public InfixExpression addOperand(Expression operand) {
+    operands.add(operand);
+    return this;
+  }
+
+  public void addOperand(int index, Expression operand) {
+    operands.add(index, operand);
+  }
+
+  public Expression getOperand(int index) {
+    return operands.get(index);
   }
 
   public List<Expression> getOperands() {

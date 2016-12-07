@@ -18,6 +18,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import com.google.devtools.j2objc.util.ErrorUtil;
+import com.google.devtools.j2objc.util.SourceVersion;
 
 import junit.framework.TestCase;
 
@@ -46,6 +47,16 @@ public class CycleFinderTest extends TestCase {
     ErrorUtil.setTestMode();
   }
 
+  private boolean isRunningJava8() {
+    try {
+      Class.forName("java.lang.invoke.LambdaMetafactory");
+      return true;
+    } catch (ClassNotFoundException e) {
+      // Running on pre-Java 8 JRE.
+      return false;
+    }
+  }
+
   @Override
   protected void setUp() throws IOException {
     tempDir = createTempDir();
@@ -66,8 +77,63 @@ public class CycleFinderTest extends TestCase {
     assertCycle("LA;", "LB;");
   }
 
+  // TODO(user): Use com.google.j2objc.annotations.WeakOuter when transitioned to Java 8
+  private static String weakOuterAndInterface = "import java.lang.annotation.*;\n"
+        + "@Target(ElementType.TYPE_USE) @interface WeakOuter {}"
+        + "interface Simple { public int run(); }";
+
+  public void testAnonymousClassOuterRefCycle() throws Exception {
+    if (!isRunningJava8()) {
+      return;
+    }
+    addSourceFile("Simple.java", weakOuterAndInterface
+        + "class Test { int member = 7; Simple o;"
+        + "void f() { o = new Simple() { public int run() { return member; } }; } }");
+    findCycles(true);
+
+    // Assert that we have one cycle that contains LSimple~Test and a LSimple~Test anonymous class.
+    assertEquals(1, cycles.size());
+    assertCycle("LSimple~Test;");
+    assertContains("LSimple~Test$", printCyclesToString());
+  }
+
+  public void testAnonymousClassWithWeakOuter() throws Exception {
+    if (!isRunningJava8()) {
+      return;
+    }
+    addSourceFile("Simple.java", weakOuterAndInterface
+        + "class Test { int member = 7; Simple o;"
+        + "void f() { new @WeakOuter Simple() { public int run() { return member; } }; } }");
+    findCycles(true);
+    assertNoCycles();
+  }
+
+  public void testInnerClassWithWeakOuter() throws Exception {
+    String source = "import com.google.j2objc.annotations.WeakOuter; "
+        + "public class A { @WeakOuter class B { int test() { return o.hashCode(); }} B o; }";
+    addSourceFile("A.java", source);
+    findCycles(true);
+    assertNoCycles();
+  }
+
+  public void testInnerClassOuterRefCycle() throws Exception {
+    String source = "import com.google.j2objc.annotations.WeakOuter; "
+        + "public class A { class B {int test(){return o.hashCode();}} B o;}";
+    addSourceFile("A.java", source);
+    findCycles(true);
+    assertCycle("LA;", "LA$B;");
+  }
+
   public void testWeakField() throws Exception {
     addSourceFile("A.java", "import com.google.j2objc.annotations.Weak; class A { @Weak B b; }");
+    addSourceFile("B.java", "class B { A a; }");
+    findCycles();
+    assertNoCycles();
+  }
+
+  public void testRetainedWithField() throws Exception {
+    addSourceFile("A.java",
+        "import com.google.j2objc.annotations.RetainedWith; class A { @RetainedWith B b; }");
     addSourceFile("B.java", "class B { A a; }");
     findCycles();
     assertNoCycles();
@@ -321,6 +387,18 @@ public class CycleFinderTest extends TestCase {
     assertNoCycles();
   }
 
+  public void testSimpleLambdaWithCycle() throws Exception {
+    if (!isRunningJava8()) {
+      return;
+    }
+    addSourceFile("I.java", "interface I { int foo(); }");
+    addSourceFile("A.java", "class A { int j = 1; I i = () -> j; }");
+    findCycles(true);
+    // TODO(kstanger): Right now this makes sure that cycle_finder doesn't crash on lambdas, but it
+    // should be finding a cycle here.
+    assertNoCycles();
+  }
+
   private void assertContains(String substr, String str) {
     assertTrue("Expected \"" + substr + "\" within \"" + str + "\"", str.contains(substr));
   }
@@ -355,7 +433,14 @@ public class CycleFinderTest extends TestCase {
   }
 
   private void findCycles() throws IOException {
+      findCycles(false);
+  }
+
+  private void findCycles(boolean useJava8) throws IOException {
     Options options = new Options();
+    if (useJava8) {
+      options.setSourceVersion(SourceVersion.JAVA_8);
+    }
     if (!whitelistEntries.isEmpty()) {
       File whitelistFile = new File(tempDir, "whitelist");
       Files.write(Joiner.on("\n").join(whitelistEntries), whitelistFile, Charset.defaultCharset());

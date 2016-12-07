@@ -48,7 +48,7 @@ RESOURCES = \
     com/google/devtools/j2objc/JRE.mappings
 
 DIST_DEPS = $(JSR305_JAR) j2objc_annotations.jar
-INTERNAL_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(ASM_JAR)
+INTERNAL_DEPS = $(ECLIPSE_JARS) $(GUAVA_JAR) $(ASM_JAR) $(JAVAC_JAR)
 JAR_DEPS_DIST = $(DIST_DEPS:%=$(DIST_JAR_DIR)/%) $(INTERNAL_DEPS:%=$(JAVA_DEPS_JAR_DIR)/%)
 JAR_DEPS_PATH = $(subst $(eval) ,:,$(strip $(JAR_DEPS_DIST)))
 JUNIT_JAR_DIST = $(DIST_JAR_DIR)/$(JUNIT_JAR)
@@ -87,11 +87,11 @@ $(JAR): $(MANIFEST) $(RESOURCE_FILES) $(JAVA_SOURCES_FULL) \
 	@echo building cycle_finder jar
 	@javac -Xlint:unchecked -sourcepath $(JAVA_SOURCE_DIR):$(TRANSLATOR_SOURCE_DIR) \
 	    -classpath $(JAR_DEPS_PATH) -encoding UTF-8 \
-	    -d $(CLASS_DIR) -source 1.7 -target 1.7 -nowarn $(JAVA_SOURCES:%=$(JAVA_SOURCE_DIR)/%)
+	    -d $(CLASS_DIR) -source 1.8 -target 1.8 -nowarn $(JAVA_SOURCES:%=$(JAVA_SOURCE_DIR)/%)
 	@for lib in $(JAR_DEPS_DIST); do unzip -oq $$lib -d $(CLASS_DIR); done
 	@rm -rf $(UNUSED_JAR_CONTENTS)
 	@jar cfm $@-combined $(MANIFEST) -C $(CLASS_DIR) .
-	@java -jar $(JAVA_DEPS_JAR_DIR)/$(JARJAR) process jarjar.rules $@-combined $@
+	@java -jar $(JAVA_DEPS_JAR_DIR)/$(JARJAR_JAR) process jarjar.rules $@-combined $@
 
 # Format manifest classpath with each jar on a separate line, to avoid
 # maximum line length of 72 bytes in UTF-8 encoding.

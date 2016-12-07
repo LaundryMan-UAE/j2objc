@@ -19,7 +19,6 @@ package com.google.devtools.j2objc;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Resources;
@@ -27,6 +26,8 @@ import com.google.devtools.j2objc.util.ErrorUtil;
 import com.google.devtools.j2objc.util.FileUtil;
 import com.google.devtools.j2objc.util.HeaderMap;
 import com.google.devtools.j2objc.util.PackagePrefixes;
+import com.google.devtools.j2objc.util.Parser;
+import com.google.devtools.j2objc.util.SourceVersion;
 import com.google.devtools.j2objc.util.Version;
 
 import org.eclipse.jdt.core.JavaCore;
@@ -44,7 +45,6 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -94,27 +94,20 @@ public class Options {
   private boolean swiftFriendly = false;
   private boolean nullability = false;
   private EnumSet<LintOption> lintOptions = EnumSet.noneOf(LintOption.class);
+  private boolean includeGeneratedSources = false;
+  private TimingLevel timingLevel = TimingLevel.NONE;
+
+  // TODO(tball): remove after front-end conversion is complete.
+  private FrontEnd javaFrontEnd = FrontEnd.JDT;
 
   private PackagePrefixes packagePrefixes = new PackagePrefixes();
 
-  private static final Set<String> VALID_JAVA_VERSIONS = ImmutableSet.of("1.8", "1.7", "1.6",
-      "1.5");
-
-  // TODO(kirbs): Uncomment following lines and lines in OptionsTest when we enable automatic
-  // version detection. Currently this is breaking pulse builds using 64 bit Java 8, and upgrading
-  // to Eclipse 4.5 is gated by bytecode errors in compiling junit. I won't have time to do a
-  // more in depth root cause analysis on this.
-  private String sourceVersion = "1.7";
-  // // The default source version number if not passed with -source is determined from the system
-  // // properties of the running java version after parsing the argument list.
-  // private String sourceVersion = null;
-
-  // TODO(kirbs): Remove when Java 8 is fully supported, or when we remove the
-  // -Xforce-incomplete-java8 flag.
-  // Force JLS8 and conversion of JLS8 nodes.
-  private boolean forceIncompleteJava8Support = false;
+  // The default source version number if not passed with -source is determined from the system
+  // properties of the running java version after parsing the argument list.
+  private SourceVersion sourceVersion = null;
 
   private static File proGuardUsageFile = null;
+  private static File treeShakerUsageFile = null;
 
   public static final String DEFAULT_HEADER_MAPPING_FILE = "mappings.j2objc";
   // Null if not set (means we use the default). Can be empty also (means we use no mapping files).
@@ -132,6 +125,7 @@ public class Options {
   private static final String XBOOTCLASSPATH = "-Xbootclasspath:";
   private static String bootclasspath = System.getProperty("sun.boot.class.path");
   private static final String BATCH_PROCESSING_MAX_FLAG = "--batch-translate-max=";
+  private static final String TIMING_INFO_ARG = "--timing-info";
 
   static {
     // Load string resources.
@@ -199,6 +193,11 @@ public class Options {
     public String suffix() {
       return suffix;
     }
+  }
+
+  // TODO(tball): remove after front-end conversion is complete.
+  private static enum FrontEnd {
+    JDT, JAVAC
   }
 
   /**
@@ -315,6 +314,20 @@ public class Options {
   }
 
   /**
+   * What timing information should be printed, if any.
+   */
+  public enum TimingLevel {
+    // Don't print any timing information.
+    NONE,
+
+    // Print the total execution time at the end.
+    TOTAL,
+
+    // Print all timing information.
+    ALL
+  }
+
+  /**
    * Set all log handlers in this package with a common level.
    */
   private static void setLogLevel(Level level) {
@@ -402,6 +415,11 @@ public class Options {
           usage("--dead-code-report requires an argument");
         }
         proGuardUsageFile = new File(args[nArg]);
+      } else if (arg.equals("--tree-shaker-report")) {
+        if (++nArg == args.length) {
+          usage("--tree-shaker-report requires an argument");
+        }
+        treeShakerUsageFile = new File(args[nArg]);
       } else if (arg.equals("--prefix")) {
         if (++nArg == args.length) {
           usage("--prefix requires an argument");
@@ -434,6 +452,8 @@ public class Options {
         outputStyle = OutputStyleOption.SOURCE;
       } else if (arg.equals("-XcombineJars")) {
         outputStyle = OutputStyleOption.SOURCE_COMBINED;
+      } else if (arg.equals("-XincludeGeneratedSources")) {
+        includeGeneratedSources = true;
       } else if (arg.equals("-use-arc")) {
         checkMemoryManagementOption(MemoryManagementOption.ARC);
       } else if (arg.equals("-g")) {
@@ -444,8 +464,15 @@ public class Options {
         deprecatedDeclarations = true;
       } else if (arg.equals("-q") || arg.equals("--quiet")) {
         setLogLevel(Level.WARNING);
-      } else if (arg.equals("-t") || arg.equals("--timing-info")) {
-        setLogLevel(Level.FINE);
+      } else if (arg.equals("-t") || arg.equals(TIMING_INFO_ARG)) {
+        timingLevel = TimingLevel.ALL;
+      } else if (arg.startsWith(TIMING_INFO_ARG + ':')) {
+        String timingArg = arg.substring(TIMING_INFO_ARG.length() + 1);
+        try {
+          timingLevel = TimingLevel.valueOf(timingArg.toUpperCase());
+        } catch (IllegalArgumentException e) {
+          usage("invalid --timing-info argument");
+        }
       } else if (arg.equals("-v") || arg.equals("--verbose")) {
         setLogLevel(Level.FINEST);
       } else if (arg.startsWith(XBOOTCLASSPATH)) {
@@ -497,6 +524,10 @@ public class Options {
         nullability = true;
       } else if (arg.startsWith("-Xlint")) {
         lintOptions = LintOption.parse(arg);
+      } else if (arg.equals("-Xuse-jdt")) {
+        javaFrontEnd = FrontEnd.JDT;
+      } else if (arg.equals("-Xuse-javac")) {
+        javaFrontEnd = FrontEnd.JAVAC;
       } else if (arg.equals("-version")) {
         version();
       } else if (arg.startsWith("-h") || arg.equals("--help")) {
@@ -509,20 +540,17 @@ public class Options {
           || arg.equals("--no-final-methods-functions")
           || arg.equals("--hide-private-members")
           || arg.equals("--no-hide-private-members")
-          || arg.equals("--segmented-headers")) {
+          || arg.equals("--segmented-headers")
+          || arg.equals("-Xforce-incomplete-java8")) {
         // ignore
       }  else if (arg.equals("-source")) {
         if (++nArg == args.length) {
           usage("-source requires an argument");
         }
         // Handle aliasing of version numbers as supported by javac.
-        if (args[nArg].length() == 1){
-          sourceVersion = "1." + args[nArg];
-        } else {
-          sourceVersion = args[nArg];
-        }
-        // Make sure that we were passed a valid release version.
-        if (!VALID_JAVA_VERSIONS.contains(sourceVersion)) {
+        try {
+          sourceVersion = SourceVersion.parse(args[nArg]);
+        } catch (IllegalArgumentException e) {
           usage("invalid source release: " + args[nArg]);
         }
       } else if (arg.equals("-target")) {
@@ -531,10 +559,6 @@ public class Options {
           usage("-target requires an argument");
         }
         // ignore
-      } else if (arg.equals("-Xforce-incomplete-java8")) {
-        // Override to allow usage of incomplete features, without breaking any builds that might
-        // blindly be passing in a -source 1.8 from javac.
-        forceIncompleteJava8Support = true;
       } else if (arg.startsWith("-")) {
         usage("invalid flag: " + arg);
       } else {
@@ -559,13 +583,12 @@ public class Options {
 
     // Pull source version from system properties if it is not passed with -source flag.
     if (sourceVersion == null) {
-      sourceVersion = System.getProperty("java.version").substring(0, 3);
+      sourceVersion = SourceVersion.parse(System.getProperty("java.version").substring(0, 3));
     }
 
     // Java 6 had a 1G max heap limit, removed in Java 7.
-    boolean java7orHigher = sourceVersion.charAt(2) >= '7';
     if (batchTranslateMaximum == -1) {  // Not set by flag.
-      batchTranslateMaximum = java7orHigher ? 300 : 0;
+      batchTranslateMaximum = SourceVersion.java7Minimum(sourceVersion) ? 300 : 0;
     }
 
     int nFiles = args.length - nArg;
@@ -585,9 +608,7 @@ public class Options {
    */
   private static void addPrefixOption(String arg) {
     int i = arg.indexOf('=');
-
-    // Make sure key and value are at least 1 character.
-    if (i < 1 || i >= arg.length() - 1) {
+    if (i < 1) {
       usage("invalid prefix format");
     }
     String pkg = arg.substring(0, i);
@@ -835,8 +856,20 @@ public class Options {
     return fileHeader;
   }
 
+  public static void setProGuardUsageFile(File newProGuardUsageFile) {
+    proGuardUsageFile = newProGuardUsageFile;
+  }
+  
+  public static void setTreeShakerUsageFile(File newTreeShakerUsageFile) {
+    treeShakerUsageFile = newTreeShakerUsageFile;
+  }
+  
   public static File getProGuardUsageFile() {
     return proGuardUsageFile;
+  }
+  
+  public static File getTreeShakerUsageFile() {
+    return treeShakerUsageFile;
   }
 
   public static File getOutputHeaderMappingFile() {
@@ -931,16 +964,20 @@ public class Options {
   }
 
   public static boolean shouldMapHeaders() {
-    return useSourceDirectories() || combineSourceJars();
+    return useSourceDirectories() || combineSourceJars() || includeGeneratedSources();
   }
 
-  public static String getSourceVersion(){
+  public static SourceVersion getSourceVersion(){
     return instance.sourceVersion;
   }
 
-  // TODO(kirbs): Remove when Java 8 is fully supported.
+  @VisibleForTesting
+  public static void setSourceVersion(SourceVersion version) {
+    instance.sourceVersion = version;
+  }
+
   public static boolean isJava8Translator() {
-    return instance.forceIncompleteJava8Support && instance.sourceVersion.equals("1.8");
+    return SourceVersion.java8Minimum(instance.sourceVersion);
   }
 
   public static boolean staticAccessorMethods() {
@@ -992,5 +1029,21 @@ public class Options {
 
   public static EnumSet<LintOption> lintOptions() {
     return instance.lintOptions;
+  }
+
+  public static boolean includeGeneratedSources() {
+    return instance.includeGeneratedSources;
+  }
+
+  public static TimingLevel timingLevel() {
+    return instance.timingLevel;
+  }
+
+  // TODO(tball): remove after front-end conversion is complete.
+  public static Parser newParser() {
+    if (instance.javaFrontEnd == FrontEnd.JDT) {
+        return new com.google.devtools.j2objc.jdt.JdtParser();
+    }
+    return new com.google.devtools.j2objc.javac.JavacParser();
   }
 }

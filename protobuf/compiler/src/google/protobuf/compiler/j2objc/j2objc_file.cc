@@ -32,16 +32,14 @@
 //  Based on original Protocol Buffers design by
 //  Sanjay Ghemawat, Jeff Dean, and others.
 
-#include <google/protobuf/compiler/j2objc/j2objc_file.h>
+#include "google/protobuf/compiler/j2objc/j2objc_file.h"
 
-#include <google/protobuf/compiler/code_generator.h>
-#include <google/protobuf/io/printer.h>
-#include <google/protobuf/io/zero_copy_stream.h>
-#include <google/protobuf/descriptor.pb.h>
-#include <google/protobuf/compiler/j2objc/j2objc_enum.h>
-#include <google/protobuf/compiler/j2objc/j2objc_extension.h>
-#include <google/protobuf/compiler/j2objc/j2objc_helpers.h>
-#include <google/protobuf/compiler/j2objc/j2objc_message.h>
+#include <memory>
+
+#include "google/protobuf/compiler/j2objc/j2objc_enum.h"
+#include "google/protobuf/compiler/j2objc/j2objc_extension.h"
+#include "google/protobuf/compiler/j2objc/j2objc_helpers.h"
+#include "google/protobuf/compiler/j2objc/j2objc_message.h"
 
 namespace google {
 namespace protobuf {
@@ -165,7 +163,7 @@ void FileGenerator::GenerateHeader(GeneratorContext* context,
   string filename = GetFileName(".h");
   file_list->push_back(filename);
 
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateHeaderBoilerplate(&printer);
@@ -174,6 +172,7 @@ void FileGenerator::GenerateHeader(GeneratorContext* context,
   AddHeaderImports(headers);
   set<string> declarations;
   declarations.insert("@class ComGoogleProtobufExtensionRegistry");
+  declarations.insert("@class ComGoogleProtobufExtensionRegistryLite");
 
   if (!GenerateMultipleFiles()) {
     for (int i = 0; i < file_->message_type_count(); i++) {
@@ -203,10 +202,17 @@ void FileGenerator::GenerateHeader(GeneratorContext* context,
       "+ (void)registerAllExtensionsWithComGoogleProtobufExtensionRegistry:"
           "(ComGoogleProtobufExtensionRegistry *)extensionRegistry;\n"
       "\n"
+      "+ (void)registerAllExtensionsWithComGoogleProtobufExtensionRegistryLite:"
+          "(ComGoogleProtobufExtensionRegistryLite *)extensionRegistry;\n"
+      "\n"
       "@end\n\n"
       "FOUNDATION_EXPORT void $classname$_registerAllExtensionsWith"
           "ComGoogleProtobufExtensionRegistry_("
-          "ComGoogleProtobufExtensionRegistry *extensionRegistry);\n",
+          "ComGoogleProtobufExtensionRegistry *extensionRegistry);\n"
+      "\n"
+      "FOUNDATION_EXPORT void $classname$_registerAllExtensionsWith"
+          "ComGoogleProtobufExtensionRegistryLite_("
+          "ComGoogleProtobufExtensionRegistryLite *extensionRegistry);\n",
       "classname", ClassName(file_));
 
   if (file_->extension_count() > 0) {
@@ -241,7 +247,7 @@ void FileGenerator::GenerateSource(GeneratorContext* context,
   string filename = GetFileName(".m");
   file_list->push_back(filename);
 
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateSourceBoilerplate(&printer);
@@ -250,6 +256,7 @@ void FileGenerator::GenerateSource(GeneratorContext* context,
   AddSourceImports(headers);
   headers.insert(GetFileName(".h"));
   headers.insert("com/google/protobuf/ExtensionRegistry.h");
+  headers.insert("com/google/protobuf/ExtensionRegistryLite.h");
   for (int i = 0; i < file_->message_type_count(); i++) {
     if (GenerateMultipleFiles()) {
       headers.insert(GetHeader(file_->message_type(i)));
@@ -279,6 +286,12 @@ void FileGenerator::GenerateSource(GeneratorContext* context,
       "(ComGoogleProtobufExtensionRegistry *)extensionRegistry {\n"
       "  $classname$_registerAllExtensionsWithComGoogleProtobuf"
           "ExtensionRegistry_(extensionRegistry);\n"
+      "}\n"
+      "\n"
+      "+ (void)registerAllExtensionsWithComGoogleProtobufExtensionRegistryLite:"
+      "(ComGoogleProtobufExtensionRegistryLite *)extensionRegistry {\n"
+      "  $classname$_registerAllExtensionsWithComGoogleProtobuf"
+          "ExtensionRegistryLite_(extensionRegistry);\n"
       "}\n",
       "classname", ClassName(file_));
 
@@ -314,7 +327,14 @@ void FileGenerator::GenerateSource(GeneratorContext* context,
       "\n"
       "void $classname$_registerAllExtensionsWith"
           "ComGoogleProtobufExtensionRegistry_("
-          "ComGoogleProtobufExtensionRegistry *extensionRegistry) {\n",
+          "ComGoogleProtobufExtensionRegistry *extensionRegistry) {\n"
+      "  $classname$_registerAllExtensionsWith"
+          "ComGoogleProtobufExtensionRegistryLite_(extensionRegistry);\n"
+      "}\n"
+      "\n"
+      "void $classname$_registerAllExtensionsWith"
+          "ComGoogleProtobufExtensionRegistryLite_("
+          "ComGoogleProtobufExtensionRegistryLite *extensionRegistry) {\n",
       "classname", ClassName(file_));
   printer.Indent();
   for (int i = 0; i < file_->extension_count(); i++) {
@@ -356,7 +376,7 @@ void FileGenerator::GenerateEnumHeader(GeneratorContext* context,
                                        const EnumDescriptor* descriptor) {
   string filename = output_dir_ + descriptor->name() + ".h";
   file_list->push_back(filename);
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateBoilerplate(&printer);
@@ -373,7 +393,7 @@ void FileGenerator::GenerateEnumSource(GeneratorContext* context,
                                        const EnumDescriptor* descriptor) {
   string filename = output_dir_ + descriptor->name() + ".m";
   file_list->push_back(filename);
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateBoilerplate(&printer);
@@ -392,7 +412,7 @@ void FileGenerator::GenerateMessageHeader(GeneratorContext* context,
                                           const Descriptor* descriptor) {
   string filename = output_dir_ + descriptor->name() + ".h";
   file_list->push_back(filename);
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateBoilerplate(&printer);
@@ -413,7 +433,7 @@ void FileGenerator::GenerateMessageSource(GeneratorContext* context,
                                           const Descriptor* descriptor) {
   string filename = output_dir_ + descriptor->name() + ".m";
   file_list->push_back(filename);
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateBoilerplate(&printer);
@@ -433,7 +453,7 @@ void FileGenerator::GenerateMessageOrBuilder(GeneratorContext* context,
                                              const Descriptor* descriptor) {
   string filename = output_dir_ + descriptor->name() + "OrBuilder.h";
   file_list->push_back(filename);
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
 
   GenerateBoilerplate(&printer);
@@ -474,7 +494,7 @@ void PrintProperty(io::Printer* printer, const string& key, const string& value)
 
 void FileGenerator::GenerateHeaderMappings(GeneratorContext* context) {
   string headerFile = StaticOutputFileName(file_, ".h");
-  scoped_ptr<io::ZeroCopyOutputStream> output(
+  std::unique_ptr<io::ZeroCopyOutputStream> output(
       context->Open(FileDirMappingOutputName(file_)));
   io::Printer printer(output.get(), '$');
 
@@ -500,7 +520,7 @@ void PrintClassMappings(const Descriptor* descriptor, io::Printer* printer) {
 
 void FileGenerator::GenerateClassMappings(GeneratorContext* context) {
   string filename = MappedInputName(file_) + ".clsmap.properties";
-  scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+  std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
   io::Printer printer(output.get(), '$');
   PrintProperty(&printer, JavaClassName(file_), ClassName(file_));
   for (int i = 0; i < file_->enum_type_count(); i++) {

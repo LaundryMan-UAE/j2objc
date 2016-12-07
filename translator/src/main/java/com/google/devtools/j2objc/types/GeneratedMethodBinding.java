@@ -18,6 +18,10 @@ package com.google.devtools.j2objc.types;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import com.google.devtools.j2objc.jdt.JdtAnnotationBinding;
+import com.google.devtools.j2objc.jdt.JdtMethodBinding;
+import com.google.devtools.j2objc.jdt.JdtTypeBinding;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
 
@@ -35,14 +39,15 @@ import java.util.List;
  *
  * @author Tom Ball
  */
-public class GeneratedMethodBinding extends AbstractBinding implements IMethodBinding {
-  private final IMethodBinding delegate;
+public class GeneratedMethodBinding extends JdtMethodBinding {
+
+  private final JdtMethodBinding delegate;
   private final String name;
   private int modifiers;
   private final List<ITypeBinding> parameters = Lists.newArrayList();
-  private final ITypeBinding returnType;
-  private final IMethodBinding methodDeclaration;
-  private ITypeBinding declaringClass;
+  private final JdtTypeBinding returnType;
+  private final JdtMethodBinding methodDeclaration;
+  private JdtTypeBinding declaringClass;
   private final boolean varargs;
   private final boolean isConstructor;
 
@@ -50,12 +55,13 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
       IMethodBinding delegate, String name, int modifiers, ITypeBinding returnType,
       IMethodBinding methodDeclaration, ITypeBinding declaringClass, boolean isConstructor,
       boolean varargs) {
-    this.delegate = delegate;
+    super(null);
+    this.delegate = BindingConverter.wrapBinding(delegate);
     this.name = Preconditions.checkNotNull(name);
     this.modifiers = modifiers;
-    this.returnType = returnType;
-    this.methodDeclaration = methodDeclaration;
-    this.declaringClass = declaringClass;
+    this.returnType = BindingConverter.wrapBinding(returnType);
+    this.methodDeclaration = BindingConverter.wrapBinding(methodDeclaration);
+    this.declaringClass = BindingConverter.wrapBinding(declaringClass);
     this.isConstructor = isConstructor;
     this.varargs = varargs;
   }
@@ -104,7 +110,14 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
 
   @Override
   public String getKey() {
-    throw new AssertionError("not implemented");
+    StringBuilder sb = new StringBuilder("GeneratedMethodBinding:");
+    sb.append(declaringClass == null ? "null" : declaringClass.getKey());
+    sb.append('.').append(name).append('(');
+    for (ITypeBinding paramType : parameters) {
+      sb.append(paramType.getKey());
+    }
+    sb.append(')').append(returnType.getKey());
+    return sb.toString();
   }
 
   @Override
@@ -137,7 +150,7 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
   }
 
   public void setDeclaringClass(ITypeBinding newClass) {
-    declaringClass = newClass;
+    declaringClass = BindingConverter.wrapBinding(newClass);
   }
 
   @Override
@@ -147,7 +160,7 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
 
   @Override
   public IAnnotationBinding[] getParameterAnnotations(int paramIndex) {
-    return new IAnnotationBinding[0];
+    return new JdtAnnotationBinding[0];
   }
 
   @Override
@@ -156,15 +169,15 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
   }
 
   public void addParameter(ITypeBinding param) {
-    parameters.add(param);
+    parameters.add(BindingConverter.wrapBinding(param));
   }
 
   public void addParameter(int index, ITypeBinding param) {
-    parameters.add(index, param);
+    parameters.add(index, BindingConverter.wrapBinding(param));
   }
 
   public void addParameters(IMethodBinding method) {
-    parameters.addAll(Arrays.asList(method.getParameterTypes()));
+    parameters.addAll(Arrays.asList(BindingConverter.wrapBinding(method).getParameterTypes()));
   }
 
   public List<ITypeBinding> getParameters() {
@@ -179,7 +192,7 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
   @Override
   public ITypeBinding[] getExceptionTypes() {
     // Obj-C doesn't have declared exceptions
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
@@ -204,7 +217,7 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
 
   @Override
   public ITypeBinding[] getTypeArguments() {
-    return new ITypeBinding[0];
+    return new JdtTypeBinding[0];
   }
 
   @Override
@@ -236,38 +249,12 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
     this.modifiers = modifiers;
   }
 
-  @Override
-  public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((declaringClass == null) ? 0 : declaringClass.hashCode());
-    result = prime * result + modifiers;
-    result = prime * result + ((name == null) ? 0 : name.hashCode());
-    result = prime * result + ((parameters == null) ? 0 : parameters.hashCode());
-    result = prime * result + ((returnType == null) ? 0 : returnType.hashCode());
-    result = prime * result + (varargs ? 1231 : 1237);
-    return result;
+  public void addModifiers(int modifiersToAdd) {
+    modifiers |= modifiersToAdd;
   }
 
-  @Override
-  public boolean equals(Object obj) {
-    if (this == obj) {
-      return true;
-    }
-    if (obj == null) {
-      return false;
-    }
-    if (!(obj instanceof GeneratedMethodBinding)) {
-      return false;
-    }
-    GeneratedMethodBinding other = (GeneratedMethodBinding) obj;
-    return name.equals(other.name)
-        && modifiers == other.modifiers
-        && varargs == other.varargs
-        // The returnType is null for constructors, so test equality first.
-        && (returnType == null ? other.returnType == null : returnType.equals(other.returnType))
-        && declaringClass.equals(other.declaringClass)
-        && parameters.equals(other.parameters);
+  public void removeModifiers(int modifiersToRemove) {
+    modifiers &= ~modifiersToRemove;
   }
 
   @Override
@@ -289,11 +276,8 @@ public class GeneratedMethodBinding extends AbstractBinding implements IMethodBi
     return sb.toString();
   }
 
+  @Override
   public ITypeBinding getDeclaredReceiverType() {
-    return null;
-  }
-
-  public IBinding getDeclaringMember() {
     return null;
   }
 }

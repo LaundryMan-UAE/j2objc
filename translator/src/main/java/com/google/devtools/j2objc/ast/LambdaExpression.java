@@ -11,73 +11,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.google.devtools.j2objc.ast;
 
-import com.google.devtools.j2objc.types.LambdaTypeBinding;
-
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.IPackageBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-
 import java.util.List;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Lambda expression AST node type (added in JLS8, section 15.27).
  */
-public class LambdaExpression extends Expression {
+public class LambdaExpression extends FunctionalExpression {
 
-  private final ITypeBinding resolvedTypeBinding;
-  // Unique type binding that can be used as a key.
-  private final ITypeBinding generatedTypeBinding;
-  private final IMethodBinding methodBinding;
   private ChildList<VariableDeclaration> parameters = ChildList.create(VariableDeclaration.class,
       this);
   protected ChildLink<TreeNode> body = ChildLink.create(TreeNode.class, this);
-  private boolean isCapturing = false;
 
-  public LambdaExpression(org.eclipse.jdt.core.dom.LambdaExpression jdtNode) {
-    super(jdtNode);
-    resolvedTypeBinding = jdtNode.resolveTypeBinding();
-    methodBinding = jdtNode.resolveMethodBinding();
-    for (Object x : jdtNode.parameters()) {
-      parameters.add((VariableDeclaration) TreeConverter.convert(x));
-    }
-    // Lambda bodies can either be a block or an expression, which forces a common root of TreeNode.
-    body.set(TreeConverter.convert(jdtNode.getBody()));
-    // Generate a type binding which is unique to the lambda, as resolveTypeBinding gives us a
-    // generic raw type of the implemented class.
-    String name = jdtNode.resolveMethodBinding().getName();
-    IPackageBinding packageBinding = methodBinding.getDeclaringClass().getPackage();
-    this.generatedTypeBinding = new LambdaTypeBinding(name, packageBinding,
-        resolvedTypeBinding.getFunctionalInterfaceMethod());
+  public LambdaExpression() {
   }
 
   public LambdaExpression(LambdaExpression other) {
     super(other);
-    generatedTypeBinding = other.getTypeBinding();
-    resolvedTypeBinding = other.functionalTypeBinding();
-    methodBinding = other.getMethodBinding();
     parameters.copyFrom(other.getParameters());
     body.copyFrom(other.getBody());
-    isCapturing = other.isCapturing();
   }
 
   @Override
   public Kind getKind() {
     return Kind.LAMBDA_EXPRESSION;
-  }
-
-  public ITypeBinding functionalTypeBinding() {
-    return resolvedTypeBinding;
-  }
-
-  @Override
-  public ITypeBinding getTypeBinding() {
-    return generatedTypeBinding;
-  }
-
-  public IMethodBinding getMethodBinding() {
-    return methodBinding;
   }
 
   public List<VariableDeclaration> getParameters() {
@@ -88,13 +49,26 @@ public class LambdaExpression extends Expression {
     return body.get();
   }
 
-  public void setBody(TreeNode newBody) {
+  public LambdaExpression setBody(TreeNode newBody) {
     body.set(newBody);
+    return this;
+  }
+
+  @Override
+  public LambdaExpression setTypeMirror(TypeMirror t) {
+    return (LambdaExpression) super.setTypeMirror(t);
+  }
+
+  @Override
+  public LambdaExpression setTypeElement(TypeElement e) {
+    return (LambdaExpression) super.setTypeElement(e);
   }
 
   @Override
   protected void acceptInner(TreeVisitor visitor) {
     if (visitor.visit(this)) {
+      lambdaOuterArg.accept(visitor);
+      lambdaCaptureArgs.accept(visitor);
       parameters.accept(visitor);
       body.accept(visitor);
     }
@@ -106,11 +80,8 @@ public class LambdaExpression extends Expression {
     return new LambdaExpression(this);
   }
 
-  public boolean isCapturing() {
-    return isCapturing;
-  }
-
-  public void setIsCapturing(boolean isCapturing) {
-    this.isCapturing = isCapturing;
+  public LambdaExpression addParameter(VariableDeclaration param) {
+    parameters.add(param);
+    return this;
   }
 }

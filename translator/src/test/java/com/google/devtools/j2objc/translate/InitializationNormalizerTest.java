@@ -17,7 +17,6 @@
 package com.google.devtools.j2objc.translate;
 
 import com.google.devtools.j2objc.GenerationTest;
-import com.google.devtools.j2objc.util.DeadCodeMap;
 
 import java.io.IOException;
 
@@ -29,14 +28,6 @@ import java.io.IOException;
 public class InitializationNormalizerTest extends GenerationTest {
   // TODO(tball): update bug id in comments to public issue numbers when
   // issue tracking is sync'd.
-
-  InitializationNormalizer instance;
-
-  @Override
-  protected void setUp() throws IOException {
-    super.setUp();
-    instance = new InitializationNormalizer(new DeadCodeMap.Builder().build());
-  }
 
   /**
    * Verify that for a constructor that calls another constructor and has
@@ -72,7 +63,7 @@ public class InitializationNormalizerTest extends GenerationTest {
     String translation = translateSourceFile(source, "Distance", "Distance.m");
     assertTranslation(translation,
         "[IOSObjectArray newArrayWithObjects:(id[]){ "
-        + "[new_Distance_SimplexVertex_initWithDistance_(outer$) autorelease] } "
+        + "create_Distance_SimplexVertex_initWithDistance_(outer$) } "
         + "count:1 type:Distance_SimplexVertex_class_()]");
   }
 
@@ -171,21 +162,21 @@ public class InitializationNormalizerTest extends GenerationTest {
   }
 
   public void testStringWithInvalidCppCharacters() throws IOException {
-    String source = "class Test { static final String foo = \"\\uffff\"; }";
+    String source = "class Test { static final String foo = \"\\udfff\"; }";
     String translation = translateSourceFile(source, "Test", "Test.m");
     assertTranslation(translation, "NSString *Test_foo;");
     assertTranslation(translation,
         "JreStrongAssign(&Test_foo, [NSString stringWithCharacters:(jchar[]) { "
-        + "(int) 0xffff } length:1]);");
+        + "(int) 0xdfff } length:1]);");
   }
 
   public void testStringConcatWithInvalidCppCharacters() throws IOException {
-    String source = "class Test { static final String foo = \"hello\" + \"\\uffff\"; }";
+    String source = "class Test { static final String foo = \"hello\" + \"\\udfff\"; }";
     String translation = translateSourceFile(source, "Test", "Test.m");
     assertTranslation(translation, "NSString *Test_foo;");
     assertTranslation(translation,
         "JreStrongAssign(&Test_foo, JreStrcat(\"$$\", @\"hello\", "
-        + "[NSString stringWithCharacters:(jchar[]) { (int) 0xffff } length:1]));");
+        + "[NSString stringWithCharacters:(jchar[]) { (int) 0xdfff } length:1]));");
   }
 
   public void testInitializersPlacedAfterOuterAssignments() throws IOException {

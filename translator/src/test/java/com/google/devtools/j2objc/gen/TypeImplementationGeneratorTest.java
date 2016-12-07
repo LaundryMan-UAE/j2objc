@@ -31,9 +31,9 @@ public class TypeImplementationGeneratorTest extends GenerationTest {
         "import java.lang.annotation.*; @Retention(RetentionPolicy.RUNTIME) "
         + "@interface A { @Deprecated int I = 5; }", "A", "A.m");
     assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations_I_ {",
-        "  return [IOSObjectArray arrayWithObjects:(id[]) { "
-          + "[[[JavaLangDeprecated alloc] init] autorelease] } count:1 "
+        "IOSObjectArray *A__Annotations$0() {",
+        "  return [IOSObjectArray arrayWithObjects:(id[]){ "
+          + "create_JavaLangDeprecated() } count:1 "
           + "type:JavaLangAnnotationAnnotation_class_()];",
         "}");
   }
@@ -42,9 +42,9 @@ public class TypeImplementationGeneratorTest extends GenerationTest {
     String translation = translateSourceFile(
         "interface I { @Deprecated int I = 5; }", "I", "I.m");
     assertTranslatedLines(translation,
-        "+ (IOSObjectArray *)__annotations_I_ {",
-        "  return [IOSObjectArray arrayWithObjects:(id[]) { "
-          + "[[[JavaLangDeprecated alloc] init] autorelease] } count:1 "
+        "IOSObjectArray *I__Annotations$0() {",
+        "  return [IOSObjectArray arrayWithObjects:(id[]){ "
+          + "create_JavaLangDeprecated() } count:1 "
           + "type:JavaLangAnnotationAnnotation_class_()];",
         "}");
   }

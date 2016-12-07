@@ -24,12 +24,7 @@ public class EnhancedForStatement extends Statement {
   private ChildLink<Expression> expression = ChildLink.create(Expression.class, this);
   private ChildLink<Statement> body = ChildLink.create(Statement.class, this);
 
-  public EnhancedForStatement(org.eclipse.jdt.core.dom.EnhancedForStatement jdtNode) {
-    super(jdtNode);
-    parameter.set((SingleVariableDeclaration) TreeConverter.convert(jdtNode.getParameter()));
-    expression.set((Expression) TreeConverter.convert(jdtNode.getExpression()));
-    body.set((Statement) TreeConverter.convert(jdtNode.getBody()));
-  }
+  public EnhancedForStatement() {}
 
   public EnhancedForStatement(EnhancedForStatement other) {
     super(other);
@@ -47,16 +42,27 @@ public class EnhancedForStatement extends Statement {
     return parameter.get();
   }
 
-  public void setParameter(SingleVariableDeclaration newParameter) {
+  public EnhancedForStatement setParameter(SingleVariableDeclaration newParameter) {
     parameter.set(newParameter);
+    return this;
   }
 
   public Expression getExpression() {
     return expression.get();
   }
+  
+  public EnhancedForStatement setExpression(Expression newExpression) {
+    expression.set(newExpression);
+    return this;
+  }
 
   public Statement getBody() {
     return body.get();
+  }
+  
+  public EnhancedForStatement setBody(Statement newBody) {
+    body.set(newBody);
+    return this;
   }
 
   @Override

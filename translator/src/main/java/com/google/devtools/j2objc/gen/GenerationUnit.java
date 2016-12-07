@@ -19,11 +19,11 @@ import com.google.common.collect.MultimapBuilder;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.CompilationUnit;
+import com.google.devtools.j2objc.ast.Javadoc;
 import com.google.devtools.j2objc.ast.NativeDeclaration;
 import com.google.devtools.j2objc.ast.PackageDeclaration;
 import com.google.devtools.j2objc.ast.TreeUtil;
 import com.google.devtools.j2objc.file.InputFile;
-import com.google.devtools.j2objc.util.NameTable;
 
 import java.io.File;
 import java.util.Collection;
@@ -42,12 +42,13 @@ import javax.annotation.Nullable;
 public class GenerationUnit {
 
   private String outputPath;
-  private final int numUnits;
+  private int numUnits;
   private int receivedUnits = 0;
   // It is useful for the generated code to be consistent. Therefore, the
   // ordering of generated code within this unit should be consistent. For this
   // we map units of generated code keyed by the Java class they come from,
   // using map implementations with ordered keys.
+  private TreeMap<String, String> javadocBlocks = new TreeMap<>();
   private TreeMap<String, String> nativeHeaderBlocks = new TreeMap<>();
   private TreeMap<String, String> nativeImplementationBlocks = new TreeMap<>();
   private ListMultimap<String, GeneratedType> generatedTypes =
@@ -105,6 +106,10 @@ public class GenerationUnit {
     return hasIncompleteImplementation;
   }
 
+  public Collection<String> getJavadocBlocks() {
+    return javadocBlocks.values();
+  }
+
   public Collection<String> getNativeHeaderBlocks() {
     return nativeHeaderBlocks.values();
   }
@@ -117,6 +122,15 @@ public class GenerationUnit {
     return generatedTypes.values();
   }
 
+  /**
+   * Increments the number of inputs for this GenerationUnit. This is called
+   * from the annotation preprocessor when an annotation processor has created
+   * a new source file.
+   */
+  public void incrementInputs() {
+    numUnits++;
+  }
+
   public void addCompilationUnit(CompilationUnit unit) {
     assert state != State.FINISHED : "Adding to a finished GenerationUnit.";
     if (state != State.ACTIVE) {
@@ -126,8 +140,17 @@ public class GenerationUnit {
     receivedUnits++;
 
     if (outputPath == null) {
-      // We can only infer the output path if there's one compilation unit.
-      assert numUnits == 1;
+      // The outputPath is only null for units derived from Java source files,
+      // not source jars. Since a Java source can contain annotations that
+      // generate other sources associated with it, the output path must be
+      // determined from the initial source file. Since processor-generated
+      // sources are appended to the list of source files, their units are
+      // returned after the initial sources have been compiled.
+      //
+      // NOTE: THIS IS NOT THREADSAFE! It requires that all files in a batch
+      // be compiled and translated as a single task. When we support
+      // parallelization, each parallel task needs to be constrained this way.
+      assert receivedUnits == 1;
       outputPath = getDefaultOutputPath(unit);
     }
 
@@ -136,6 +159,26 @@ public class GenerationUnit {
 
     String qualifiedMainType = TreeUtil.getQualifiedMainTypeName(unit);
 
+    addPackageJavadoc(unit, qualifiedMainType);
+    addNativeBlocks(unit, qualifiedMainType);
+
+    for (AbstractTypeDeclaration type : unit.getTypes()) {
+      generatedTypes.put(qualifiedMainType, GeneratedType.fromTypeDeclaration(type));
+    }
+  }
+
+  // Collect javadoc from the package declarations to display in the header.
+  private void addPackageJavadoc(CompilationUnit unit, String qualifiedMainType) {
+    Javadoc javadoc = unit.getPackage().getJavadoc();
+    if (javadoc == null) {
+      return;
+    }
+    SourceBuilder builder = new SourceBuilder(false);
+    JavadocGenerator.printDocComment(builder, javadoc);
+    javadocBlocks.put(qualifiedMainType, builder.toString());
+  }
+
+  private void addNativeBlocks(CompilationUnit unit, String qualifiedMainType) {
     SourceBuilder headerBuilder = new SourceBuilder(false);
     SourceBuilder implBuilder = new SourceBuilder(false);
     for (NativeDeclaration decl : unit.getNativeBlocks()) {
@@ -156,12 +199,6 @@ public class GenerationUnit {
     if (implBuilder.length() > 0) {
       nativeImplementationBlocks.put(qualifiedMainType, implBuilder.toString());
     }
-
-    generatedTypes.put(qualifiedMainType, GeneratedType.forPackageDeclaration(unit));
-
-    for (AbstractTypeDeclaration type : unit.getTypes()) {
-      generatedTypes.put(qualifiedMainType, GeneratedType.fromTypeDeclaration(type));
-    }
   }
 
   public boolean isFullyParsed() {
@@ -175,9 +212,6 @@ public class GenerationUnit {
    */
   private static String getDefaultOutputPath(CompilationUnit unit) {
     String path = unit.getMainTypeName();
-    if (path.equals(NameTable.PACKAGE_INFO_MAIN_TYPE)) {
-      path = NameTable.PACKAGE_INFO_FILE_NAME;
-    }
     PackageDeclaration pkg = unit.getPackage();
     if (Options.usePackageDirectories() && !pkg.isDefaultPackage()) {
       path = pkg.getName().getFullyQualifiedName().replace('.', File.separatorChar)

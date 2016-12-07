@@ -15,8 +15,7 @@
 package com.google.devtools.j2objc.ast;
 
 import com.google.devtools.j2objc.types.Types;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Node type for string literals.
@@ -24,23 +23,19 @@ import org.eclipse.jdt.core.dom.ITypeBinding;
 public class StringLiteral extends Expression {
 
   private String literalValue = null;
-  private final ITypeBinding typeBinding;
+  private TypeMirror typeMirror;
 
-  public StringLiteral(org.eclipse.jdt.core.dom.StringLiteral jdtNode) {
-    super(jdtNode);
-    literalValue = jdtNode.getLiteralValue();
-    typeBinding = jdtNode.resolveTypeBinding();
-  }
+  public StringLiteral() {}
 
   public StringLiteral(StringLiteral other) {
     super(other);
     literalValue = other.getLiteralValue();
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
   }
 
   public StringLiteral(String literalValue, Types typeEnv) {
     this.literalValue = literalValue;
-    typeBinding = typeEnv.resolveJavaType("java.lang.String");
+    typeMirror = typeEnv.resolveJavaTypeMirror("java.lang.String");
   }
 
   @Override
@@ -49,12 +44,22 @@ public class StringLiteral extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
+  }
+
+  public StringLiteral setTypeMirror(TypeMirror newType) {
+    typeMirror = newType;
+    return this;
   }
 
   public String getLiteralValue() {
     return literalValue;
+  }
+
+  public StringLiteral setLiteralValue(String value) {
+    literalValue = value;
+    return this;
   }
 
   @Override

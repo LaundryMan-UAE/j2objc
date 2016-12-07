@@ -14,8 +14,8 @@
 
 package com.google.devtools.j2objc.translate;
 
-import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.CommaExpression;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.Expression;
 import com.google.devtools.j2objc.ast.FieldAccess;
 import com.google.devtools.j2objc.ast.NativeExpression;
@@ -25,10 +25,12 @@ import com.google.devtools.j2objc.ast.SimpleName;
 import com.google.devtools.j2objc.ast.SwitchCase;
 import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.util.BindingUtil;
+import com.google.devtools.j2objc.util.ElementUtil;
 import com.google.devtools.j2objc.util.TranslationUtil;
-
+import javax.lang.model.element.VariableElement;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 
@@ -37,15 +39,19 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
  *
  * @author Keith Stanger
  */
-public class StaticVarRewriter extends TreeVisitor {
+public class StaticVarRewriter extends UnitTreeVisitor {
+
+  public StaticVarRewriter(CompilationUnit unit) {
+    super(unit);
+  }
 
   private boolean needsStaticLoad(TreeNode currentNode, IVariableBinding var) {
     if (!BindingUtil.isStatic(var) || BindingUtil.isPrimitiveConstant(var)
         || BindingUtil.isStringConstant(var)) {
       return false;
     }
-    AbstractTypeDeclaration owningType = TreeUtil.getOwningType(currentNode);
-    return owningType == null || !owningType.getTypeBinding().getTypeDeclaration().isEqualTo(
+    ITypeBinding enclosingType = TreeUtil.getEnclosingTypeBinding(currentNode);
+    return enclosingType == null || !enclosingType.getTypeDeclaration().isEqualTo(
         var.getDeclaringClass().getTypeDeclaration());
   }
 
@@ -68,19 +74,19 @@ public class StaticVarRewriter extends TreeVisitor {
     code.append(nameTable.getVariableShortName(var));
     code.append(")");
     NativeExpression nativeExpr = new NativeExpression(code.toString(), exprType);
-    nativeExpr.getImportTypes().add(var.getDeclaringClass());
+    nativeExpr.addImportType(var.getDeclaringClass());
     Expression newNode = nativeExpr;
     if (assignable) {
       newNode = new PrefixExpression(
-          var.getType(), PrefixExpression.Operator.DEREFERENCE, newNode);
+          BindingConverter.getType(var.getType()), PrefixExpression.Operator.DEREFERENCE, newNode);
     }
     node.replaceWith(newNode);
   }
 
   @Override
   public boolean visit(FieldAccess node) {
-    IVariableBinding var = node.getVariableBinding();
-    if (BindingUtil.isInstanceVar(var)) {
+    VariableElement var = node.getVariableElement();
+    if (ElementUtil.isInstanceVar(var)) {
       node.getExpression().accept(this);
       return false;
     }
@@ -95,12 +101,12 @@ public class StaticVarRewriter extends TreeVisitor {
 
     CommaExpression commaExpr = new CommaExpression(expr);
     if (TranslationUtil.isAssigned(node)) {
-      commaExpr.getExpressions().add(new PrefixExpression(
-          typeEnv.getPointerType(var.getType()), PrefixExpression.Operator.ADDRESS_OF, varNode));
+      commaExpr.addExpression(new PrefixExpression(
+          typeEnv.getPointerType(var.asType()), PrefixExpression.Operator.ADDRESS_OF, varNode));
       node.replaceWith(new PrefixExpression(
-          var.getType(), PrefixExpression.Operator.DEREFERENCE, commaExpr));
+          var.asType(), PrefixExpression.Operator.DEREFERENCE, commaExpr));
     } else {
-      commaExpr.getExpressions().add(varNode);
+      commaExpr.addExpression(varNode);
       node.replaceWith(commaExpr);
     }
     commaExpr.accept(this);

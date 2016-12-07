@@ -17,6 +17,11 @@
 package com.google.devtools.j2objc.types;
 
 import com.google.common.collect.Sets;
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import com.google.devtools.j2objc.jdt.JdtMethodBinding;
+import com.google.devtools.j2objc.jdt.JdtTypeBinding;
+import com.google.devtools.j2objc.jdt.JdtVariableBinding;
+import com.google.devtools.j2objc.util.BindingUtil;
 
 import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
@@ -27,6 +32,8 @@ import org.eclipse.jdt.core.dom.Modifier;
 
 import java.util.Set;
 
+import javax.lang.model.element.PackageElement;
+
 /**
  * Binding class for types created during translation.
  *
@@ -35,21 +42,22 @@ import java.util.Set;
 public class GeneratedTypeBinding extends AbstractTypeBinding {
 
   protected final String name;
-  private final IPackageBinding packageBinding;
-  private final ITypeBinding superClass;
+  private int modifiers;
+  private final PackageElement packageElement;
+  private final JdtTypeBinding superClass;
   private final boolean isInterface;
-  private final ITypeBinding componentType;
+  private final JdtTypeBinding componentType;
   private final Set<IVariableBinding> fields = Sets.newHashSet();
   private final Set<IMethodBinding> methods = Sets.newHashSet();
 
   public GeneratedTypeBinding(
-      String name, IPackageBinding packageBinding, ITypeBinding superClass, boolean isInterface,
+      String name, PackageElement packageElement, ITypeBinding superClass, boolean isInterface,
       ITypeBinding componentType) {
     this.name = name;
-    this.packageBinding = packageBinding;
-    this.superClass = superClass;
+    this.packageElement = packageElement;
+    this.superClass = BindingConverter.wrapBinding(superClass);
     this.isInterface = isInterface;
-    this.componentType = componentType;
+    this.componentType = BindingConverter.wrapBinding(componentType);
   }
 
   /**
@@ -58,17 +66,16 @@ public class GeneratedTypeBinding extends AbstractTypeBinding {
   public static GeneratedTypeBinding newTypeBinding(
       String name, ITypeBinding superClass, boolean isInterface) {
     int idx = name.lastIndexOf('.');
-    IPackageBinding packageBinding = null;
-    if (idx >= 0) {
-      packageBinding = new GeneratedPackageBinding(name.substring(0, idx));
-      name = name.substring(idx + 1);
-    }
-    return new GeneratedTypeBinding(name, packageBinding, superClass, isInterface, null);
+    String packageName = idx < 0 ? "" : name.substring(0, idx);
+    PackageElement packageElement = (PackageElement)
+        BindingConverter.getElement(new GeneratedPackageBinding(packageName));
+    name = name.substring(idx + 1);
+    return new GeneratedTypeBinding(name, packageElement, superClass, isInterface, null);
   }
 
   public static GeneratedTypeBinding newArrayType(ITypeBinding componentType) {
     return new GeneratedTypeBinding(
-        componentType.getName() + "[]", null, null, false, componentType);
+        componentType.getName() + "[]", (PackageElement) null, null, false, componentType);
   }
 
   @Override
@@ -98,9 +105,22 @@ public class GeneratedTypeBinding extends AbstractTypeBinding {
   }
 
   @Override
+  public int getModifiers() {
+    return modifiers;
+  }
+
+  public void setModifiers(int newModifiers) {
+    modifiers = newModifiers;
+  }
+
+  public void addModifiers(int modifiersToAdd) {
+    modifiers |= modifiersToAdd;
+  }
+
+  @Override
   public String getQualifiedName() {
-    if (packageBinding != null) {
-      return packageBinding.getName() + "." + name;
+    if (packageElement != null) {
+      return packageElement.getQualifiedName() + "." + name;
     }
     return name;
   }
@@ -127,7 +147,7 @@ public class GeneratedTypeBinding extends AbstractTypeBinding {
 
   @Override
   public IVariableBinding[] getDeclaredFields() {
-    return fields.toArray(new IVariableBinding[0]);
+    return fields.toArray(new JdtVariableBinding[0]);
   }
 
   public void addField(IVariableBinding field) {
@@ -136,7 +156,7 @@ public class GeneratedTypeBinding extends AbstractTypeBinding {
 
   @Override
   public IMethodBinding[] getDeclaredMethods() {
-    return methods.toArray(new IMethodBinding[0]);
+    return methods.toArray(new JdtMethodBinding[0]);
   }
 
   public void addMethod(IMethodBinding method) {
@@ -158,16 +178,16 @@ public class GeneratedTypeBinding extends AbstractTypeBinding {
 
   @Override
   public ITypeBinding getElementType() {
-    ITypeBinding elementType = componentType;
+    JdtTypeBinding elementType = componentType;
     while (elementType != null && elementType.isArray()) {
-      elementType = elementType.getComponentType();
+      elementType = BindingConverter.wrapBinding(elementType.getComponentType());
     }
     return elementType;
   }
 
   @Override
   public IPackageBinding getPackage() {
-    return packageBinding;
+    return (IPackageBinding) BindingConverter.unwrapElement(packageElement);
   }
 
   @Override
@@ -191,5 +211,10 @@ public class GeneratedTypeBinding extends AbstractTypeBinding {
   @Override
   public String toString() {
     return name;
+  }
+
+  @Override
+  public boolean isSynthetic() {
+    return BindingUtil.isSynthetic(this);
   }
 }

@@ -35,7 +35,7 @@
 #import "com/google/protobuf/Descriptors_PackagePrivate.h"
 #import "com/google/protobuf/Extension.h"
 
-typedef std::pair<const CGPDescriptor *, int> ExtensionRegistryKey;
+typedef std::pair<const CGPDescriptor *, jint> ExtensionRegistryKey;
 typedef std::map<ExtensionRegistryKey, CGPFieldDescriptor *> ExtensionRegistryMap;
 
 @interface ComGoogleProtobufExtensionRegistryLite () {
@@ -44,10 +44,29 @@ typedef std::map<ExtensionRegistryKey, CGPFieldDescriptor *> ExtensionRegistryMa
 }
 @end
 
+J2OBJC_INITIALIZED_DEFN(ComGoogleProtobufExtensionRegistryLite)
+
+static CGPExtensionRegistryLite *CGPExtensionRegistryLite_EMPTY_;
+
 @implementation ComGoogleProtobufExtensionRegistryLite
+
++ (CGPExtensionRegistryLite *)getEmptyRegistry {
+  return CGPExtensionRegistryLite_EMPTY_;
+}
+
+- (void)addWithComGoogleProtobufExtensionLite:(CGPExtensionLite *)extension {
+  CGPExtensionRegistryAdd(self, extension);
+}
 
 - (ComGoogleProtobufExtensionRegistryLite *)getUnmodifiable {
   return self;
+}
+
++ (void)initialize {
+  if (self == [CGPExtensionRegistryLite class]) {
+    CGPExtensionRegistryLite_EMPTY_ = [[CGPExtensionRegistryLite alloc] init];
+    J2OBJC_SET_INITIALIZED(ComGoogleProtobufExtensionRegistryLite)
+  }
 }
 
 @end
@@ -57,14 +76,19 @@ CGPExtensionRegistryLite *ComGoogleProtobufExtensionRegistryLite_newInstance() {
   return [[[CGPExtensionRegistryLite alloc] init] autorelease];
 }
 
-void CGPExtensionRegistryAdd(CGPExtensionRegistryLite *registry, CGPExtension *extension) {
+CGPExtensionRegistryLite *ComGoogleProtobufExtensionRegistryLite_getEmptyRegistry() {
+  ComGoogleProtobufExtensionRegistryLite_initialize();
+  return CGPExtensionRegistryLite_EMPTY_;
+}
+
+void CGPExtensionRegistryAdd(CGPExtensionRegistryLite *registry, CGPExtensionLite *extension) {
   CGPFieldDescriptor *field = extension->fieldDescriptor_;
   CGPDescriptor *containingType = CGPFieldGetContainingType(field);
   registry->map_[ExtensionRegistryKey(containingType, CGPFieldGetNumber(field))] = field;
 }
 
 CGPFieldDescriptor *CGPExtensionRegistryFind(
-    CGPExtensionRegistryLite *registry, CGPDescriptor *descriptor, int fieldNumber) {
+    CGPExtensionRegistryLite *registry, CGPDescriptor *descriptor, jint fieldNumber) {
   ExtensionRegistryMap *map = &registry->map_;
   ExtensionRegistryMap::iterator it = map->find(ExtensionRegistryKey(descriptor, fieldNumber));
   if (it != map->end()) {

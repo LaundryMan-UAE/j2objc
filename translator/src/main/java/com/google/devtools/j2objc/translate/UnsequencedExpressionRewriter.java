@@ -23,6 +23,8 @@ import com.google.devtools.j2objc.ast.Assignment;
 import com.google.devtools.j2objc.ast.Block;
 import com.google.devtools.j2objc.ast.BooleanLiteral;
 import com.google.devtools.j2objc.ast.BreakStatement;
+import com.google.devtools.j2objc.ast.CommaExpression;
+import com.google.devtools.j2objc.ast.CompilationUnit;
 import com.google.devtools.j2objc.ast.ConditionalExpression;
 import com.google.devtools.j2objc.ast.ConstructorInvocation;
 import com.google.devtools.j2objc.ast.DoStatement;
@@ -45,12 +47,14 @@ import com.google.devtools.j2objc.ast.SynchronizedStatement;
 import com.google.devtools.j2objc.ast.ThrowStatement;
 import com.google.devtools.j2objc.ast.TreeNode;
 import com.google.devtools.j2objc.ast.TreeUtil;
-import com.google.devtools.j2objc.ast.TreeVisitor;
+import com.google.devtools.j2objc.ast.UnitTreeVisitor;
 import com.google.devtools.j2objc.ast.VariableDeclarationExpression;
 import com.google.devtools.j2objc.ast.VariableDeclarationFragment;
 import com.google.devtools.j2objc.ast.VariableDeclarationStatement;
 import com.google.devtools.j2objc.ast.WhileStatement;
+import com.google.devtools.j2objc.jdt.BindingConverter;
 import com.google.devtools.j2objc.types.GeneratedVariableBinding;
+import com.google.devtools.j2objc.util.BindingUtil;
 
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
@@ -70,7 +74,7 @@ import java.util.Set;
  *
  * @author Keith Stanger
  */
-public class UnsequencedExpressionRewriter extends TreeVisitor {
+public class UnsequencedExpressionRewriter extends UnitTreeVisitor {
 
   private IMethodBinding currentMethod = null;
   private int count = 1;
@@ -78,11 +82,15 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
   private TreeNode currentTopNode = null;
   private boolean hasModification = false;
 
+  public UnsequencedExpressionRewriter(CompilationUnit unit) {
+    super(unit);
+  }
+
   /**
    * Metadata for a given read or write access of a variable within an
    * expression.
    */
-  private class VariableAccess {
+  private static class VariableAccess {
 
     private final IVariableBinding variable;
     private final Expression expression;
@@ -97,7 +105,7 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
   }
 
   private void addVariableAccess(IVariableBinding var, Expression node, boolean isModification) {
-    if (var != null) {
+    if (var != null && !BindingUtil.isInstanceVar(var)) {
       hasModification |= isModification;
       orderedAccesses.add(new VariableAccess(var, node, isModification));
     }
@@ -230,9 +238,9 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
       } else {
         throw new AssertionError();
       }
-      if (node != condition && access.isModification) {
-        // We only need to extract an if-statement if there is a modification
-        // that executes conditionally.
+      if (node != condition) {
+        // We need to extract an if-statement if there is an access that
+        // executes conditionally.
         needsExtraction = true;
       }
     }
@@ -293,8 +301,8 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
       }
       lastBranch = branch;
 
-      // If there's a new modification in a new branch, then we extract an if-statement.
-      if (access.isModification && branch != branches.get(lastIfExtractIdx)) {
+      // If there's a new access in a new branch, then we extract an if-statement.
+      if (branch != branches.get(lastIfExtractIdx)) {
         ITypeBinding boolType = typeEnv.resolveJavaType("boolean");
         if (conditionalVar == null) {
           conditionalVar = new GeneratedVariableBinding(
@@ -308,7 +316,7 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
             new SimpleName(conditionalVar), conditionalFromSubBranches(subBranches, op));
         if (op == InfixExpression.Operator.CONDITIONAL_OR) {
           ifExpr = new PrefixExpression(
-              boolType, PrefixExpression.Operator.NOT,
+              BindingConverter.getType(boolType), PrefixExpression.Operator.NOT,
               ParenthesizedExpression.parenthesize(ifExpr));
         }
         newIf.setExpression(ifExpr);
@@ -406,6 +414,8 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
     if (isWithinConditionalBranch(modification.expression, commonAncestor)
         || isWithinConditionalBranch(access.expression, commonAncestor)) {
       return false;
+    } else if (commonAncestor instanceof CommaExpression) {
+      return false;
     } else if (commonAncestor instanceof Assignment && modification.expression == commonAncestor) {
       // "i = 1 + (i = 2);" is not unsequenced.
       // "i = 1 + i++;" is unsequenced (according to clang).
@@ -428,7 +438,7 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
 
   private Expression getConditionChild(TreeNode conditional) {
     if (conditional instanceof InfixExpression) {
-      return ((InfixExpression) conditional).getOperands().get(0);
+      return ((InfixExpression) conditional).getOperand(0);
     } else if (conditional instanceof ConditionalExpression) {
       return ((ConditionalExpression) conditional).getExpression();
     } else {
@@ -549,7 +559,8 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
   private IfStatement createLoopTermination(Expression loopCondition) {
     IfStatement newIf = new IfStatement();
     newIf.setExpression(new PrefixExpression(
-        typeEnv.resolveJavaType("boolean"), PrefixExpression.Operator.NOT,
+        BindingConverter.getType(typeEnv.resolveJavaType("boolean")),
+        PrefixExpression.Operator.NOT,
         ParenthesizedExpression.parenthesize(loopCondition.copy())));
     newIf.setThenStatement(new BreakStatement());
     return newIf;
@@ -604,7 +615,7 @@ public class UnsequencedExpressionRewriter extends TreeVisitor {
           VariableDeclarationStatement newDecl =
               new VariableDeclarationStatement(fragments.get(0).copy());
           for (int j = 1; j < i; j++) {
-            newDecl.getFragments().add(fragments.get(j).copy());
+            newDecl.addFragment(fragments.get(j).copy());
           }
           stmtList.add(newDecl);
           fragments.subList(0, i).clear();

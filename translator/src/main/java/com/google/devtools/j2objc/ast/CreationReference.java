@@ -13,21 +13,24 @@
  */
 package com.google.devtools.j2objc.ast;
 
+import java.util.List;
+
 /**
  * Creation reference expression AST node type (added in JLS8, section 15.13).
  */
 public class CreationReference extends MethodReference {
 
   private ChildLink<Type> type = ChildLink.create(Type.class, this);
+  private ChildLink<Expression> creationOuterArg = ChildLink.create(Expression.class, this);
+  private ChildList<Expression> creationCaptureArgs = ChildList.create(Expression.class, this);
 
-  public CreationReference(org.eclipse.jdt.core.dom.CreationReference jdtNode) {
-    super(jdtNode);
-    type.set((Type) TreeConverter.convert(jdtNode.getType()));
-  }
+  public CreationReference() {}
 
   public CreationReference(CreationReference other) {
     super(other);
     type.copyFrom(other.getType());
+    creationOuterArg.copyFrom(other.getCreationOuterArg());
+    creationCaptureArgs.copyFrom(other.getCreationCaptureArgs());
   }
 
   @Override
@@ -39,12 +42,33 @@ public class CreationReference extends MethodReference {
     return type.get();
   }
 
+  public CreationReference setType(Type newType) {
+    type.set(newType);
+    return this;
+  }
+
+  public Expression getCreationOuterArg() {
+    return creationOuterArg.get();
+  }
+
+  public CreationReference setCreationOuterArg(Expression newOuterArg) {
+    creationOuterArg.set(newOuterArg);
+    return this;
+  }
+
+  public List<Expression> getCreationCaptureArgs() {
+    return creationCaptureArgs;
+  }
+
   @Override
   protected void acceptInner(TreeVisitor visitor) {
     if (visitor.visit(this)) {
+      lambdaOuterArg.accept(visitor);
+      lambdaCaptureArgs.accept(visitor);
       type.accept(visitor);
       typeArguments.accept(visitor);
-      invocation.accept(visitor);
+      creationOuterArg.accept(visitor);
+      creationCaptureArgs.accept(visitor);
     }
     visitor.endVisit(this);
   }

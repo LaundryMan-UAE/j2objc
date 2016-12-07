@@ -20,11 +20,10 @@
 //
 
 #import "Constructor.h"
+#import "IOSReflection.h"
 #import "J2ObjC_source.h"
-#import "JavaMetadata.h"
 #import "NSException+JavaThrowable.h"
 #import "java/lang/AssertionError.h"
-#import "java/lang/ExceptionInInitializerError.h"
 #import "java/lang/IllegalArgumentException.h"
 #import "java/lang/reflect/InvocationTargetException.h"
 #import "java/lang/reflect/Method.h"
@@ -34,78 +33,66 @@
 
 @implementation JavaLangReflectConstructor
 
-+ (instancetype)constructorWithMethodSignature:(NSMethodSignature *)methodSignature
-                                      selector:(SEL)selector
-                                         class:(IOSClass *)aClass
-                                      metadata:(JavaMethodMetadata *)metadata {
-  return [[[JavaLangReflectConstructor alloc] initWithMethodSignature:methodSignature
-                                                             selector:selector
-                                                                class:aClass
-                                                             metadata:metadata] autorelease];
++ (instancetype)constructorWithDeclaringClass:(IOSClass *)aClass
+                                     metadata:(const J2ObjcMethodInfo *)metadata {
+  return [[[JavaLangReflectConstructor alloc] initWithDeclaringClass:aClass
+                                                            metadata:metadata] autorelease];
+}
+
+static id NewInstance(JavaLangReflectConstructor *self, void (^fillArgs)(NSInvocation *)) {
+  SEL selector = self->metadata_->selector;
+  Class cls = self->class_.objcClass;
+  bool isFactory = false;
+  Method method = JreFindInstanceMethod(cls, selector);
+  if (!method) {
+    // Special case for constructors declared as class methods.
+    method = JreFindClassMethod(cls, selector);
+    isFactory = true;
+  }
+  NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:
+      [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)]];
+  [invocation setSelector:selector];
+  fillArgs(invocation);
+  id newInstance;
+  @try {
+    if (isFactory) {
+      [invocation invokeWithTarget:cls];
+      [invocation getReturnValue:&newInstance];
+    } else {
+      newInstance = [[cls alloc] autorelease];
+      [invocation invokeWithTarget:newInstance];
+    }
+  }
+  @catch (NSException *e) {
+    @throw create_JavaLangReflectInvocationTargetException_initWithNSException_(e);
+  }
+  return newInstance;
 }
 
 - (id)newInstanceWithNSObjectArray:(IOSObjectArray *)initArgs {
-  id newInstance = [self allocInstance];
-  NSInvocation *invocation = [self invocationForTarget:newInstance];
-
   jint argCount = initArgs ? initArgs->size_ : 0;
-  IOSObjectArray *parameterTypes = [self getParameterTypes];
+  IOSObjectArray *parameterTypes = [self getParameterTypesInternal];
   if (argCount != parameterTypes->size_) {
-    @throw AUTORELEASE([[JavaLangIllegalArgumentException alloc] initWithNSString:
-        @"wrong number of arguments"]);
+    @throw create_JavaLangIllegalArgumentException_initWithNSString_(@"wrong number of arguments");
   }
 
-  for (jint i = 0; i < argCount; i++) {
-    J2ObjcRawValue arg;
-    if (![parameterTypes->buffer_[i] __unboxValue:initArgs->buffer_[i] toRawValue:&arg]) {
-      @throw AUTORELEASE([[JavaLangIllegalArgumentException alloc] initWithNSString:
-          @"argument type mismatch"]);
+  return NewInstance(self, ^(NSInvocation *invocation) {
+    for (jint i = 0; i < argCount; i++) {
+      J2ObjcRawValue arg;
+      if (![parameterTypes->buffer_[i] __unboxValue:initArgs->buffer_[i] toRawValue:&arg]) {
+        @throw create_JavaLangIllegalArgumentException_initWithNSString_(@"argument type mismatch");
+      }
+      [invocation setArgument:&arg atIndex:i + SKIPPED_ARGUMENTS];
     }
-    [invocation setArgument:&arg atIndex:i + SKIPPED_ARGUMENTS];
-  }
-
-  [self invoke:invocation];
-
-  return newInstance;
+  });
 }
 
 - (id)jniNewInstance:(const J2ObjcRawValue *)args {
-  id newInstance = [self allocInstance];
-  NSInvocation *invocation = [self invocationForTarget:newInstance];
-  for (int i = 0; i < [self getNumParams]; i++) {
-    [invocation setArgument:(void *)&args[i] atIndex:i + SKIPPED_ARGUMENTS];
-  }
-  [self invoke:invocation];
-  return newInstance;
-}
-
-- (id)allocInstance {
-  id newInstance;
-  @try {
-    newInstance = AUTORELEASE([class_.objcClass alloc]);
-  }
-  @catch (NSException *e) {
-    @throw AUTORELEASE([[JavaLangExceptionInInitializerError alloc] initWithNSException:e]);
-  }
-  return newInstance;
-}
-
-- (NSInvocation *)invocationForTarget:(id)object {
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:methodSignature_];
-  [invocation setSelector:selector_];
-  [invocation setTarget:object];
-  return invocation;
-}
-
-- (void)invoke:(NSInvocation *)invocation {
-  @try {
-    [invocation invoke];
-  }
-  @catch (NSException *e) {
-    @throw AUTORELEASE(
-        [[JavaLangReflectInvocationTargetException alloc] initWithNSException:e]);
-  }
+  return NewInstance(self, ^(NSInvocation *invocation) {
+    for (int i = 0; i < [self getParameterTypesInternal]->size_; i++) {
+      [invocation setArgument:(void *)&args[i] atIndex:i + SKIPPED_ARGUMENTS];
+    }
+  });
 }
 
 // Returns the class name, like java.lang.reflect.Constructor does.
@@ -120,10 +107,10 @@
 
 - (NSString *)description {
   NSMutableString *s = [NSMutableString string];
-  NSString *modifiers = JavaLangReflectModifier_toStringWithInt_([self getModifiers]);
+  NSString *modifiers = JavaLangReflectModifier_toStringWithInt_(metadata_->modifiers);
   NSString *type = [[self getDeclaringClass] getName];
   [s appendFormat:@"%@ %@(", modifiers, type];
-  IOSObjectArray *params = [self getParameterTypes];
+  IOSObjectArray *params = [self getParameterTypesInternal];
   jint n = params->size_;
   if (n > 0) {
     [s appendString:[(IOSClass *) params->buffer_[0] getName]];
@@ -144,33 +131,53 @@
 }
 
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "getName", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "getModifiers", NULL, "I", 0x1, NULL, NULL },
-    { "getDeclaringClass", NULL, "Ljava.lang.Class;", 0x1, NULL, "()Ljava/lang/Class<TT;>;" },
-    { "getParameterTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL, NULL },
-    { "getGenericParameterTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
-    { "newInstanceWithNSObjectArray:", "newInstance", "TT;", 0x81,
-      "Ljava.lang.InstantiationException;Ljava.lang.IllegalAccessException;"
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.reflect.InvocationTargetException;",
-      "([Ljava/lang/Object;)TT;" },
-    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL,
-      "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" },
-    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "getParameterAnnotations", NULL, "[[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "getTypeParameters", NULL, "[Ljava.lang.reflect.TypeVariable;", 0x1, NULL, NULL },
-    { "isSynthetic", NULL, "Z", 0x1, NULL, NULL },
-    { "getExceptionTypes", NULL, "[Ljava.lang.Class;", 0x1, NULL, NULL },
-    { "getGenericExceptionTypes", NULL, "[Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
-    { "toGenericString", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "isBridge", NULL, "Z", 0x1, NULL, NULL },
-    { "isVarArgs", NULL, "Z", 0x1, NULL, NULL },
-    { "init", NULL, NULL, 0x1, NULL, NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, "LNSString;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LIOSClass;", 0x1, -1, -1, -1, 0, -1, -1 },
+    { NULL, "[LIOSClass;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangReflectType;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSObject;", 0x81, 1, 2, 3, 4, -1, -1 },
+    { NULL, "LJavaLangAnnotationAnnotation;", 0x1, 5, 6, -1, 7, -1, -1 },
+    { NULL, "[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangReflectTypeVariable;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LIOSClass;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "[LJavaLangReflectType;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSString;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, NULL, 0x1, -1, -1, -1, -1, -1, -1 },
   };
-  static const J2ObjcClassInfo _JavaLangReflectConstructor = {
-    2, "Constructor", "java.lang.reflect", NULL, 0x1, 17, methods, 0, NULL, 0, NULL, 0, NULL, NULL,
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(getName);
+  methods[1].selector = @selector(getModifiers);
+  methods[2].selector = @selector(getDeclaringClass);
+  methods[3].selector = @selector(getParameterTypes);
+  methods[4].selector = @selector(getGenericParameterTypes);
+  methods[5].selector = @selector(newInstanceWithNSObjectArray:);
+  methods[6].selector = @selector(getAnnotationWithIOSClass:);
+  methods[7].selector = @selector(getDeclaredAnnotations);
+  methods[8].selector = @selector(getParameterAnnotations);
+  methods[9].selector = @selector(getTypeParameters);
+  methods[10].selector = @selector(isSynthetic);
+  methods[11].selector = @selector(getExceptionTypes);
+  methods[12].selector = @selector(getGenericExceptionTypes);
+  methods[13].selector = @selector(toGenericString);
+  methods[14].selector = @selector(isVarArgs);
+  methods[15].selector = @selector(init);
+  #pragma clang diagnostic pop
+  static const void *ptrTable[] = {
+    "()Ljava/lang/Class<TT;>;", "newInstance", "[LNSObject;",
+    "LJavaLangInstantiationException;LJavaLangIllegalAccessException;"
+    "LJavaLangIllegalArgumentException;LJavaLangReflectInvocationTargetException;",
+    "([Ljava/lang/Object;)TT;", "getAnnotation", "LIOSClass;",
+    "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;",
     "<T:Ljava/lang/Object;>Ljava/lang/reflect/AccessibleObject;"
-    "Ljava/lang/reflect/GenericDeclaration;Ljava/lang/reflect/Member;"
+    "Ljava/lang/reflect/GenericDeclaration;Ljava/lang/reflect/Member;" };
+  static const J2ObjcClassInfo _JavaLangReflectConstructor = {
+    "Constructor", "java.lang.reflect", ptrTable, methods, NULL, 7, 0x1, 16, 0, -1, -1, -1, 8, -1
   };
   return &_JavaLangReflectConstructor;
 }

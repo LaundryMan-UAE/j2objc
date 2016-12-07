@@ -40,7 +40,7 @@
 @protocol ComGoogleProtobufMessage;
 @protocol JavaUtilMap;
 
-@protocol ComGoogleProtobufMessageOrBuilder <NSObject, JavaObject>
+@protocol ComGoogleProtobufMessageOrBuilder <JavaObject>
 
 - (id<ComGoogleProtobufMessage>)getDefaultInstanceForType;
 
@@ -52,7 +52,7 @@
 
 - (id<JavaUtilMap>)getAllFields;
 
-- (BOOL)hasFieldWithComGoogleProtobufDescriptors_FieldDescriptor:
+- (jboolean)hasFieldWithComGoogleProtobufDescriptors_FieldDescriptor:
     (ComGoogleProtobufDescriptors_FieldDescriptor *)descriptor;
 
 - (id)getFieldWithComGoogleProtobufDescriptors_FieldDescriptor:

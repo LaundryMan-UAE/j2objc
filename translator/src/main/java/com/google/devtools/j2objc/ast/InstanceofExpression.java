@@ -14,37 +14,24 @@
 
 package com.google.devtools.j2objc.ast;
 
-import com.google.devtools.j2objc.types.Types;
-
-import org.eclipse.jdt.core.dom.ITypeBinding;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Instanceof expression node type.
  */
 public class InstanceofExpression extends Expression {
 
-  private final ITypeBinding typeBinding;
+  private TypeMirror typeMirror;
   private ChildLink<Expression> leftOperand = ChildLink.create(Expression.class, this);
   private ChildLink<Type> rightOperand = ChildLink.create(Type.class, this);
 
-  public InstanceofExpression(org.eclipse.jdt.core.dom.InstanceofExpression jdtNode) {
-    super(jdtNode);
-    typeBinding = jdtNode.resolveTypeBinding();
-    leftOperand.set((Expression) TreeConverter.convert(jdtNode.getLeftOperand()));
-    rightOperand.set((Type) TreeConverter.convert(jdtNode.getRightOperand()));
-  }
+  public InstanceofExpression() {}
 
   public InstanceofExpression(InstanceofExpression other) {
     super(other);
-    typeBinding = other.getTypeBinding();
+    typeMirror = other.getTypeMirror();
     leftOperand.copyFrom(other.getLeftOperand());
     rightOperand.copyFrom(other.getRightOperand());
-  }
-
-  public InstanceofExpression(Expression lhs, ITypeBinding rhsType, Types typeEnv) {
-    typeBinding = typeEnv.resolveJavaType("boolean");
-    leftOperand.set(lhs);
-    rightOperand.set(Type.newType(rhsType));
   }
 
   @Override
@@ -53,16 +40,31 @@ public class InstanceofExpression extends Expression {
   }
 
   @Override
-  public ITypeBinding getTypeBinding() {
-    return typeBinding;
+  public TypeMirror getTypeMirror() {
+    return typeMirror;
+  }
+
+  public InstanceofExpression setTypeMirror(TypeMirror type) {
+    typeMirror = type;
+    return this;
   }
 
   public Expression getLeftOperand() {
     return leftOperand.get();
   }
 
+  public InstanceofExpression setLeftOperand(Expression operand) {
+    leftOperand.set(operand);
+    return this;
+  }
+
   public Type getRightOperand() {
     return rightOperand.get();
+  }
+
+  public InstanceofExpression setRightOperand(Type operand) {
+    rightOperand.set(operand);
+    return this;
   }
 
   @Override

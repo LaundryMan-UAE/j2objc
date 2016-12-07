@@ -17,7 +17,10 @@
 package com.google.devtools.j2objc.types;
 
 import com.google.common.base.Preconditions;
-
+import com.google.devtools.j2objc.jdt.BindingConverter;
+import com.google.devtools.j2objc.jdt.JdtMethodBinding;
+import com.google.devtools.j2objc.jdt.JdtTypeBinding;
+import com.google.devtools.j2objc.jdt.JdtVariableBinding;
 import org.eclipse.jdt.core.dom.IBinding;
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
@@ -25,35 +28,46 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 
 import javax.annotation.Nullable;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Binding class for variables and parameters created during translation.
  *
  * @author Tom Ball
  */
-public class GeneratedVariableBinding extends AbstractBinding implements IVariableBinding {
+public class GeneratedVariableBinding extends JdtVariableBinding {
   private final String name;
   private final int modifiers;
-  private final ITypeBinding type;
-  private ITypeBinding declaringClass;
-  private IMethodBinding declaringMethod;  // optional
+  private final JdtTypeBinding type;
+  private JdtTypeBinding declaringClass;
+  private JdtMethodBinding declaringMethod;  // optional
   private final boolean isParameter;
   private final boolean isField;
   private String typeQualifiers;
+  private boolean nonnull = false;
 
   public static final String PLACEHOLDER_NAME = "<placeholder-variable>";
 
   public GeneratedVariableBinding(String name, int modifiers, ITypeBinding type,
       boolean isField, boolean isParameter, @Nullable ITypeBinding declaringClass,
       @Nullable IMethodBinding declaringMethod) {
+    super(null);
     Preconditions.checkNotNull(name);
     this.name = name;
     this.modifiers = modifiers;
-    this.type = type;
+    this.type = BindingConverter.wrapBinding(type);
     this.isParameter = isParameter;
-    this.declaringClass = declaringClass;
-    this.declaringMethod = declaringMethod;
+    this.declaringClass = BindingConverter.wrapBinding(declaringClass);
+    this.declaringMethod = BindingConverter.wrapBinding(declaringMethod);
     this.isField = isField;
+  }
+
+  public GeneratedVariableBinding(String name, int modifiers, TypeMirror type,
+      boolean isField, boolean isParameter, @Nullable TypeMirror declaringClass,
+      @Nullable IMethodBinding declaringMethod) {
+    this(name, modifiers, BindingConverter.unwrapTypeMirrorIntoTypeBinding(type), isField,
+        isParameter, BindingConverter.unwrapTypeMirrorIntoTypeBinding(declaringClass),
+        declaringMethod);
   }
 
   /**
@@ -66,7 +80,8 @@ public class GeneratedVariableBinding extends AbstractBinding implements IVariab
   }
 
   public static GeneratedVariableBinding newPlaceholder() {
-    return new GeneratedVariableBinding(PLACEHOLDER_NAME, 0, null, false, false, null, null);
+    return new GeneratedVariableBinding(PLACEHOLDER_NAME, 0, (TypeMirror) null,
+        false, false, null, null);
   }
 
   public static boolean isPlaceholder(IVariableBinding var) {
@@ -129,16 +144,16 @@ public class GeneratedVariableBinding extends AbstractBinding implements IVariab
   }
 
   @Override
-  public ITypeBinding getDeclaringClass() {
+  public JdtTypeBinding getDeclaringClass() {
     return declaringClass;
   }
 
   public void setDeclaringClass(ITypeBinding newBinding) {
-    declaringClass = newBinding;
+    declaringClass = BindingConverter.wrapBinding(newBinding);
   }
 
   @Override
-  public ITypeBinding getType() {
+  public JdtTypeBinding getType() {
     return type;
   }
 
@@ -153,58 +168,13 @@ public class GeneratedVariableBinding extends AbstractBinding implements IVariab
   }
 
   @Override
-  public IMethodBinding getDeclaringMethod() {
+  public JdtMethodBinding getDeclaringMethod() {
     return declaringMethod;
   }
 
   @Override
-  public IVariableBinding getVariableDeclaration() {
+  public JdtVariableBinding getVariableDeclaration() {
     return this;
-  }
-
-  @Override
-  public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((declaringClass == null) ? 0 : declaringClass.hashCode());
-    result = prime * result + ((declaringMethod == null)
-        ? 0 : declaringMethod.getName().hashCode());
-    result = prime * result + (isParameter ? 1231 : 1237);
-    result = prime * result + modifiers;
-    result = prime * result + ((name == null) ? 0 : name.hashCode());
-    return prime * result + ((type == null) ? 0 : type.hashCode());
-  }
-
-  @Override
-  public boolean equals(Object obj) {
-    if (this == obj) {
-      return true;
-    }
-    if (!(obj instanceof GeneratedVariableBinding)) {
-      return false;
-    }
-    GeneratedVariableBinding other = (GeneratedVariableBinding) obj;
-    if (!name.equals(other.name)
-        || modifiers != other.modifiers
-        || isParameter != other.isParameter
-        || !type.equals(other.type)) {
-      return false;
-    }
-    if (declaringClass == null) {
-      if (other.declaringClass != null) {
-        return false;
-      }
-    } else if (!declaringClass.equals(other.declaringClass)) {
-      return false;
-    }
-    if (declaringMethod == null) {
-      if (other.declaringMethod != null) {
-        return false;
-      }
-    } else if (!declaringMethod.toString().equals(other.declaringMethod.toString())) {
-      return false;
-    }
-    return true;
   }
 
   @Override
@@ -217,7 +187,17 @@ public class GeneratedVariableBinding extends AbstractBinding implements IVariab
     return sb.toString();
   }
 
+  @Override
   public boolean isEffectivelyFinal() {
     return false;
+  }
+
+  public boolean isNonnull() {
+    return nonnull;
+  }
+
+  public GeneratedVariableBinding setNonnull(boolean value) {
+    nonnull = value;
+    return this;
   }
 }

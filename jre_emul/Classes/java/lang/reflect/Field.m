@@ -21,8 +21,9 @@
 
 #import "java/lang/reflect/Field.h"
 
+#import "IOSClass.h"
+#import "IOSReflection.h"
 #import "J2ObjC_source.h"
-#import "JavaMetadata.h"
 #import "java/lang/AssertionError.h"
 #import "java/lang/ClassLoader.h"
 #import "java/lang/IllegalAccessException.h"
@@ -40,118 +41,128 @@
 
 - (instancetype)initWithIvar:(Ivar)ivar
                    withClass:(IOSClass *)aClass
-                withMetadata:(JavaFieldMetadata *)metadata {
+                withMetadata:(const J2ObjcFieldInfo *)metadata {
   if ((self = [super init])) {
     ivar_ = ivar;
     declaringClass_ = aClass;
-    metadata_ = RETAIN_(metadata);
+    metadata_ = metadata;
+    ptrTable_ = IOSClass_GetMetadataOrFail(aClass)->ptrTable;
   }
   return self;
 }
 
 + (instancetype)fieldWithIvar:(Ivar)ivar
                     withClass:(IOSClass *)aClass
-                 withMetadata:(JavaFieldMetadata *)metadata {
-  JavaLangReflectField *field =
-      [[JavaLangReflectField alloc] initWithIvar:ivar withClass:aClass withMetadata:metadata];
-#if ! __has_feature(objc_arc)
-  [field autorelease];
-#endif
-  return field;
+                 withMetadata:(const J2ObjcFieldInfo *)metadata {
+  return [[[JavaLangReflectField alloc] initWithIvar:ivar
+                                           withClass:aClass
+                                        withMetadata:metadata] autorelease];
 }
 
 - (NSString *)getName {
-  return [self propertyName];
+  const char *javaName = JrePtrAtIndex(ptrTable_, metadata_->javaNameIdx);
+  if (javaName) {
+    return [NSString stringWithUTF8String:javaName];
+  } else if (IsStatic(self)) {
+    return [NSString stringWithUTF8String:metadata_->name];
+  } else {
+    // Remove the trailing "_" from instance fields.
+    return [[[NSString alloc] initWithBytes:metadata_->name
+                                     length:strlen(metadata_->name) - 1
+                                   encoding:NSUTF8StringEncoding] autorelease];
+  }
 }
 
 - (NSString *)description {
-  NSString *mods =
-      metadata_ ? JavaLangReflectModifier_toStringWithInt_([metadata_ modifiers]) : @"";
+  NSString *mods = JavaLangReflectModifier_toStringWithInt_(metadata_->modifiers);
   if ([mods length] > 0) {
     return [NSString stringWithFormat:@"%@ %@ %@.%@", mods, [self getType],
-            [[self getDeclaringClass] getName], [self propertyName]];
+            [[self getDeclaringClass] getName], [self getName]];
   }
   return [NSString stringWithFormat:@"%@ %@.%@", [self getType], [[self getDeclaringClass] getName],
-          [self propertyName]];
+          [self getName]];
 }
 
 static jboolean IsStatic(JavaLangReflectField *field) {
-  return ([field->metadata_ modifiers] & JavaLangReflectModifier_STATIC) > 0;
+  return (field->metadata_->modifiers & JavaLangReflectModifier_STATIC) > 0;
 }
 
 static jboolean IsFinal(JavaLangReflectField *field) {
-  return ([field->metadata_ modifiers] & JavaLangReflectModifier_FINAL) > 0;
+  return (field->metadata_->modifiers & JavaLangReflectModifier_FINAL) > 0;
+}
+
+static IOSClass *GetErasedFieldType(JavaLangReflectField *field) {
+  return JreClassForString(field->metadata_->type);
 }
 
 static void ReadRawValue(
     J2ObjcRawValue *rawValue, JavaLangReflectField *field, id object, IOSClass *toType) {
-  IOSClass *type = TypeToClass([field->metadata_ type]);
+  IOSClass *type = GetErasedFieldType(field);
   if (!type) {
     // Reflection stripped, assume the caller knows the correct type.
     type = toType;
   }
   if (IsStatic(field)) {
-    const void *addr = [field->metadata_ staticRef];
+    const void *addr = JrePtrAtIndex(field->ptrTable_, field->metadata_->staticRefIdx);
     if (addr) {
       [type __readRawValue:rawValue fromAddress:addr];
     } else {
-      *rawValue = *[field->metadata_ getConstantValue];
+      *rawValue = field->metadata_->constantValue;
     }
   } else {
     nil_chk(object);
-    if (field->ivar_ == NULL) {
+    if (![field->declaringClass_ isInstance:object]) {
+      @throw create_JavaLangIllegalArgumentException_initWithNSString_(@"field type mismatch");
+    }
+    if (field->ivar_) {
+      [type __readRawValue:rawValue fromAddress:((char *)object) + ivar_getOffset(field->ivar_)];
+    } else {
       // May be a mapped class "virtual" field, call equivalent accessor method if it exists.
       SEL getter = NSSelectorFromString([NSString stringWithFormat:@"__%@", [field getName]]);
       if (getter && [object respondsToSelector:getter]) {
         rawValue->asId = [object performSelector:getter];
+      } else {
+        // It's a final instance field, return its constant value.
+        *rawValue = field->metadata_->constantValue;
       }
-    } else {
-      if (![field->declaringClass_ isInstance:object]) {
-        @throw AUTORELEASE([[JavaLangIllegalArgumentException alloc]
-                            initWithNSString:@"field type mismatch"]);
-      }
-      [type __readRawValue:rawValue fromAddress:((char *)object) + ivar_getOffset(field->ivar_)];
     }
   }
   if (![type __convertRawValue:rawValue toType:toType]) {
-    @throw AUTORELEASE([[JavaLangIllegalArgumentException alloc]
-                        initWithNSString:@"field type mismatch"]);
+    @throw create_JavaLangIllegalArgumentException_initWithNSString_(@"field type mismatch");
   }
 }
 
 static void SetWithRawValue(
     J2ObjcRawValue *rawValue, JavaLangReflectField *field, id object, IOSClass *fromType) {
-  IOSClass *type = TypeToClass([field->metadata_ type]);
+  IOSClass *type = GetErasedFieldType(field);
   if (!type) {
     // Reflection stripped, assume the caller knows the correct type.
     type = fromType;
   }
   if (![fromType __convertRawValue:rawValue toType:type]) {
-    @throw AUTORELEASE([[JavaLangIllegalArgumentException alloc] initWithNSString:
-        @"field type mismatch"]);
+    @throw create_JavaLangIllegalArgumentException_initWithNSString_(@"field type mismatch");
   }
   if (IsStatic(field)) {
     if (IsFinal(field) && !field->accessible_) {
-      @throw AUTORELEASE([[JavaLangIllegalAccessException alloc] initWithNSString:
-          @"Cannot set static final field"]);
+      @throw create_JavaLangIllegalAccessException_initWithNSString_(
+          @"Cannot set static final field");
     }
-    const void *addr = [field->metadata_ staticRef];
-    [type __writeRawValue:rawValue toAddress:addr];
+    [type __writeRawValue:rawValue toAddress:field->ptrTable_[field->metadata_->staticRefIdx]];
   } else {
     nil_chk(object);
     if (IsFinal(field) && !field->accessible_) {
-      @throw AUTORELEASE([[JavaLangIllegalAccessException alloc] initWithNSString:
-                          @"Cannot set final field"]);
+      @throw create_JavaLangIllegalAccessException_initWithNSString_(@"Cannot set final field");
     }
-    if (field->ivar_ == NULL) {
+    if (field->ivar_) {
+      [type __writeRawValue:rawValue toAddress:((char *)object) + ivar_getOffset(field->ivar_)];
+    } else {
       // May be a mapped class "virtual" field, call equivalent accessor method if it exists.
       SEL setter = NSSelectorFromString([NSString stringWithFormat:@"__set%@:", [field getName]]);
       if (setter && [object respondsToSelector:setter]) {
         [object performSelector:setter withObject:rawValue->asId];
-        return;
       }
+      // else: It's a final instance field, return without any side effects.
     }
-    [type __writeRawValue:rawValue toAddress:((char *)object) + ivar_getOffset(field->ivar_)];
   }
 }
 
@@ -272,90 +283,48 @@ static void SetWithRawValue(
 
 
 - (IOSClass *)getType {
-  if (metadata_) {
-    return TypeToClass([metadata_ type]);
-  }
-  if (!ivar_) {
-    // Static field, use accessor method's return type.
-    NSAssert(metadata_ != nil, @"malformed field instance");
-    JavaLangReflectMethod *accessor = [declaringClass_ getMethod:[self getName]
-                                                  parameterTypes:nil];
-    nil_chk(accessor);
-    return [accessor getReturnType];
-  }
-  return decodeTypeEncoding(ivar_getTypeEncoding(ivar_));
+  return GetErasedFieldType(self);
 }
 
 - (id<JavaLangReflectType>)getGenericType {
-  id<JavaLangReflectType> result = [self getType];
-  if (metadata_) {
-    NSString *genericSignature = [metadata_ genericSignature];
-    if (!genericSignature) {
-      return result;
-    }
-    LibcoreReflectGenericSignatureParser *parser =
-        [[LibcoreReflectGenericSignatureParser alloc]
-         initWithJavaLangClassLoader:JavaLangClassLoader_getSystemClassLoader()];
-    [parser parseForFieldWithJavaLangReflectGenericDeclaration:declaringClass_
-                                                  withNSString:genericSignature];
-    if (parser->fieldType_) {
-      result = [[parser->fieldType_ retain] autorelease];
-    }
-    [parser release];
+  const char *genericSig = JrePtrAtIndex(ptrTable_, metadata_->genericSignatureIdx);
+  if (!genericSig) {
+    return [self getType];
   }
+  NSString *genericSignature = [NSString stringWithUTF8String:genericSig];
+  LibcoreReflectGenericSignatureParser *parser =
+      [[LibcoreReflectGenericSignatureParser alloc]
+       initWithJavaLangClassLoader:JavaLangClassLoader_getSystemClassLoader()];
+  [parser parseForFieldWithJavaLangReflectGenericDeclaration:declaringClass_
+                                                withNSString:genericSignature];
+  id<JavaLangReflectType> result = parser->fieldType_;
+  if (result) {
+    [[result retain] autorelease];
+  } else {
+    result = [self getType];
+  }
+  [parser release];
   return result;
 }
 
 - (int)getModifiers {
-  if (metadata_) {
-    return [metadata_ modifiers];
-  }
-  // All Objective-C fields and methods are public at runtime.
-  return JavaLangReflectModifier_PUBLIC;
+  return metadata_->modifiers;
 }
 
 - (IOSClass *)getDeclaringClass {
   return declaringClass_;
 }
 
-- (NSString *)propertyName {
-  NSString *name = metadata_ ?
-      [metadata_ name] : [NSString stringWithUTF8String:ivar_getName(ivar_)];
-  return [JavaLangReflectField propertyName:name];
-}
-
-+ (NSString *)propertyName:(NSString *)name {
-  NSUInteger lastCharIndex = [name length] - 1;
-  if ([name characterAtIndex:lastCharIndex] == '_') {
-    return [name substringToIndex:lastCharIndex];
-  }
-  return name;
-}
-
-+ (NSString *)variableName:(NSString *)name {
-  if ([name characterAtIndex:[name length] - 1] != '_') {
-    return [name stringByAppendingString:@"_"];
-  }
-  return name;
-}
-
 - (jboolean)isSynthetic {
-  if (metadata_) {
-    return ([metadata_ modifiers] & JavaLangReflectModifier_SYNTHETIC) > 0;
-  }
-  return false;
+  return (metadata_->modifiers & JavaLangReflectModifier_SYNTHETIC) > 0;
 }
 
 - (jboolean)isEnumConstant {
-  if (metadata_) {
-    return ([metadata_ modifiers] & JavaLangReflectModifier_ENUM) > 0;
-  }
-  return [declaringClass_ isEnum] && [[self getType] isEqual:declaringClass_];
+  return (metadata_->modifiers & JavaLangReflectModifier_ENUM) > 0;
 }
 
 - (NSString *)toGenericString {
-  NSString *mods =
-      metadata_ ? JavaLangReflectModifier_toStringWithInt_([metadata_ modifiers]) : @"";
+  NSString *mods = JavaLangReflectModifier_toStringWithInt_(metadata_->modifiers);
   if ([mods length] > 0) { // Separate test, since Modifer.toString() might return empty string.
     mods = [mods stringByAppendingString:@" "];
   }
@@ -363,18 +332,13 @@ static void SetWithRawValue(
   NSString *typeString = [type conformsToProtocol:@protocol(JavaLangReflectTypeVariable)] ?
       [(id<JavaLangReflectTypeVariable>) type getName] : [type description];
   return [NSString stringWithFormat:@"%@%@ %@.%@", mods, typeString,
-          [[self getDeclaringClass] getName], [self propertyName]];
+          [[self getDeclaringClass] getName], [self getName]];
 }
 
 - (IOSObjectArray *)getDeclaredAnnotations {
-  Class cls = declaringClass_.objcClass;
-  if (cls) {
-    NSString *annotationsMethodName =
-        [NSString stringWithFormat:@"__annotations_%@_", [self getName]];
-    Method annotationsMethod = JreFindClassMethod(cls, [annotationsMethodName UTF8String]);
-    if (annotationsMethod) {
-      return method_invoke(cls, annotationsMethod);
-    }
+  id (*annotations)() = JrePtrAtIndex(ptrTable_, metadata_->annotationsIdx);
+  if (annotations) {
+    return annotations();
   }
   return [IOSObjectArray arrayWithLength:0 type:JavaLangAnnotationAnnotation_class_()];
 }
@@ -389,75 +353,87 @@ static void SetWithRawValue(
     return NO;
   }
   JavaLangReflectField *other = (JavaLangReflectField *) anObject;
-  return declaringClass_ == other->declaringClass_ &&
-      [[self propertyName] isEqual:[other propertyName]];
+  return declaringClass_ == other->declaringClass_ && [[self getName] isEqual:[other getName]];
 }
 
 - (NSUInteger)hash {
-  return [[declaringClass_ getName] hash] ^ [[self propertyName] hash];
+  return [[declaringClass_ getName] hash] ^ [[self getName] hash];
 }
-
-#if ! __has_feature(objc_arc)
-- (void)dealloc {
-  [metadata_ release];
-  [super dealloc];
-}
-#endif
 
 + (const J2ObjcClassInfo *)__metadata {
-  static const J2ObjcMethodInfo methods[] = {
-    { "getName", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "getModifiers", NULL, "I", 0x1, NULL, NULL },
-    { "getType", NULL, "Ljava.lang.Class;", 0x1, NULL, "()Ljava/lang/Class<*>;" },
-    { "getGenericType", NULL, "Ljava.lang.reflect.Type;", 0x1, NULL, NULL },
-    { "getDeclaringClass", NULL, "Ljava.lang.Class;", 0x1, NULL, "()Ljava/lang/Class<*>;" },
-    { "getWithId:", "get", "Ljava.lang.Object;", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getBooleanWithId:", "getBoolean", "Z", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getByteWithId:", "getByte", "B", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getCharWithId:", "getChar", "C", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getDoubleWithId:", "getDouble", "D", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getFloatWithId:", "getFloat", "F", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getIntWithId:", "getInt", "I", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getLongWithId:", "getLong", "J", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getShortWithId:", "getShort", "S", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setWithId:withId:", "set", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setBooleanWithId:withBoolean:", "setBoolean", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setByteWithId:withByte:", "setByte", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setCharWithId:withChar:", "setChar", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setDoubleWithId:withDouble:", "setDouble", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setFloatWithId:withFloat:", "setFloat", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setIntWithId:withInt:", "setInt", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setLongWithId:withLong:", "setLong", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "setShortWithId:withShort:", "setShort", "V", 0x1,
-      "Ljava.lang.IllegalArgumentException;Ljava.lang.IllegalAccessException;", NULL },
-    { "getAnnotationWithIOSClass:", "getAnnotation", "TT;", 0x1, NULL,
-      "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" },
-    { "getDeclaredAnnotations", NULL, "[Ljava.lang.annotation.Annotation;", 0x1, NULL, NULL },
-    { "isSynthetic", NULL, "Z", 0x1, NULL, NULL },
-    { "isEnumConstant", NULL, "Z", 0x1, NULL, NULL },
-    { "toGenericString", NULL, "Ljava.lang.String;", 0x1, NULL, NULL },
-    { "init", NULL, NULL, 0x1, NULL, NULL },
+  static J2ObjcMethodInfo methods[] = {
+    { NULL, "LNSString;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "I", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LIOSClass;", 0x1, -1, -1, -1, 0, -1, -1 },
+    { NULL, "LJavaLangReflectType;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LIOSClass;", 0x1, -1, -1, -1, 0, -1, -1 },
+    { NULL, "LNSObject;", 0x1, 1, 2, 3, -1, -1, -1 },
+    { NULL, "Z", 0x1, 4, 2, 3, -1, -1, -1 },
+    { NULL, "B", 0x1, 5, 2, 3, -1, -1, -1 },
+    { NULL, "C", 0x1, 6, 2, 3, -1, -1, -1 },
+    { NULL, "D", 0x1, 7, 2, 3, -1, -1, -1 },
+    { NULL, "F", 0x1, 8, 2, 3, -1, -1, -1 },
+    { NULL, "I", 0x1, 9, 2, 3, -1, -1, -1 },
+    { NULL, "J", 0x1, 10, 2, 3, -1, -1, -1 },
+    { NULL, "S", 0x1, 11, 2, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 12, 13, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 14, 15, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 16, 17, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 18, 19, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 20, 21, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 22, 23, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 24, 25, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 26, 27, 3, -1, -1, -1 },
+    { NULL, "V", 0x1, 28, 29, 3, -1, -1, -1 },
+    { NULL, "LJavaLangAnnotationAnnotation;", 0x1, 30, 31, -1, 32, -1, -1 },
+    { NULL, "[LJavaLangAnnotationAnnotation;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "Z", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, "LNSString;", 0x1, -1, -1, -1, -1, -1, -1 },
+    { NULL, NULL, 0x1, -1, -1, -1, -1, -1, -1 },
   };
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wobjc-multiple-method-names"
+  methods[0].selector = @selector(getName);
+  methods[1].selector = @selector(getModifiers);
+  methods[2].selector = @selector(getType);
+  methods[3].selector = @selector(getGenericType);
+  methods[4].selector = @selector(getDeclaringClass);
+  methods[5].selector = @selector(getWithId:);
+  methods[6].selector = @selector(getBooleanWithId:);
+  methods[7].selector = @selector(getByteWithId:);
+  methods[8].selector = @selector(getCharWithId:);
+  methods[9].selector = @selector(getDoubleWithId:);
+  methods[10].selector = @selector(getFloatWithId:);
+  methods[11].selector = @selector(getIntWithId:);
+  methods[12].selector = @selector(getLongWithId:);
+  methods[13].selector = @selector(getShortWithId:);
+  methods[14].selector = @selector(setWithId:withId:);
+  methods[15].selector = @selector(setBooleanWithId:withBoolean:);
+  methods[16].selector = @selector(setByteWithId:withByte:);
+  methods[17].selector = @selector(setCharWithId:withChar:);
+  methods[18].selector = @selector(setDoubleWithId:withDouble:);
+  methods[19].selector = @selector(setFloatWithId:withFloat:);
+  methods[20].selector = @selector(setIntWithId:withInt:);
+  methods[21].selector = @selector(setLongWithId:withLong:);
+  methods[22].selector = @selector(setShortWithId:withShort:);
+  methods[23].selector = @selector(getAnnotationWithIOSClass:);
+  methods[24].selector = @selector(getDeclaredAnnotations);
+  methods[25].selector = @selector(isSynthetic);
+  methods[26].selector = @selector(isEnumConstant);
+  methods[27].selector = @selector(toGenericString);
+  methods[28].selector = @selector(init);
+  #pragma clang diagnostic pop
+  static const void *ptrTable[] = {
+    "()Ljava/lang/Class<*>;", "get", "LNSObject;",
+    "LJavaLangIllegalArgumentException;LJavaLangIllegalAccessException;", "getBoolean", "getByte",
+    "getChar", "getDouble", "getFloat", "getInt", "getLong", "getShort", "set",
+    "LNSObject;LNSObject;", "setBoolean", "LNSObject;Z", "setByte", "LNSObject;B", "setChar",
+    "LNSObject;C", "setDouble", "LNSObject;D", "setFloat", "LNSObject;F", "setInt", "LNSObject;I",
+    "setLong", "LNSObject;J", "setShort", "LNSObject;S", "getAnnotation", "LIOSClass;",
+    "<T::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TT;>;)TT;" };
   static const J2ObjcClassInfo _JavaLangReflectField = {
-    2, "Field", "java.lang.reflect", NULL, 0x1, 29, methods, 0, NULL, 0, NULL, 0, NULL, NULL, NULL
-  };
+    "Field", "java.lang.reflect", ptrTable, methods, NULL, 7, 0x1, 29, 0, -1, -1, -1, -1, -1 };
   return &_JavaLangReflectField;
 }
 
