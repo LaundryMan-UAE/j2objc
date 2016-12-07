@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "J2ObjC"
-  s.version      = "1.0.1"
+  s.version      = "1.2"
   s.license      = { :type => 'Apache License, Version 2.0', :file => 'LICENSE' }
   s.summary      = "J2ObjC's JRE emulation library, emulates a subset of the Java runtime library."
   s.homepage     = "https://github.com/google/j2objc"
@@ -15,7 +15,7 @@ Pod::Spec.new do |s|
   # Top level attributes can't be specified by subspecs.
   s.header_mappings_dir = 'dist/include'
   s.prepare_command = <<-CMD
-    scripts/download_distribution.sh
+    scripts/build_distribution.sh
   CMD
 
   s.subspec 'lib' do |lib|
