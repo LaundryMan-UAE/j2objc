@@ -1,0 +1,91 @@
+apply from: './common_methods.gradle'
+
+buildscript {
+    repositories {
+        jcenter()
+        mavenCentral()
+        maven {
+            credentials {
+                username LAUNDRAPP_BB_USERNAME
+                password LAUNDRAPP_BB_PASSWORD
+            }
+            authentication {
+                basic(BasicAuthentication)
+            }
+            url LAUNDRAPP_BB_DISTRIBUTION
+        }
+        maven {
+            credentials {
+                username LAUNDRAPP_BB_USERNAME
+                password LAUNDRAPP_BB_PASSWORD
+            }
+            authentication {
+                basic(BasicAuthentication)
+            }
+            url LAUNDRAPP_BB_MAVEN
+        }
+
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:2.3.1'
+    }
+}
+
+
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'maven'
+
+    repositories {
+
+        maven {
+            credentials {
+                username LAUNDRAPP_BB_USERNAME
+                password LAUNDRAPP_BB_PASSWORD
+            }
+            authentication {
+                basic(BasicAuthentication)
+            }
+            url LAUNDRAPP_BB_DISTRIBUTION
+        }
+        maven {
+            credentials {
+                username LAUNDRAPP_BB_USERNAME
+                password LAUNDRAPP_BB_PASSWORD
+            }
+            authentication {
+                basic(BasicAuthentication)
+            }
+            url = LAUNDRAPP_BB_MAVEN
+        }
+        maven { url 'https://maven.google.com' }
+    }
+
+    tasks.withType(JavaCompile) {
+        options.encoding = "UTF-8"
+    }
+}
+
+task sourcesJar(type: Jar, dependsOn:classes) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+artifacts {
+    archives sourcesJar
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java']
+        }
+    }
+}
+
+compileJava {
+    sourceCompatibility=JavaVersion.VERSION_1_7
+    targetCompatibility=JavaVersion.VERSION_1_7
+}
+
+apply from: './deploy.gradle'

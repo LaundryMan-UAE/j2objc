@@ -1,0 +1,70 @@
+apply plugin: 'maven'
+
+if(project.hasProperty("version")) {
+
+    final String version = project.getProperty("version")
+
+
+    final String artifactGroupId = 'com.laundrapp'
+    final String artifactId = 'json'
+    final String repoSsh = 'git@bitbucket.org:laundrapp/maven.git'
+
+    final String pomName = 'json'
+    final String pomPackaging = 'jar'
+    final String pomDescription = 'J2OBJC json version'
+
+    task report {
+        doLast {
+            println '*** Maven Deployment Check'
+            println '\tGradle Dependency: \t' + artifactGroupId + ":" + artifactId + ":" + version
+            println '\tArtifact Group ID: \t' + artifactGroupId
+            println '\tArtifact ID: \t\t' + artifactId
+            println '\tVersion: \t\t' + version
+            println '\tRepo: \t\t\t' + repoSsh
+            println '\tPom Name: \t\t' + pomName
+            println '\tPom Packaging: \t\t' + pomPackaging
+            println '\tPom Description: \t' + pomDescription
+            println '\tUse Maven: \t\t' + LAUNDRAPP_USE_MAVEN.toBoolean()
+            println '*** End Deployment Report'
+        }
+    }
+
+    configurations {
+        deployerJar
+    }
+
+    repositories {
+        mavenCentral()
+        maven { url "https://raw.github.com/synergian/wagon-git/releases" }
+    }
+
+    dependencies {
+        deployerJar "ar.com.synergian:wagon-git:0.2.5"
+    }
+
+
+    uploadArchives {
+
+        configuration = configurations.archives
+        repositories.mavenDeployer {
+
+            pom.groupId = artifactGroupId
+            pom.artifactId = artifactId
+            pom.version = version
+            configuration = configurations.deployerJar
+            repository(url: "git:releases://" + repoSsh)
+            snapshotRepository(url: "git:snapshots://" + repoSsh)
+            pom.project {
+                name = pomName
+                packaging = pomPackaging
+                description = pomDescription
+            }
+        }
+    }
+} else if(gradle.startParameter.taskNames.contains(':json:uploadArchives')){
+
+    String usageMessage = "\n\nUsage: ./gradlew :json:uploadArchives -Pversion=<version>\n"
+    usageMessage += "\tversion - is the version of the json that will be deployed to maven\n"
+
+    throw new GradleException(usageMessage)
+}

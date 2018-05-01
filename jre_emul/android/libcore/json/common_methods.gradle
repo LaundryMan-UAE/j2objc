@@ -1,0 +1,72 @@
+def execGitHashShort() {
+    return cleanString('git rev-parse --short HEAD'.execute().text)
+}
+
+def execGitHash() {
+    return cleanString('git rev-parse HEAD'.execute().text)
+}
+
+def execGitBranch() {
+    return cleanString('git show -s --pretty=%d HEAD'.execute().text)
+}
+
+def execGitBranchShort() {
+    return cleanString('git rev-parse --abbrev-ref HEAD'.execute().text)
+}
+
+def execGitUncleanedBranchShort() {
+    return 'git rev-parse --abbrev-ref HEAD'.execute().text
+}
+
+
+def execGitTagAndPush(String tag) {
+    String branchName = this.execGitUncleanedBranchShort().trim()
+
+    if(!branchName.equals('master') && !branchName.startsWith('release/')) {
+        throw new GradleException("You are trying to tag a branch (" + branchName + ") that is not master or a release branch")
+    }
+
+    ('git tag ' + tag + ' ' + branchName).execute()
+    ('git push origin ' + tag).execute()
+
+}
+
+def execGitTag() {
+    return cleanString('git describe --abbrev=0 --tags'.execute().text)
+}
+
+def execGitCommitDate() {
+    final String cmd = "git show -s --format=%ci " + this.execGitHash();
+    return cleanString(cmd.execute().text)
+}
+
+def cleanString(final String text) {
+    return text.trim().replaceAll('/', '').replaceAll('-', '');
+}
+
+def quoteString(final String str) {
+    final String quote = "\"";
+
+    if (str.length() > 0) {
+        if (str.startsWith(quote) && str.endsWith(quote)) {
+            return str;
+        } else {
+            return quote + str + quote;
+        }
+    } else {
+        return quote + quote;
+    }
+}
+
+ext {
+    execGitHashShort = this.&execGitHashShort
+    execGitHash = this.&execGitHash
+    execGitBranch = this.&execGitBranch
+    execGitBranchShort = this.&execGitBranchShort
+    execGitUncleanedBranchShort = this.&execGitUncleanedBranchShort
+    execGitCommitDate = this.&execGitCommitDate
+    execGitTag = this.&execGitTag
+    getLibVersions = this.&getLibVersions
+    quoteString = this.&quoteString
+    execGitTagAndPush = this.&execGitTagAndPush
+}
