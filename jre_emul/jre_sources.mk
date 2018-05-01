@@ -412,6 +412,8 @@ JAVA_PUBLIC_SOURCES_CORE = \
   java/util/concurrent/CopyOnWriteArrayList.java \
   java/util/concurrent/CountDownLatch.java \
   java/util/concurrent/CountedCompleter.java \
+  java/util/concurrent/CompletionException.java \
+  java/util/concurrent/CompletionStage.java \
   java/util/concurrent/Delayed.java \
   java/util/concurrent/ExecutionException.java \
   java/util/concurrent/ExecutorCompletionService.java \
@@ -848,6 +850,7 @@ JAVA_PUBLIC_SOURCES_CONCURRENT = \
   java/util/concurrent/BrokenBarrierException.java \
   java/util/concurrent/Callable.java \
   java/util/concurrent/CompletionService.java \
+  java/util/concurrent/CompletableFuture.java \
   java/util/concurrent/ConcurrentLinkedDeque.java \
   java/util/concurrent/ConcurrentLinkedQueue.java \
   java/util/concurrent/ConcurrentMap.java \
