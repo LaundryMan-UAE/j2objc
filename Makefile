@@ -58,6 +58,8 @@ frameworks: dist
 	@cd jsr305 && $(MAKE) framework
 	@cd inject/javax_inject && $(MAKE) framework
 	@cd guava && $(MAKE) framework
+	@cd joda_convert && $(MAKE) framework
+	@cd joda_time && $(MAKE) framework
 	@cd testing/mockito && $(MAKE) framework
 	@cd xalan && $(MAKE) framework
 
@@ -65,7 +67,7 @@ all_frameworks: frameworks protobuf_dist
 	@cd protobuf/runtime && $(MAKE) framework
 
 dist: print_environment translator_dist jre_emul_dist junit_dist jsr305_dist \
-  javax_inject_dist guava_dist mockito_dist cycle_finder_dist \
+  javax_inject_dist guava_dist joda_convert_dist joda_time_dist mockito_dist cycle_finder_dist \
   xalan_dist install-man-pages install-extras
 
 protobuf_dist: protobuf_compiler_dist protobuf_runtime_dist
@@ -83,6 +85,8 @@ clean:
 	@cd jsr305 && $(MAKE) clean
 	@cd inject/javax_inject && $(MAKE) clean
 	@cd guava && $(MAKE) clean
+	@cd joda_convert && $(MAKE) clean
+	@cd joda_time && $(MAKE) clean
 	@cd testing/mockito && $(MAKE) clean
 	@cd cycle_finder && $(MAKE) clean
 	@cd protobuf/runtime && $(MAKE) clean
