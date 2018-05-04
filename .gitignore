@@ -19,3 +19,5 @@ dist/
 # IntelliJ IDEA Files
 *.iml
 .idea
+/j2objc-2.1.1.LA.zip
+/j2objc-2.1.1.LA
