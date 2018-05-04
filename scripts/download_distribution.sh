@@ -23,6 +23,6 @@ exit
 fi
 
 echo "fetching j2objc"
-curl -OL -u marcus@laundrapp.com:buck1ngh4m  https://bitbucket.org/laundrapp/maven/raw/releases/downloads/j2objc-${j2objc_version}.zip
+curl --no-alpn --max-time 900 -OL -u marcus@laundrapp.com:buck1ngh4m  https://bitbucket.org/laundrapp/maven/raw/releases/downloads/j2objc-${j2objc_version}.zip
 unzip -o -q j2objc-${j2objc_version}.zip
 mv j2objc-${j2objc_version} dist
