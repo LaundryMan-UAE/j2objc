@@ -55,12 +55,12 @@ if [ ${ERR} -ne 0 ]; then
   exit ${ERR}
 fi
 
-echo "make test_all"
-$ENV_CMD make -j8 test_all
-ERR=$?
-if [ ${ERR} -ne 0 ]; then
-  exit ${ERR}
-fi
+#echo "make test_all"
+#$ENV_CMD make -j8 test_all
+#ERR=$?
+#if [ ${ERR} -ne 0 ]; then
+#  exit ${ERR}
+#fi
 
 mv dist ${DISTRIBUTION_NAME}
 zip -ry ${DISTRIBUTION_NAME}.zip ${DISTRIBUTION_NAME}
