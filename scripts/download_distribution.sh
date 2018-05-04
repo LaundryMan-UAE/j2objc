@@ -15,7 +15,7 @@ set -ev
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-j2objc_version=2.1.1
+j2objc_version=2.1.1.LA
 
 
 if [[ -d dist ]]; then
@@ -23,6 +23,6 @@ exit
 fi
 
 echo "fetching j2objc"
-curl -OL https://github.com/google/j2objc/releases/download/${j2objc_version}/j2objc-${j2objc_version}.zip
+curl -OL -u marcus@laundrapp.com:buck1ngh4m  https://bitbucket.org/laundrapp/maven/raw/releases/downloads/j2objc-${j2objc_version}.zip
 unzip -o -q j2objc-${j2objc_version}.zip
 mv j2objc-${j2objc_version} dist
