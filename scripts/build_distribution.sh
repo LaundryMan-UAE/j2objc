@@ -63,4 +63,14 @@ fi
 #fi
 
 mv dist ${DISTRIBUTION_NAME}
+cd ${DISTRIBUTION_NAME}
+rm -rf examples
+rm -rf frameworks
+rm -rf lib/appletvos/
+rm -rf lib/watchos/
+rm -rf lib/macosx/
+rm lib/*.jar
+
+cd ..
+
 zip -ry ${DISTRIBUTION_NAME}.zip ${DISTRIBUTION_NAME}
