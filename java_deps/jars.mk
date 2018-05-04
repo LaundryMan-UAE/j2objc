@@ -35,9 +35,6 @@ PROTOBUF_JAR = protobuf-java-3.3.0.jar
 GUAVA_JAR = guava-19.0.jar
 GUAVA_SOURCE_JAR = guava-19.0-sources.jar
 
-JODA_CONVERT_JAR=joda-convert-1.7.jar
-JODA_TIME_JAR = joda-time-b9fe534c7f.jar
-
 JSR305_JAR = jsr305-3.0.0.jar
 JSR305_SOURCE_JAR = jsr305-3.0.0.jar
 
