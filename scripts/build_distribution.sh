@@ -28,6 +28,9 @@ if [ $# -ne 2 ]; then
 fi
 DISTRIBUTION_NAME=j2objc-$1
 
+FULL_DISTRIBUTION=j2objc-$1-full
+POD_DISTRIBUTION=j2objc-$1
+
 # Set j2objc flags used for public builds.
 TRANSLATE_GLOBAL_FLAGS="--doc-comments;--generate-deprecated;--swift-friendly"
 
@@ -46,7 +49,7 @@ if [ ${ERR} -ne 0 ]; then
 fi
 
 # Remove any previous distribution artifacts.
-rm -rf ${DISTRIBUTION_NAME} ${DISTRIBUTION_NAME}.zip
+rm -rf ${DISTRIBUTION_NAME} ${FULL_DISTRIBUTION_NAME}.zip ${POD_DISTRIBUTION}.zip ${CI_DISTRIBUTION}.zip
 
 echo "make all_dist"
 $ENV_CMD make -j8 all_dist
@@ -62,15 +65,31 @@ fi
 #  exit ${ERR}
 #fi
 
-mv dist ${DISTRIBUTION_NAME}
-cd ${DISTRIBUTION_NAME}
-rm -rf examples
-rm -rf frameworks
-rm -rf lib/appletvos/
-rm -rf lib/watchos/
-rm -rf lib/macosx/
-rm lib/*.jar
+cp -R dist ${DISTRIBUTION_NAME}
+zip -ry ${FULL_DISTRIBUTION}.zip ${DISTRIBUTION_NAME}
+
+rm -rf ${DISTRIBUTION_NAME}/examples
+rm -rf ${DISTRIBUTION_NAME}/frameworks
+rm -rf ${DISTRIBUTION_NAME}/lib/appletvos/
+rm -rf ${DISTRIBUTION_NAME}/lib/watchos/
+rm -rf ${DISTRIBUTION_NAME}/lib/macosx/
+
+zip -ry ${POD_DISTRIBUTION}.zip ${DISTRIBUTION_NAME}
+
+rm -rf ${DISTRIBUTION_NAME}
+
+git clone git@bitbucket.org:laundrapp/maven.git 
+
+cd maven
+
+git checkout releases
+
+mv ../${POD_DISTRIBUTION}.zip downloads
+
+git add .
+git commit -m "J2ObjC build script for version ${1}"
+git push
 
 cd ..
 
-zip -ry ${DISTRIBUTION_NAME}.zip ${DISTRIBUTION_NAME}
+rm -rf maven
