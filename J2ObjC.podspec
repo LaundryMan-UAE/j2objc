@@ -42,7 +42,7 @@ Pod::Spec.new do |s|
 
     lib.subspec 'junit' do |junit|
       junit.dependency 'J2ObjC/lib/jre'
-      junit.libraries = 'j2objc_main', 'junit', 'mockito'
+      junit.libraries = 'junit'
       junit.compiler_flags = '-Wno-nullability-completeness'
     end
 
