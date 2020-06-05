@@ -1,11 +1,11 @@
 Pod::Spec.new do |s|
   s.name         = "J2ObjC"
-  s.version      = "1.0.1"
+  s.version      = "2.6"
   s.license      = { :type => 'Apache License, Version 2.0', :file => 'LICENSE' }
   s.summary      = "J2ObjC's JRE emulation library, emulates a subset of the Java runtime library."
   s.homepage     = "https://github.com/google/j2objc"
   s.author       = "Google Inc."
-  s.source       = { :git => "git@github.com:hambroperks/j2objc.git", :tag => "v#{s.version}-lib" }
+  s.source       = { :git => "git@github.com:LAundryMan-UAE/j2objc.git", :tag => "v#{s.version}-lib" }
 
   s.ios.deployment_target = '5.0'
   s.osx.deployment_target = '10.7'
@@ -50,17 +50,5 @@ Pod::Spec.new do |s|
       guava.compiler_flags = '-Wno-nullability-completeness'
     end
 
-    lib.subspec 'joda_convert' do |joda_convert|
-      joda_convert.dependency 'J2ObjC/lib/jre'
-      joda_convert.libraries = 'joda_convert'
-      joda_convert.compiler_flags = '-Wno-nullability-completeness'
-    end
-
-    lib.subspec 'joda_time' do |joda_time|
-      joda_time.dependency 'J2ObjC/lib/joda_convert'
-      joda_time.libraries = 'joda_time'
-      joda_time.resources = 'lib/resources/joda_time/*'
-      joda_time.compiler_flags = '-Wno-nullability-completeness'
-    end
   end
 end
